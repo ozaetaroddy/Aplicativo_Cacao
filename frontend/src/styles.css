@@ -1,0 +1,30 @@
+:root {
+  --cacao-primary: #6B4226;
+  --cacao-secondary: #A67B5B;
+  --cacao-light: #F5EDE0;
+  --cacao-dark: #3E2A1A;
+  --cacao-gold: #D4A373;
+  --shadow: 0 8px 24px rgba(0,0,0,0.08);
+  --radius: 16px;
+  --transition: all 0.3s ease;
+}
+body { font-family: 'Nunito', sans-serif; background: #faf6f0; }
+.navbar-cacao { background: linear-gradient(135deg, #6B4226 0%, #8B5E3C 100%) !important; }
+.navbar-cacao .navbar-brand { color: #fff !important; font-weight: 800; }
+.navbar-cacao .nav-link { color: rgba(255,255,255,0.85) !important; font-weight: 600; border-radius: 30px; }
+.navbar-cacao .nav-link.active { background: #fff; color: var(--cacao-primary) !important; }
+.card-cacao { background: #fff; border: none; border-radius: var(--radius); box-shadow: var(--shadow); }
+.card-cacao .card-header { background: var(--cacao-light); border-bottom: 2px solid var(--cacao-gold); font-weight: 700; }
+.btn-cacao-primary { background: var(--cacao-primary); border-color: var(--cacao-primary); color: #fff; border-radius: 50px; }
+.btn-cacao-success { background: #2d6a4f; border-color: #1b4332; color: #fff; border-radius: 50px; }
+.btn-cacao-outline { background: transparent; border: 2px solid var(--cacao-primary); color: var(--cacao-primary); border-radius: 50px; }
+.total-box { background: #fff; padding: 20px; border-radius: var(--radius); box-shadow: var(--shadow); text-align: center; }
+.total-box .number { font-size: 2.2rem; font-weight: 800; color: var(--cacao-primary); }
+.section-title { font-weight: 800; color: var(--cacao-dark); border-left: 6px solid var(--cacao-gold); padding-left: 18px; }
+.footer-cacao { background: linear-gradient(135deg, #3E2A1A 0%, #5A3E28 100%); color: #f0e4d8; padding: 30px 0 20px; margin-top: 40px; border-top: 4px solid var(--cacao-gold); }
+.footer-cacao .footer-content { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+.footer-cacao .footer-brand { font-size: 1.3rem; font-weight: 700; color: #f5d6a3; }
+.footer-cacao .footer-contact { font-size: 0.95rem; line-height: 1.8; }
+.footer-cacao .footer-contact i { color: var(--cacao-gold); width: 24px; }
+.footer-cacao .footer-copy { text-align: center; font-size: 0.85rem; opacity: 0.8; margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; width: 100%; }
+@media (max-width: 768px) { .footer-cacao .footer-content { flex-direction: column; text-align: center; } }
