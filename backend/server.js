@@ -1,86 +1,61 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
+
+// Importar rutas
+const productosRoutes = require('./routes/productos');
+const categoriasRoutes = require('./routes/categorias');
+const clientesRoutes = require('./routes/clientes');
+const proveedoresRoutes = require('./routes/proveedores');
+const comprasRoutes = require('./routes/compras');
+const ventasRoutes = require('./routes/ventas');
+const kardexRoutes = require('./routes/kardex');
+const reportesRoutes = require('./routes/reportes');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
+// Conexión a MongoDB
+const uri = process.env.MONGODB_URI;
+const dbName = process.env.DB_NAME;
 let db;
 
-async function connectDB() {
-  try {
-    const client = new MongoClient(process.env.MONGODB_URI);
-    await client.connect();
-    db = client.db(process.env.DB_NAME);
-    console.log('✅ Conectado a MongoDB Atlas');
-  } catch (error) {
-    console.error('❌ Error al conectar a MongoDB:', error);
+MongoClient.connect(uri)
+  .then(client => {
+    db = client.db(dbName);
+    console.log('✅ Conectado a MongoDB');
+  })
+  .catch(err => {
+    console.error('❌ Error conectando a MongoDB:', err);
     process.exit(1);
-  }
-}
+  });
 
-// ========== ENDPOINTS ==========
-
-// Obtener todos los documentos de una colección
-app.get('/api/:coleccion', async (req, res) => {
-  try {
-    const coleccion = req.params.coleccion;
-    if (!['compras', 'ventas'].includes(coleccion)) {
-      return res.status(400).json({ error: 'Colección no válida' });
-    }
-    const data = await db.collection(coleccion).find({}).toArray();
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Middleware para inyectar db en las rutas
+app.use((req, res, next) => {
+  req.db = db;
+  next();
 });
 
-// Insertar un documento en una colección
-app.post('/api/:coleccion', async (req, res) => {
-  try {
-    const coleccion = req.params.coleccion;
-    if (!['compras', 'ventas'].includes(coleccion)) {
-      return res.status(400).json({ error: 'Colección no válida' });
-    }
-    const documento = req.body;
-    if (!documento.fecha || !documento.peso_kg || !documento.total) {
-      return res.status(400).json({ error: 'Faltan campos obligatorios' });
-    }
-    const result = await db.collection(coleccion).insertOne(documento);
-    res.status(201).json({ insertedId: result.insertedId });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Rutas
+app.use('/api/productos', productosRoutes);
+app.use('/api/categorias', categoriasRoutes);
+app.use('/api/clientes', clientesRoutes);
+app.use('/api/proveedores', proveedoresRoutes);
+app.use('/api/compras', comprasRoutes);
+app.use('/api/ventas', ventasRoutes);
+app.use('/api/kardex', kardexRoutes);
+app.use('/api/reportes', reportesRoutes);
+
+// Ruta de salud
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date() });
 });
 
-// Reportes diarios: GET /api/reportes/:fecha (formato YYYY-MM-DD)
-app.get('/api/reportes/:fecha', async (req, res) => {
-  try {
-    const fecha = req.params.fecha;
-    const inicio = new Date(fecha);
-    inicio.setHours(0, 0, 0, 0);
-    const fin = new Date(fecha);
-    fin.setHours(23, 59, 59, 999);
-
-    const [compras, ventas] = await Promise.all([
-      db.collection('compras').find({ fecha: { $gte: inicio.toISOString(), $lte: fin.toISOString() } }).toArray(),
-      db.collection('ventas').find({ fecha: { $gte: inicio.toISOString(), $lte: fin.toISOString() } }).toArray()
-    ]);
-
-    res.json({ compras, ventas });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+app.listen(port, () => {
+  console.log(`🚀 Servidor backend corriendo en http://localhost:${port}`);
 });
-
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-});
-
-connectDB();
