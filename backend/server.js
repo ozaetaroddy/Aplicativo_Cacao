@@ -12,6 +12,7 @@ const comprasRoutes = require('./routes/compras');
 const ventasRoutes = require('./routes/ventas');
 const kardexRoutes = require('./routes/kardex');
 const reportesRoutes = require('./routes/reportes');
+const consultasRoutes = require('./routes/consultas');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -50,6 +51,7 @@ app.use('/api/compras', comprasRoutes);
 app.use('/api/ventas', ventasRoutes);
 app.use('/api/kardex', kardexRoutes);
 app.use('/api/reportes', reportesRoutes);
+app.use('/api/consultas', consultasRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {

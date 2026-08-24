@@ -70,4 +70,37 @@ const guardar = async () => {
     alert('Error: ' + e.message)
   }
 }
+// ===== BUSCAR POR RUC/CÉDULA USANDO ECUADORLEGAL =====
+const buscarPorIdentificacion = async () => {
+  if (!form.value.ruc || form.value.ruc.trim().length !== 10) {
+    alert('Ingrese un RUC o Cédula válido (10 dígitos)')
+    return
+  }
+
+  buscando.value = true
+
+  try {
+    // Llamar a nuestro backend que hace scraping
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/consultas/cedula/${form.value.ruc.trim()}`)
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'Error al consultar')
+    }
+
+    const data = await response.json()
+    console.log('Datos obtenidos:', data) // Para depuración
+
+    if (data.nombre) {
+      form.value.nombre = data.nombre
+    } else {
+      alert('No se encontró información para esta cédula')
+    }
+  } catch (error) {
+    console.error('Error en la búsqueda:', error)
+    alert('Error al consultar los datos: ' + error.message)
+  } finally {
+    buscando.value = false
+  }
+}
 </script>

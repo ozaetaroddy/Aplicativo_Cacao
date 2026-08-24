@@ -110,6 +110,12 @@ async function getKardexByProveedor(proveedorId, desde, hasta) {
   if (params.length) url += '?' + params.join('&')
   return request(url)
 }
+async function consultarCedula(cedula) {
+  return request('/registro-civil/cedula', {
+    method: 'POST',
+    body: JSON.stringify({ cedula })
+  });
+}
 
   return {
     loading,
@@ -124,6 +130,7 @@ async function getKardexByProveedor(proveedorId, desde, hasta) {
     reporteVentas,
     reporteCompras,
     getKardexByCliente,
-  getKardexByProveedor
+  getKardexByProveedor,
+  consultarCedula
   }
 }
