@@ -1,17 +1,18 @@
-# Backend
-backend/node_modules/
-backend/.env
-backend/package-lock.json
+# Dependencias
+node_modules/
+package-lock.json
+yarn.lock
 
-# Frontend
-frontend/node_modules/
-frontend/.env
-frontend/dist/
-frontend/package-lock.json
+# Variables de entorno
+.env
+.env.local
+.env.*.local
 
-# Archivos del sistema
+# Archivos de sistema
 .DS_Store
 Thumbs.db
 
-# VSCode
-.vscode/
+# Logs
+logs/
+*.log
+npm-debug.log*
