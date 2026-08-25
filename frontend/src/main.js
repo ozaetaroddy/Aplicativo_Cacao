@@ -1,13 +1,19 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+// Bootstrap CSS
 import 'bootstrap/dist/css/bootstrap.min.css'
-// Al inicio de main.js, después de importar Bootstrap
+
+// Bootstrap JS (IMPORTANTE: esto activa los dropdowns)
 import 'bootstrap/dist/js/bootstrap.bundle.min.js'
+
+// Font Awesome
 import '@fortawesome/fontawesome-free/css/all.min.css'
+
+// Estilos propios
 import './styles.css'
 
-// Importar componentes de vistas
+// Importar componentes
 import Dashboard from './components/Dashboard.vue'
 import ProductosList from './components/productos/ProductosList.vue'
 import ProductoForm from './components/productos/ProductoForm.vue'
@@ -24,8 +30,6 @@ import VentaForm from './components/ventas/VentaForm.vue'
 import KardexView from './components/kardex/KardexView.vue'
 import ReporteVentas from './components/reportes/ReporteVentas.vue'
 import ReporteCompras from './components/reportes/ReporteCompras.vue'
-import Facturacion from './components/facturacion/Facturacion.vue'
-
 
 const routes = [
   { path: '/', component: Dashboard },
@@ -48,7 +52,6 @@ const routes = [
   { path: '/kardex', component: KardexView },
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
-  { path: '/facturacion', component: Facturacion },
   { path: '/reportes', redirect: '/reportes/ventas' }
 ]
 
@@ -61,5 +64,4 @@ const app = createApp(App)
 app.use(router)
 app.mount('#app')
 
-// ... al final del archivo, después de app.mount('#app')
-document.title = 'System Ozaet\'s Electronics'
+document.title = 'Sistema Contable'

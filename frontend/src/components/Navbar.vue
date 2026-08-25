@@ -17,45 +17,45 @@
           </li>
 
           <!-- ===== DOCUMENTOS ===== -->
-          <li class="nav-item dropdown" ref="dropdownReportes">
-            <a class="nav-link dropdown-toggle" href="#" id="documentosDropdown" role="button" data-bs-toggle="dropdown">
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="documentosDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="fas fa-file-invoice"></i> Documentos
             </a>
-            <ul class="dropdown-menu">
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura">Nueva Factura</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision">Guía de Remisión</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion">Factura Exportación</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso">Factura Reembolso</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion">Comprobante Retención</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion">Liquidación Compra</router-link></li>
+            <ul class="dropdown-menu" aria-labelledby="documentosDropdown">
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarDropdown">Nueva Factura</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarDropdown">Guía de Remisión</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarDropdown">Factura Exportación</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarDropdown">Factura Reembolso</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarDropdown">Comprobante Retención</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarDropdown">Liquidación Compra</router-link></li>
               <li><hr class="dropdown-divider"></li>
-              <li><router-link class="dropdown-item" to="/ventas">Consultar Documentos</router-link></li>
-              <li><router-link class="dropdown-item" to="/compras">Bandeja de Compras</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas" @click="cerrarDropdown">Consultar Documentos</router-link></li>
+              <li><router-link class="dropdown-item" to="/compras" @click="cerrarDropdown">Bandeja de Compras</router-link></li>
             </ul>
           </li>
 
           <!-- ===== MAESTROS ===== -->
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="maestrosDropdown" role="button" data-bs-toggle="dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="maestrosDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="fas fa-database"></i> Maestros
             </a>
-            <ul class="dropdown-menu">
-              <li><router-link class="dropdown-item" to="/productos"><i class="fas fa-boxes"></i> Productos</router-link></li>
-              <li><router-link class="dropdown-item" to="/categorias"><i class="fas fa-tags"></i> Categorías</router-link></li>
-              <li><router-link class="dropdown-item" to="/clientes"><i class="fas fa-users"></i> Clientes</router-link></li>
-              <li><router-link class="dropdown-item" to="/proveedores"><i class="fas fa-truck"></i> Proveedores</router-link></li>
+            <ul class="dropdown-menu" aria-labelledby="maestrosDropdown">
+              <li><router-link class="dropdown-item" to="/productos" @click="cerrarDropdown"><i class="fas fa-boxes"></i> Productos</router-link></li>
+              <li><router-link class="dropdown-item" to="/categorias" @click="cerrarDropdown"><i class="fas fa-tags"></i> Categorías</router-link></li>
+              <li><router-link class="dropdown-item" to="/clientes" @click="cerrarDropdown"><i class="fas fa-users"></i> Clientes</router-link></li>
+              <li><router-link class="dropdown-item" to="/proveedores" @click="cerrarDropdown"><i class="fas fa-truck"></i> Proveedores</router-link></li>
             </ul>
           </li>
 
           <!-- ===== REPORTES ===== -->
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="reportesDropdown" role="button" data-bs-toggle="dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="reportesDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="fas fa-chart-bar"></i> Reportes
             </a>
-            <ul class="dropdown-menu">
-              <li><router-link class="dropdown-item" to="/reportes/ventas"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
-              <li><router-link class="dropdown-item" to="/reportes/compras"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
-              <li><router-link class="dropdown-item" to="/kardex"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
+            <ul class="dropdown-menu" aria-labelledby="reportesDropdown">
+              <li><router-link class="dropdown-item" to="/reportes/ventas" @click="cerrarDropdown"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/compras" @click="cerrarDropdown"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
+              <li><router-link class="dropdown-item" to="/kardex" @click="cerrarDropdown"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
             </ul>
           </li>
         </ul>
@@ -68,17 +68,49 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router' 
 import { Dropdown } from 'bootstrap'
 
-const dropdownReportes = ref(null)
-
-onMounted(() => {
-  // Inicializar todos los dropdowns
+// Función para inicializar todos los dropdowns
+const inicializarDropdowns = () => {
   document.querySelectorAll('.dropdown-toggle').forEach(el => {
-    new Dropdown(el)
+    // Evitar duplicados
+    if (!el._dropdown) {
+      el._dropdown = new Dropdown(el)
+    }
+  })
+}
+
+// Cerrar dropdowns al hacer clic en un enlace (para que se cierren solos)
+const cerrarDropdown = (event) => {
+  const dropdownElement = event.target.closest('.dropdown')
+  if (dropdownElement) {
+    const toggle = dropdownElement.querySelector('.dropdown-toggle')
+    if (toggle && toggle._dropdown) {
+      toggle._dropdown.hide()
+    }
+  }
+}
+
+// Inicializar al montar y después de cada navegación
+onMounted(() => {
+  // Esperar a que el DOM esté listo
+  nextTick(() => {
+    inicializarDropdowns()
+  })
+
+  // Escuchar cambios de ruta para reinicializar (por si el DOM cambia)
+  const router = useRouter()
+  router.afterEach(() => {
+    nextTick(() => {
+      inicializarDropdowns()
+    })
   })
 })
+
+// Necesario para usar router en el setup
+import { useRouter } from 'vue-router'
 </script>
 
 <style scoped>
