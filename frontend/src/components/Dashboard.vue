@@ -84,6 +84,24 @@
 
     <!-- ===== ESTADÍSTICAS RÁPIDAS ===== -->
     <div class="row g-4">
+      <div class="col-md-3 col-sm-6">
+    <router-link to="/consultar-documentos" class="text-decoration-none">
+      <div class="card card-cacao text-center p-3 h-100">
+        <i class="fas fa-search fa-3x" style="color: #2980b9;"></i>
+        <h6 class="mt-2">Consultar Documentos</h6>
+        <small class="text-muted">Buscar facturas, compras, etc.</small>
+      </div>
+    </router-link>
+  </div>
+  <div class="col-md-3 col-sm-6">
+    <router-link to="/compras" class="text-decoration-none">
+      <div class="card card-cacao text-center p-3 h-100">
+        <i class="fas fa-inbox fa-3x" style="color: #e67e22;"></i>
+        <h6 class="mt-2">Bandeja de Compras</h6>
+        <small class="text-muted">Compras pendientes y recibidas</small>
+      </div>
+    </router-link>
+  </div>
       <div class="col-lg-3 col-md-6">
         <div class="total-box">
           <h5><i class="fas fa-file-invoice" style="color:#3498db;"></i> Facturas Hoy</h5>

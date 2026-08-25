@@ -21,28 +21,27 @@
           </li>
 
           <!-- ===== DOCUMENTOS (dropdown controlado por Vue) ===== -->
-          <li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('documentos')"
-            >
-              <i class="fas fa-file-invoice"></i> Documentos
-            </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarTodo">Factura Reembolso</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">Comprobante Retención</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><router-link class="dropdown-item" to="/ventas" @click="cerrarTodo">Consultar Documentos</router-link></li>
-              <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo">Bandeja de Compras</router-link></li>
-              <li><router-link class="dropdown-item" to="/documentos">Consultar Documentos</router-link></li>
-            </ul>
-          </li>
+<li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
+  <a
+    class="nav-link dropdown-toggle"
+    href="#"
+    role="button"
+    @click.prevent="toggleDropdown('documentos')"
+  >
+    <i class="fas fa-file-invoice"></i> Documentos
+  </a>
+  <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
+    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
+    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
+    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
+    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarTodo">Factura Reembolso</router-link></li>
+    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">Comprobante Retención</router-link></li>
+    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><router-link class="dropdown-item" to="/consultar-documentos" @click="cerrarTodo"><i class="fas fa-search"></i> Consultar Documentos</router-link></li>
+    <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
+  </ul>
+</li>
 
           <!-- ===== MAESTROS ===== -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
