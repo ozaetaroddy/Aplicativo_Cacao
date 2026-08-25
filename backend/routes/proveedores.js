@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ===== NUEVA RUTA: Obtener proveedor por ID =====
+// Obtener proveedor por ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -33,7 +33,17 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { nombre, ruc, telefono, email, direccion } = req.body;
-    const nuevo = { nombre, ruc, telefono, email, direccion, createdAt: new Date() };
+    if (!nombre || !ruc) {
+      return res.status(400).json({ error: 'Nombre y RUC son obligatorios' });
+    }
+    const nuevo = { 
+      nombre, 
+      ruc, 
+      telefono: telefono || '', 
+      email: email || '', 
+      direccion: direccion || '', 
+      createdAt: new Date() 
+    };
     const result = await req.db.collection('proveedores').insertOne(nuevo);
     res.status(201).json({ ...nuevo, _id: result.insertedId });
   } catch (err) {
@@ -49,6 +59,9 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'ID inválido' });
     }
     const { nombre, ruc, telefono, email, direccion } = req.body;
+    if (!nombre || !ruc) {
+      return res.status(400).json({ error: 'Nombre y RUC son obligatorios' });
+    }
     const result = await req.db.collection('proveedores').updateOne(
       { _id: new ObjectId(id) },
       { $set: { nombre, ruc, telefono, email, direccion, updatedAt: new Date() } }

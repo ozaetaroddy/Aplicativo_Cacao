@@ -40,6 +40,7 @@
               <li><hr class="dropdown-divider"></li>
               <li><router-link class="dropdown-item" to="/ventas" @click="cerrarTodo">Consultar Documentos</router-link></li>
               <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo">Bandeja de Compras</router-link></li>
+              <li><router-link class="dropdown-item" to="/documentos">Consultar Documentos</router-link></li>
             </ul>
           </li>
 

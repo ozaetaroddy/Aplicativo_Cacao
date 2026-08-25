@@ -30,6 +30,7 @@ import VentaForm from './components/ventas/VentaForm.vue'
 import KardexView from './components/kardex/KardexView.vue'
 import ReporteVentas from './components/reportes/ReporteVentas.vue'
 import ReporteCompras from './components/reportes/ReporteCompras.vue'
+import DocumentosList from './components/Documentos/DocumentosList.vue'
 
 const routes = [
   { path: '/', component: Dashboard },
@@ -52,7 +53,8 @@ const routes = [
   { path: '/kardex', component: KardexView },
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
-  { path: '/reportes', redirect: '/reportes/ventas' }
+  { path: '/reportes', redirect: '/reportes/ventas' },
+  { path: '/documentos', component: DocumentosList }
 ]
 
 const router = createRouter({

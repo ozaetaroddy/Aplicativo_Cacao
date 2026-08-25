@@ -7,7 +7,98 @@
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar" novalidate>
-          <!-- ... (igual que antes) ... -->
+          <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            Si ingresa un RUC o Cédula y presiona "Buscar", los datos se completarán automáticamente.
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label"><span class="text-danger">*</span> RUC / Cédula</label>
+              <input
+                type="text"
+                class="form-control"
+                v-model="form.ruc"
+                placeholder="Ingrese RUC o Cédula (10 dígitos)"
+                @blur="validarRuc"
+                required
+              />
+              <div v-if="errores.ruc" class="text-danger small">{{ errores.ruc }}</div>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <button
+                type="button"
+                class="btn btn-primary w-100"
+                @click="buscarPorIdentificacion"
+                :disabled="buscando"
+              >
+                <i class="fas fa-search" :class="{ 'fa-spin': buscando }"></i>
+                {{ buscando ? 'Buscando...' : 'Buscar Datos' }}
+              </button>
+            </div>
+          </div>
+
+          <hr />
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label"><span class="text-danger">*</span> Nombre / Razón Social</label>
+              <input
+                type="text"
+                class="form-control"
+                v-model="form.nombre"
+                @blur="validarNombre"
+                required
+              />
+              <div v-if="errores.nombre" class="text-danger small">{{ errores.nombre }}</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label"><span class="text-danger">*</span> Teléfono</label>
+              <input
+                type="text"
+                class="form-control"
+                v-model="form.telefono"
+                placeholder="09XXXXXXXX"
+                @blur="validarTelefono"
+                required
+              />
+              <div v-if="errores.telefono" class="text-danger small">{{ errores.telefono }}</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label"><span class="text-danger">*</span> Email</label>
+              <input
+                type="email"
+                class="form-control"
+                v-model="form.email"
+                placeholder="correo@ejemplo.com"
+                @blur="validarEmail"
+                required
+              />
+              <div v-if="errores.email" class="text-danger small">{{ errores.email }}</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Dirección</label>
+              <input
+                type="text"
+                class="form-control"
+                v-model="form.direccion"
+              />
+            </div>
+          </div>
+
+          <div v-if="errorGeneral" class="alert alert-danger mt-3">
+            <i class="fas fa-exclamation-circle"></i> {{ errorGeneral }}
+          </div>
+
+          <div class="mt-4">
+            <button type="submit" class="btn btn-success me-2" :disabled="cargando">
+              <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
+              {{ cargando ? 'Guardando...' : 'Guardar' }}
+            </button>
+            <router-link to="/proveedores" class="btn btn-secondary">
+              Cancelar
+            </router-link>
+          </div>
         </form>
       </div>
     </div>
@@ -15,7 +106,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 
@@ -24,6 +115,8 @@ const router = useRouter()
 const { findById, insertOne, updateOne } = useMongoDB()
 const id = route.params.id
 const buscando = ref(false)
+const cargando = ref(false)
+const errorGeneral = ref('')
 
 const form = ref({
   ruc: '',
@@ -84,25 +177,24 @@ const validarEmail = () => {
   return true
 }
 
-const formularioValido = computed(() => {
+const validarFormulario = () => {
   return validarRuc() && validarNombre() && validarTelefono() && validarEmail()
-})
+}
 
-// ===== CARGAR DATOS SI ES EDICIÓN (CORREGIDO) =====
 onMounted(async () => {
   if (id) {
     try {
+      console.log('Cargando proveedor con ID:', id)
       const data = await findById('proveedores', id)
+      console.log('Datos cargados:', data)
       if (data) {
-        form.value.ruc = data.ruc || ''
-        form.value.nombre = data.nombre || ''
-        form.value.telefono = data.telefono || ''
-        form.value.email = data.email || ''
-        form.value.direccion = data.direccion || ''
+        form.value = data
+      } else {
+        errorGeneral.value = 'No se encontró el proveedor'
       }
     } catch (e) {
-      console.error('Error al cargar datos:', e)
-      alert('Error al cargar los datos del proveedor')
+      console.error('Error al cargar proveedor:', e)
+      errorGeneral.value = 'Error al cargar los datos: ' + e.message
     }
   }
 })
@@ -110,46 +202,65 @@ onMounted(async () => {
 const buscarPorIdentificacion = async () => {
   if (!validarRuc()) return
   buscando.value = true
+  errorGeneral.value = ''
   try {
     const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/consultas/cedula/${form.value.ruc.trim()}`)
-    if (!response.ok) throw new Error('No se encontraron datos')
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'Error al consultar')
+    }
     const data = await response.json()
-    if (data.nombre) form.value.nombre = data.nombre
+    if (data.nombre) {
+      form.value.nombre = data.nombre
+    } else {
+      alert('No se encontró información para esta cédula')
+    }
   } catch (error) {
-    alert('Error al consultar: ' + error.message)
+    console.error('Error en la búsqueda:', error)
+    alert('Error al consultar los datos: ' + error.message)
   } finally {
     buscando.value = false
   }
 }
 
 const guardar = async () => {
-  if (!formularioValido.value) {
-    validarRuc()
-    validarNombre()
-    validarTelefono()
-    validarEmail()
-    alert('Corrija los errores antes de guardar')
+  console.log('Intentando guardar proveedor...')
+  errorGeneral.value = ''
+
+  if (!validarFormulario()) {
+    validarRuc(); validarNombre(); validarTelefono(); validarEmail()
+    errorGeneral.value = 'Por favor, corrija los errores marcados en rojo'
+    console.log('❌ Formulario inválido')
     return
   }
 
-  try {
-    const datosGuardar = {
-      ruc: form.value.ruc.trim(),
-      nombre: form.value.nombre.trim(),
-      telefono: form.value.telefono.trim(),
-      email: form.value.email.trim().toLowerCase(),
-      direccion: form.value.direccion?.trim() || ''
-    }
+  const datos = {
+    ruc: form.value.ruc.trim(),
+    nombre: form.value.nombre.trim(),
+    telefono: form.value.telefono.trim(),
+    email: form.value.email.trim(),
+    direccion: form.value.direccion?.trim() || ''
+  }
 
+  console.log('📦 Datos a guardar:', datos)
+  cargando.value = true
+
+  try {
+    let resultado
     if (id) {
-      await updateOne('proveedores', id, datosGuardar)
+      console.log('🔄 Actualizando proveedor existente...')
+      resultado = await updateOne('proveedores', id, datos)
     } else {
-      await insertOne('proveedores', datosGuardar)
+      console.log('➕ Creando nuevo proveedor...')
+      resultado = await insertOne('proveedores', datos)
     }
+    console.log('✅ Resultado:', resultado)
     router.push('/proveedores')
   } catch (e) {
-    console.error('Error al guardar:', e)
-    alert('Error al guardar: ' + e.message)
+    console.error('❌ Error al guardar:', e)
+    errorGeneral.value = 'Error al guardar: ' + e.message
+  } finally {
+    cargando.value = false
   }
 }
 </script>
