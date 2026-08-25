@@ -69,20 +69,21 @@
 
 <script setup>
 import { onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router' 
+import { useRouter } from 'vue-router'  // ✅ ÚNICA IMPORTACIÓN
 import { Dropdown } from 'bootstrap'
+
+const router = useRouter()
 
 // Función para inicializar todos los dropdowns
 const inicializarDropdowns = () => {
   document.querySelectorAll('.dropdown-toggle').forEach(el => {
-    // Evitar duplicados
     if (!el._dropdown) {
       el._dropdown = new Dropdown(el)
     }
   })
 }
 
-// Cerrar dropdowns al hacer clic en un enlace (para que se cierren solos)
+// Cerrar dropdowns al hacer clic en un enlace
 const cerrarDropdown = (event) => {
   const dropdownElement = event.target.closest('.dropdown')
   if (dropdownElement) {
@@ -95,22 +96,16 @@ const cerrarDropdown = (event) => {
 
 // Inicializar al montar y después de cada navegación
 onMounted(() => {
-  // Esperar a que el DOM esté listo
   nextTick(() => {
     inicializarDropdowns()
   })
 
-  // Escuchar cambios de ruta para reinicializar (por si el DOM cambia)
-  const router = useRouter()
   router.afterEach(() => {
     nextTick(() => {
       inicializarDropdowns()
     })
   })
 })
-
-// Necesario para usar router en el setup
-import { useRouter } from 'vue-router'
 </script>
 
 <style scoped>
