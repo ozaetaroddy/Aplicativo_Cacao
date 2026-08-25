@@ -96,18 +96,16 @@ const formularioValido = computed(() => {
 onMounted(async () => {
   if (id) {
     try {
+      console.log('Cargando cliente con ID:', id)
       const data = await findById('clientes', id)
-      // ASIGNACIÓN CORRECTA: copiar cada propiedad al form
+      console.log('Datos recibidos:', data)
       if (data) {
-        form.value.ruc = data.ruc || ''
-        form.value.nombre = data.nombre || ''
-        form.value.tipo = data.tipo || 'persona'
-        form.value.telefono = data.telefono || ''
-        form.value.email = data.email || ''
-        form.value.direccion = data.direccion || ''
+        form.value = data
+      } else {
+        console.warn('No se encontraron datos para el ID:', id)
       }
     } catch (e) {
-      console.error('Error al cargar datos:', e)
+      console.error('Error al cargar cliente:', e)
       alert('Error al cargar los datos del cliente')
     }
   }
