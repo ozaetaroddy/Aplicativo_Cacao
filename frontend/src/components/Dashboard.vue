@@ -2,10 +2,10 @@
   <div>
     <h4 class="section-title"><i class="fas fa-home"></i> Página Principal</h4>
 
-    <!-- ===== ACCESOS RÁPIDOS ===== -->
+    <!-- ===== ACCESOS RÁPIDOS - FILA 1 ===== -->
     <div class="row g-4 mb-4">
       <div class="col-md-3 col-sm-6">
-        <router-link to="/ventas/nuevo" class="text-decoration-none">
+        <router-link to="/ventas/nuevo?tipo=factura" class="text-decoration-none">
           <div class="card card-cacao text-center p-3 h-100">
             <i class="fas fa-file-invoice fa-3x" style="color: #3498db;"></i>
             <h6 class="mt-2">Nueva Factura</h6>
@@ -42,12 +42,12 @@
       </div>
     </div>
 
-    <!-- ===== SEGUNDA FILA DE ACCESOS ===== -->
+    <!-- ===== ACCESOS RÁPIDOS - FILA 2 ===== -->
     <div class="row g-4 mb-4">
       <div class="col-md-3 col-sm-6">
-        <router-link to="/ventas" class="text-decoration-none">
+        <router-link to="/consultar-documentos" class="text-decoration-none">
           <div class="card card-cacao text-center p-3 h-100">
-            <i class="fas fa-search fa-3x" style="color: #2c3e50;"></i>
+            <i class="fas fa-search fa-3x" style="color: #2980b9;"></i>
             <h6 class="mt-2">Consultar Documentos</h6>
             <small class="text-muted">Buscar facturas, compras, etc.</small>
           </div>
@@ -56,7 +56,7 @@
       <div class="col-md-3 col-sm-6">
         <router-link to="/compras" class="text-decoration-none">
           <div class="card card-cacao text-center p-3 h-100">
-            <i class="fas fa-inbox fa-3x" style="color: #e74c3c;"></i>
+            <i class="fas fa-inbox fa-3x" style="color: #e67e22;"></i>
             <h6 class="mt-2">Bandeja de Compras</h6>
             <small class="text-muted">Compras pendientes y recibidas</small>
           </div>
@@ -65,7 +65,7 @@
       <div class="col-md-3 col-sm-6">
         <router-link to="/ventas/nuevo?tipo=guia_remision" class="text-decoration-none">
           <div class="card card-cacao text-center p-3 h-100">
-            <i class="fas fa-truck fa-3x" style="color: #2980b9;"></i>
+            <i class="fas fa-truck fa-3x" style="color: #2ecc71;"></i>
             <h6 class="mt-2">Guía de Remisión</h6>
             <small class="text-muted">Documento de transporte</small>
           </div>
@@ -84,24 +84,6 @@
 
     <!-- ===== ESTADÍSTICAS RÁPIDAS ===== -->
     <div class="row g-4">
-      <div class="col-md-3 col-sm-6">
-    <router-link to="/consultar-documentos" class="text-decoration-none">
-      <div class="card card-cacao text-center p-3 h-100">
-        <i class="fas fa-search fa-3x" style="color: #2980b9;"></i>
-        <h6 class="mt-2">Consultar Documentos</h6>
-        <small class="text-muted">Buscar facturas, compras, etc.</small>
-      </div>
-    </router-link>
-  </div>
-  <div class="col-md-3 col-sm-6">
-    <router-link to="/compras" class="text-decoration-none">
-      <div class="card card-cacao text-center p-3 h-100">
-        <i class="fas fa-inbox fa-3x" style="color: #e67e22;"></i>
-        <h6 class="mt-2">Bandeja de Compras</h6>
-        <small class="text-muted">Compras pendientes y recibidas</small>
-      </div>
-    </router-link>
-  </div>
       <div class="col-lg-3 col-md-6">
         <div class="total-box">
           <h5><i class="fas fa-file-invoice" style="color:#3498db;"></i> Facturas Hoy</h5>
@@ -153,9 +135,11 @@ onMounted(async () => {
     totalClientes.value = clientes.length
     totalProductos.value = productos.length
 
-    // Contar facturas de hoy
+    // Contar facturas de hoy (solo tipo factura)
     facturasHoy.value = ventas.filter(v => 
-      v.fecha_emision && v.fecha_emision.startsWith(hoy)
+      v.fecha_emision && 
+      v.fecha_emision.startsWith(hoy) && 
+      v.tipo_documento === 'factura'
     ).length
 
     // Contar compras de hoy
@@ -163,7 +147,7 @@ onMounted(async () => {
       c.fecha_emision && c.fecha_emision.startsWith(hoy)
     ).length
   } catch (e) {
-    console.error(e)
+    console.error('Error cargando estadísticas:', e)
   }
 })
 </script>
