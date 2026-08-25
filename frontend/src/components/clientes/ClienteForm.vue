@@ -6,7 +6,7 @@
 
     <div class="card card-cacao">
       <div class="card-body">
-        <form @submit.prevent="guardar">
+        <form @submit.prevent="guardar" novalidate>
           <!-- ===== BÚSQUEDA POR RUC/CÉDULA ===== -->
           <div class="alert alert-info">
             <i class="fas fa-info-circle"></i>
@@ -15,13 +15,15 @@
 
           <div class="row g-3">
             <div class="col-md-8">
-              <label class="form-label">RUC / Cédula</label>
+              <label class="form-label"><span class="text-danger">*</span> RUC / Cédula</label>
               <input
                 type="text"
                 class="form-control"
                 v-model="form.ruc"
-                placeholder="Ingrese RUC o Cédula"
+                placeholder="Ingrese RUC o Cédula (10 dígitos)"
+                required
               />
+              <div v-if="errores.ruc" class="text-danger small">{{ errores.ruc }}</div>
             </div>
             <div class="col-md-4 d-flex align-items-end">
               <button
@@ -41,13 +43,15 @@
           <!-- ===== DATOS DEL CLIENTE ===== -->
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">Nombre / Razón Social</label>
+              <label class="form-label"><span class="text-danger">*</span> Nombre / Razón Social</label>
               <input
                 type="text"
                 class="form-control"
                 v-model="form.nombre"
                 required
+                @blur="validarNombre"
               />
+              <div v-if="errores.nombre" class="text-danger small">{{ errores.nombre }}</div>
             </div>
             <div class="col-md-6">
               <label class="form-label">Tipo</label>
@@ -57,20 +61,28 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Teléfono</label>
+              <label class="form-label"><span class="text-danger">*</span> Teléfono</label>
               <input
                 type="text"
                 class="form-control"
                 v-model="form.telefono"
+                placeholder="09XXXXXXXX"
+                required
+                @blur="validarTelefono"
               />
+              <div v-if="errores.telefono" class="text-danger small">{{ errores.telefono }}</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Email</label>
+              <label class="form-label"><span class="text-danger">*</span> Email</label>
               <input
                 type="email"
                 class="form-control"
                 v-model="form.email"
+                placeholder="correo@ejemplo.com"
+                required
+                @blur="validarEmail"
               />
+              <div v-if="errores.email" class="text-danger small">{{ errores.email }}</div>
             </div>
             <div class="col-md-12">
               <label class="form-label">Dirección</label>
@@ -83,7 +95,7 @@
           </div>
 
           <div class="mt-4">
-            <button type="submit" class="btn btn-success me-2">
+            <button type="submit" class="btn btn-success me-2" :disabled="!formularioValido">
               <i class="fas fa-save"></i> Guardar
             </button>
             <router-link to="/clientes" class="btn btn-secondary">
@@ -97,7 +109,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 
@@ -117,6 +129,79 @@ const form = ref({
   direccion: ''
 })
 
+// ===== VALIDACIONES =====
+const errores = ref({
+  ruc: '',
+  nombre: '',
+  telefono: '',
+  email: ''
+})
+
+const validarRuc = () => {
+  const ruc = form.value.ruc.trim()
+  if (!ruc) {
+    errores.value.ruc = 'El RUC/Cédula es obligatorio'
+    return false
+  }
+  if (ruc.length !== 10 || !/^\d+$/.test(ruc)) {
+    errores.value.ruc = 'El RUC/Cédula debe tener 10 dígitos numéricos'
+    return false
+  }
+  errores.value.ruc = ''
+  return true
+}
+
+const validarNombre = () => {
+  const nombre = form.value.nombre.trim()
+  if (!nombre) {
+    errores.value.nombre = 'El nombre es obligatorio'
+    return false
+  }
+  // Solo letras, espacios, tildes, ñ y puntos (para abreviaturas)
+  if (!/^[A-Za-zÁÉÍÓÚÑáéíóúñ\s.]+$/.test(nombre)) {
+    errores.value.nombre = 'El nombre solo puede contener letras, espacios y puntos'
+    return false
+  }
+  if (nombre.length < 3) {
+    errores.value.nombre = 'El nombre debe tener al menos 3 caracteres'
+    return false
+  }
+  errores.value.nombre = ''
+  return true
+}
+
+const validarTelefono = () => {
+  const telefono = form.value.telefono.trim()
+  if (!telefono) {
+    errores.value.telefono = 'El teléfono es obligatorio'
+    return false
+  }
+  if (!/^09\d{8}$/.test(telefono)) {
+    errores.value.telefono = 'El teléfono debe comenzar con 09 y tener 10 dígitos'
+    return false
+  }
+  errores.value.telefono = ''
+  return true
+}
+
+const validarEmail = () => {
+  const email = form.value.email.trim()
+  if (!email) {
+    errores.value.email = 'El email es obligatorio'
+    return false
+  }
+  if (!/^[^\s@]+@[^\s@]+\.(com|es|ec|org|net|edu|info)$/i.test(email)) {
+    errores.value.email = 'Email inválido. Debe terminar en .com, .es, .ec, etc.'
+    return false
+  }
+  errores.value.email = ''
+  return true
+}
+
+const formularioValido = computed(() => {
+  return validarRuc() && validarNombre() && validarTelefono() && validarEmail()
+})
+
 // ===== CARGAR DATOS SI ES EDICIÓN =====
 onMounted(async () => {
   if (id) {
@@ -129,17 +214,13 @@ onMounted(async () => {
   }
 })
 
-// ===== BUSCAR POR RUC/CÉDULA USANDO ECUADORLEGAL =====
+// ===== BUSCAR POR RUC/CÉDULA =====
 const buscarPorIdentificacion = async () => {
-  if (!form.value.ruc || form.value.ruc.trim().length !== 10) {
-    alert('Ingrese un RUC o Cédula válido (10 dígitos)')
-    return
-  }
+  if (!validarRuc()) return
 
   buscando.value = true
 
   try {
-    // Llamar a nuestro backend que hace scraping a EcuadorLegal
     const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/consultas/cedula/${form.value.ruc.trim()}`)
 
     if (!response.ok) {
@@ -148,8 +229,6 @@ const buscarPorIdentificacion = async () => {
     }
 
     const data = await response.json()
-    console.log('Datos obtenidos:', data) // Para depuración
-
     if (data.nombre) {
       form.value.nombre = data.nombre
     } else {
@@ -165,8 +244,13 @@ const buscarPorIdentificacion = async () => {
 
 // ===== GUARDAR CLIENTE =====
 const guardar = async () => {
-  if (!form.value.nombre || !form.value.ruc) {
-    alert('El nombre y RUC son obligatorios')
+  if (!formularioValido.value) {
+    // Forzar validación de todos los campos
+    validarRuc()
+    validarNombre()
+    validarTelefono()
+    validarEmail()
+    alert('Corrija los errores antes de guardar')
     return
   }
 
@@ -182,7 +266,3 @@ const guardar = async () => {
   }
 }
 </script>
-
-<style scoped>
-/* Estilos adicionales si los necesitas */
-</style>

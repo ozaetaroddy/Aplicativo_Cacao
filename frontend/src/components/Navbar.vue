@@ -2,31 +2,62 @@
   <nav class="navbar navbar-expand-lg navbar-cacao">
     <div class="container-fluid">
       <router-link class="navbar-brand" to="/">
-        <i class="fas fa-microchip"></i> System Ozaet's Electronics
+        <i class="fas fa-calculator"></i> Sistema Contable
       </router-link>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
         <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
       </button>
       <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav me-auto">
-          <li class="nav-item"><router-link class="nav-link" to="/" exact-active-class="active"><i class="fas fa-home"></i> Página Principal</router-link></li>
-          <li class="nav-item"><router-link class="nav-link" to="/productos" active-class="active"><i class="fas fa-boxes"></i> Productos</router-link></li>
-          <li class="nav-item"><router-link class="nav-link" to="/categorias" active-class="active"><i class="fas fa-tags"></i> Categorías</router-link></li>
-          <li class="nav-item"><router-link class="nav-link" to="/clientes" active-class="active"><i class="fas fa-users"></i> Clientes</router-link></li>
-          <li class="nav-item"><router-link class="nav-link" to="/proveedores" active-class="active"><i class="fas fa-truck"></i> Proveedores</router-link></li>
-          <li class="nav-item"><router-link class="nav-link" to="/compras" active-class="active"><i class="fas fa-shopping-cart"></i> Compras</router-link></li>
-          <li class="nav-item"><router-link class="nav-link" to="/ventas" active-class="active"><i class="fas fa-hand-holding-usd"></i> Ventas</router-link></li>
-          <li class="nav-item"><router-link class="nav-link" to="/kardex" active-class="active"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
-          <li class="nav-item dropdown" @click="toggleDropdown">
-            <a class="nav-link dropdown-toggle" href="#" role="button" :aria-expanded="dropdownOpen">
-              <i class="fas fa-chart-bar"></i> Reportes
+          <!-- ===== INICIO ===== -->
+          <li class="nav-item">
+            <router-link class="nav-link" to="/" exact-active-class="active">
+              <i class="fas fa-home"></i> Inicio
+            </router-link>
+          </li>
+
+          <!-- ===== DOCUMENTOS ===== -->
+          <li class="nav-item dropdown" ref="dropdownReportes">
+            <a class="nav-link dropdown-toggle" href="#" id="documentosDropdown" role="button" data-bs-toggle="dropdown">
+              <i class="fas fa-file-invoice"></i> Documentos
             </a>
-            <ul class="dropdown-menu" :class="{ show: dropdownOpen }">
-              <li><router-link class="dropdown-item" to="/reportes/ventas" @click="dropdownOpen = false"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
-              <li><router-link class="dropdown-item" to="/reportes/compras" @click="dropdownOpen = false"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
+            <ul class="dropdown-menu">
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura">Nueva Factura</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision">Guía de Remisión</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion">Factura Exportación</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso">Factura Reembolso</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion">Comprobante Retención</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion">Liquidación Compra</router-link></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><router-link class="dropdown-item" to="/ventas">Consultar Documentos</router-link></li>
+              <li><router-link class="dropdown-item" to="/compras">Bandeja de Compras</router-link></li>
             </ul>
           </li>
-          <li class="nav-item"><router-link class="nav-link" to="/facturacion" active-class="active"><i class="fas fa-file-invoice"></i> Facturación</router-link></li>
+
+          <!-- ===== MAESTROS ===== -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="maestrosDropdown" role="button" data-bs-toggle="dropdown">
+              <i class="fas fa-database"></i> Maestros
+            </a>
+            <ul class="dropdown-menu">
+              <li><router-link class="dropdown-item" to="/productos"><i class="fas fa-boxes"></i> Productos</router-link></li>
+              <li><router-link class="dropdown-item" to="/categorias"><i class="fas fa-tags"></i> Categorías</router-link></li>
+              <li><router-link class="dropdown-item" to="/clientes"><i class="fas fa-users"></i> Clientes</router-link></li>
+              <li><router-link class="dropdown-item" to="/proveedores"><i class="fas fa-truck"></i> Proveedores</router-link></li>
+            </ul>
+          </li>
+
+          <!-- ===== REPORTES ===== -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="reportesDropdown" role="button" data-bs-toggle="dropdown">
+              <i class="fas fa-chart-bar"></i> Reportes
+            </a>
+            <ul class="dropdown-menu">
+              <li><router-link class="dropdown-item" to="/reportes/ventas"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/compras"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
+              <li><router-link class="dropdown-item" to="/kardex"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
+            </ul>
+          </li>
         </ul>
         <span class="navbar-text">
           <i class="fas fa-database me-1"></i> MongoDB
@@ -37,38 +68,31 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import { Dropdown } from 'bootstrap'
 
-const dropdownOpen = ref(false)
+const dropdownReportes = ref(null)
 
-const toggleDropdown = (event) => {
-  event.preventDefault()
-  dropdownOpen.value = !dropdownOpen.value
-}
+onMounted(() => {
+  // Inicializar todos los dropdowns
+  document.querySelectorAll('.dropdown-toggle').forEach(el => {
+    new Dropdown(el)
+  })
+})
 </script>
 
 <style scoped>
 @media (max-width: 992px) {
-  .dropdown-menu {
-    background: transparent !important;
-    box-shadow: none !important;
+  .navbar-cacao .dropdown-menu {
+    background: transparent;
+    box-shadow: none;
     padding-left: 20px;
   }
-  .dropdown-item {
+  .navbar-cacao .dropdown-item {
     color: rgba(255,255,255,0.85) !important;
   }
-  .dropdown-item:hover {
-    background: rgba(255,255,255,0.1) !important;
+  .navbar-cacao .dropdown-item:hover {
+    background: rgba(255,255,255,0.1);
   }
-}
-.dropdown-menu {
-  display: block;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.2s ease, visibility 0.2s ease;
-}
-.dropdown-menu.show {
-  opacity: 1;
-  visibility: visible;
 }
 </style>

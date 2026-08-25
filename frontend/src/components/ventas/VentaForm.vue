@@ -1,49 +1,102 @@
 <template>
-  <!-- Dentro del <template>, justo antes del select de cliente -->
-<div class="row g-3">
-  <div class="col-md-6">
-    <label class="form-label">Buscar Cliente por RUC/Cédula</label>
-    <div class="input-group">
-      <input type="text" class="form-control" v-model="rucBusqueda" placeholder="Ingrese RUC o Cédula">
-      <button class="btn btn-outline-primary" @click="buscarClientePorRuc"><i class="fas fa-search"></i> Buscar</button>
-    </div>
-  </div>
-</div>
-<!-- Luego el select de cliente ya existente -->
   <div>
-    <h4 class="section-title"><i class="fas fa-hand-holding-usd"></i> Nueva Venta</h4>
+    <h4 class="section-title">
+      <i class="fas fa-file-invoice"></i>
+      {{ tipoDocumento === 'guia_remision' ? 'Guía de Remisión' :
+         tipoDocumento === 'exportacion' ? 'Factura de Exportación' :
+         tipoDocumento === 'reembolso' ? 'Factura de Reembolso' :
+         tipoDocumento === 'retencion' ? 'Comprobante de Retención' :
+         tipoDocumento === 'liquidacion' ? 'Liquidación de Compra' :
+         'Nuevo Documento' }}
+    </h4>
+
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
-          <div class="row g-3">
-            <div class="col-md-3">
-              <label class="form-label">Cliente</label>
-              <select class="form-select" v-model="venta.clienteId" required>
-                <option value="">Seleccionar</option>
-                <option v-for="c in clientes" :key="c._id" :value="c._id">{{ c.nombre }}</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Nº Factura</label>
-              <input type="text" class="form-control" v-model="venta.numero_factura">
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Fecha Emisión</label>
-              <input type="date" class="form-control" v-model="venta.fecha_emision" required>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Tipo Documento</label>
-              <select class="form-select" v-model="venta.tipo_documento">
+          <!-- ===== SELECCIÓN DE TIPO DE DOCUMENTO ===== -->
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
+              <select class="form-select" v-model="venta.tipo_documento" @change="cambiarTipo">
                 <option value="factura">Factura</option>
+                <option value="guia_remision">Guía de Remisión</option>
+                <option value="exportacion">Factura de Exportación</option>
+                <option value="reembolso">Factura de Reembolso</option>
+                <option value="retencion">Comprobante de Retención</option>
+                <option value="liquidacion">Liquidación de Compra</option>
                 <option value="nota_credito">Nota de Crédito</option>
                 <option value="proforma">Proforma</option>
                 <option value="nota_venta">Nota de Venta</option>
               </select>
             </div>
+            <div class="col-md-4">
+              <label class="form-label">Nº Documento</label>
+              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="001-001-0000001">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label"><span class="text-danger">*</span> Fecha Emisión</label>
+              <input type="date" class="form-control" v-model="venta.fecha_emision" required>
+            </div>
           </div>
 
-          <hr>
-          <h5>Detalles de venta</h5>
+          <!-- ===== CAMPOS ESPECIALES SEGÚN TIPO ===== -->
+          <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Nº Guía</label>
+              <input type="text" class="form-control" v-model="venta.numero_guia">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Transportista</label>
+              <input type="text" class="form-control" v-model="venta.transportista">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Placa</label>
+              <input type="text" class="form-control" v-model="venta.placa">
+            </div>
+          </div>
+
+          <div v-if="venta.tipo_documento === 'exportacion'" class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Nº Exportación</label>
+              <input type="text" class="form-control" v-model="venta.numero_exportacion">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">País Destino</label>
+              <input type="text" class="form-control" v-model="venta.pais_destino">
+            </div>
+          </div>
+
+          <div v-if="venta.tipo_documento === 'retencion'" class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Nº Retención</label>
+              <input type="text" class="form-control" v-model="venta.numero_retencion">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Porcentaje Retenido</label>
+              <input type="number" class="form-control" v-model.number="venta.porcentaje_retencion" step="0.01">
+            </div>
+          </div>
+
+          <hr />
+
+          <!-- ===== CLIENTE ===== -->
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label"><span class="text-danger">*</span> Cliente</label>
+              <select class="form-select" v-model="venta.clienteId" required>
+                <option value="">Seleccionar Cliente</option>
+                <option v-for="c in clientes" :key="c._id" :value="c._id">{{ c.nombre }}</option>
+              </select>
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <router-link to="/clientes/nuevo" class="btn btn-outline-primary w-100">
+                <i class="fas fa-plus"></i> Nuevo Cliente
+              </router-link>
+            </div>
+          </div>
+
+          <hr />
+          <h5>Detalles</h5>
           <div v-for="(item, index) in venta.detalles" :key="index" class="row g-2 align-items-end mb-2">
             <div class="col-md-4">
               <label class="form-label">Producto</label>
@@ -70,17 +123,17 @@
           </div>
           <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle"><i class="fas fa-plus"></i> Agregar producto</button>
 
-          <hr>
+          <hr />
           <div class="row g-3">
-            <div class="col-md-3 offset-md-6"><label class="form-label">Subtotal</label><input type="text" class="form-control" :value="subtotal" readonly></div>
-            <div class="col-md-3"><label class="form-label">IVA (12%)</label><input type="text" class="form-control" :value="iva" readonly></div>
+            <div class="col-md-3 offset-md-6"><label class="form-label">Subtotal</label><input type="text" class="form-control" :value="subtotal.toFixed(2)" readonly></div>
+            <div class="col-md-3"><label class="form-label">IVA (15%)</label><input type="text" class="form-control" :value="iva.toFixed(2)" readonly></div>
           </div>
           <div class="row g-3">
-            <div class="col-md-3 offset-md-6"><label class="form-label">Total</label><input type="text" class="form-control" :value="total" readonly style="font-weight:700;"></div>
+            <div class="col-md-3 offset-md-6"><label class="form-label">Total</label><input type="text" class="form-control" :value="total.toFixed(2)" readonly style="font-weight:700;"></div>
           </div>
 
           <div class="mt-4">
-            <button type="submit" class="btn btn-cacao-primary me-2"><i class="fas fa-save"></i> Guardar Venta</button>
+            <button type="submit" class="btn btn-success me-2"><i class="fas fa-save"></i> Guardar</button>
             <router-link to="/ventas" class="btn btn-secondary">Cancelar</router-link>
           </div>
         </form>
@@ -91,41 +144,32 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 
-const rucBusqueda = ref('')
-
-const buscarClientePorRuc = async () => {
-  if (!rucBusqueda.value.trim()) return
-  try {
-    const clientes = await find('clientes')
-    const encontrado = clientes.find(c => c.ruc === rucBusqueda.value.trim())
-    if (encontrado) {
-      venta.value.clienteId = encontrado._id
-      alert('Cliente encontrado: ' + encontrado.nombre)
-    } else {
-      alert('No se encontró ningún cliente con ese RUC/Cédula. Puede crear uno nuevo en la sección de Clientes.')
-    }
-  } catch (e) {
-    alert('Error en la búsqueda: ' + e.message)
-  }
-}
-
+const route = useRoute()
 const router = useRouter()
 const { find, insertOne } = useMongoDB()
 const clientes = ref([])
 const productos = ref([])
 
+// Detectar tipo de documento desde la URL
+const tipoInicial = route.query.tipo || 'factura'
+
 const venta = ref({
   clienteId: '',
   numero_factura: '',
   fecha_emision: new Date().toISOString().split('T')[0],
-  tipo_documento: 'factura',
+  tipo_documento: tipoInicial,
   detalles: [],
-  subtotal: 0,
-  iva: 0,
-  total: 0
+  // Campos especiales
+  numero_guia: '',
+  transportista: '',
+  placa: '',
+  numero_exportacion: '',
+  pais_destino: '',
+  numero_retencion: '',
+  porcentaje_retencion: 0
 })
 
 const agregarDetalle = () => {
@@ -145,8 +189,19 @@ const subtotal = computed(() => {
   return venta.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.precio_unitario || 0), 0)
 })
 
-const iva = computed(() => subtotal.value * 0.15)
+const iva = computed(() => subtotal.value * 0.15) // IVA 15% como pide el usuario
 const total = computed(() => subtotal.value + iva.value)
+
+const cambiarTipo = () => {
+  // Resetear campos especiales al cambiar de tipo
+  venta.value.numero_guia = ''
+  venta.value.transportista = ''
+  venta.value.placa = ''
+  venta.value.numero_exportacion = ''
+  venta.value.pais_destino = ''
+  venta.value.numero_retencion = ''
+  venta.value.porcentaje_retencion = 0
+}
 
 onMounted(async () => {
   try {
@@ -163,6 +218,15 @@ onMounted(async () => {
 })
 
 const guardar = async () => {
+  if (!venta.value.clienteId) {
+    alert('Seleccione un cliente')
+    return
+  }
+  if (venta.value.detalles.length === 0 || !venta.value.detalles[0].productoId) {
+    alert('Agregue al menos un producto')
+    return
+  }
+
   try {
     const payload = {
       clienteId: venta.value.clienteId,
@@ -176,12 +240,20 @@ const guardar = async () => {
       })),
       subtotal: subtotal.value,
       iva: iva.value,
-      total: total.value
+      total: total.value,
+      // Campos especiales
+      numero_guia: venta.value.numero_guia,
+      transportista: venta.value.transportista,
+      placa: venta.value.placa,
+      numero_exportacion: venta.value.numero_exportacion,
+      pais_destino: venta.value.pais_destino,
+      numero_retencion: venta.value.numero_retencion,
+      porcentaje_retencion: venta.value.porcentaje_retencion
     }
     await insertOne('ventas', payload)
     router.push('/ventas')
   } catch (e) {
-    alert('Error al guardar venta: ' + e.message)
+    alert('Error al guardar: ' + e.message)
   }
 }
 </script>
