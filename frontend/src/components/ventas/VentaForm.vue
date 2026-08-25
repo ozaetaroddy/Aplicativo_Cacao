@@ -146,10 +146,12 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useSecuencias } from '../../composables/useSecuencias'
 
 const route = useRoute()
 const router = useRouter()
 const { find, insertOne } = useMongoDB()
+const { generarCodigo } = useSecuencias()
 const clientes = ref([])
 const productos = ref([])
 
@@ -162,7 +164,6 @@ const venta = ref({
   fecha_emision: new Date().toISOString().split('T')[0],
   tipo_documento: tipoInicial,
   detalles: [],
-  // Campos especiales
   numero_guia: '',
   transportista: '',
   placa: '',
@@ -171,6 +172,38 @@ const venta = ref({
   numero_retencion: '',
   porcentaje_retencion: 0
 })
+
+onMounted(async () => {
+  try {
+    const [clis, prods] = await Promise.all([
+      find('clientes'),
+      find('productos')
+    ])
+    clientes.value = clis
+    productos.value = prods
+    agregarDetalle()
+
+    // Generar número automático según tipo de documento
+    const tipoMap = {
+      'factura': 'factura',
+      'guia_remision': 'guia',
+      'exportacion': 'exportacion',
+      'reembolso': 'factura',
+      'retencion': 'retencion',
+      'liquidacion': 'liquidacion',
+      'nota_credito': 'factura',
+      'proforma': 'factura'
+    }
+    const tipoSecuencia = tipoMap[venta.value.tipo_documento] || 'factura'
+    const numero = await generarCodigo(tipoSecuencia)
+    if (numero) {
+      venta.value.numero_factura = numero
+    }
+  } catch (e) {
+    console.error(e)
+  }
+})
+
 
 const agregarDetalle = () => {
   venta.value.detalles.push({ productoId: '', cantidad: 1, precio_unitario: 0 })

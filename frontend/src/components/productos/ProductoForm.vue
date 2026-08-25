@@ -68,10 +68,12 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useSecuencias } from '../../composables/useSecuencias'
 
 const route = useRoute()
 const router = useRouter()
 const { findById, insertOne, updateOne, find } = useMongoDB()
+const { generarCodigo } = useSecuencias()
 const id = route.params.id
 const categorias = ref([])
 
@@ -83,8 +85,30 @@ const form = ref({
   precio_compra: 0,
   precio_venta: 0,
   stock_minimo: 0,
-  unidad_medida: 'unidad'
+  unidad_medida: 'unidad',
+  codigo_barras: '',
+  foto: '',
+  observaciones: ''
 })
+
+onMounted(async () => {
+  try {
+    const cats = await find('categorias')
+    categorias.value = cats
+    
+    if (id) {
+      const prod = await findById('productos', id)
+      form.value = prod
+    } else {
+      // Generar código automático para nuevo producto
+      const codigo = await generarCodigo('producto')
+      if (codigo) form.value.codigo = codigo
+    }
+  } catch (e) {
+    console.error(e)
+  }
+})
+
 
 // ===== CARGAR DATOS SI ES EDICIÓN (CORREGIDO) =====
 onMounted(async () => {

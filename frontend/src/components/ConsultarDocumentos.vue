@@ -71,9 +71,9 @@
                 <button class="btn btn-sm btn-outline-primary me-1" @click="verDetalle(doc)">
                   <i class="fas fa-eye"></i>
                 </button>
-                <button class="btn btn-sm btn-outline-success" @click="imprimirDoc(doc, 'ticket')">
-                  <i class="fas fa-receipt"></i>
-                </button>
+                <button class="btn btn-sm btn-outline-success" @click="imprimirDocumento(doc, 'ticket')">
+  <i class="fas fa-receipt"></i>
+</button>
               </td>
             </tr>
             <tr v-if="documentos.length === 0 && !cargando">
@@ -148,4 +148,66 @@ const imprimir = (formato) => {
 onMounted(() => {
   cargarDatos()
 })
+const imprimirDocumento = (doc, formato) => {
+  // Generar HTML del documento
+  const ventana = window.open('', '_blank', 'width=800,height=600')
+  const contenido = generarHTMLDocumento(doc, formato)
+  ventana.document.write(contenido)
+  ventana.document.close()
+  ventana.print()
+}
+
+const generarHTMLDocumento = (doc, formato) => {
+  const estilos = `
+    <style>
+      @page { margin: 2cm; }
+      body { font-family: Arial, sans-serif; }
+      .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; }
+      .empresa { font-size: 24px; font-weight: bold; color: #1a2a3a; }
+      .documento { font-size: 18px; font-weight: bold; margin: 10px 0; }
+      .info { margin: 10px 0; }
+      .tabla { width: 100%; border-collapse: collapse; margin: 15px 0; }
+      .tabla th { background: #1a2a3a; color: white; padding: 8px; text-align: left; }
+      .tabla td { padding: 8px; border-bottom: 1px solid #ddd; }
+      .total { text-align: right; font-weight: bold; font-size: 16px; margin-top: 10px; }
+      .footer { text-align: center; font-size: 12px; color: #666; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 10px; }
+    </style>
+  `
+
+  let html = `<!DOCTYPE html>
+  <html>
+    <head><meta charset="UTF-8"><title>Documento</title>${estilos}</head>
+    <body>
+      <div class="header">
+        <div class="empresa">System Ozaet's Electronics</div>
+        <div class="documento">${doc.tipo_documento?.toUpperCase() || 'DOCUMENTO'}</div>
+      </div>
+      <div class="info">
+        <p><strong>Número:</strong> ${doc.numero_factura || doc.numero_guia || 'N/A'}</p>
+        <p><strong>Fecha:</strong> ${new Date(doc.fecha_emision).toLocaleDateString()}</p>
+        <p><strong>Cliente:</strong> ${doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A'}</p>
+      </div>
+      <table class="tabla">
+        <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio Unit.</th><th>Subtotal</th></tr></thead>
+        <tbody>
+          ${doc.detalles?.map(d => `
+            <tr>
+              <td>${d.productoId || 'Producto'}</td>
+              <td>${d.cantidad || 0}</td>
+              <td>$${(d.precio_unitario || 0).toFixed(2)}</td>
+              <td>$${(d.cantidad * d.precio_unitario || 0).toFixed(2)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="4">Sin detalles</td></tr>'}
+        </tbody>
+      </table>
+      <div class="total">Total: $${(doc.total || 0).toFixed(2)}</div>
+      <div class="footer">
+        <p>Documento generado por Sistema Contable</p>
+        <p>Ecuador - ${new Date().toLocaleString()}</p>
+      </div>
+    </body>
+  </html>`
+
+  return html
+}
 </script>
