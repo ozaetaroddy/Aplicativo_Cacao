@@ -7,12 +7,9 @@
          tipoDocumento === 'reembolso' ? 'Factura de Reembolso' :
          tipoDocumento === 'retencion' ? 'Comprobante de Retención' :
          tipoDocumento === 'liquidacion' ? 'Liquidación de Compra' :
-         'Nuevo Documento' }}
+         id ? 'Editar Documento' : 'Nuevo Documento' }}
     </h4>
-<div class="col-md-4">
-  <label class="form-label">Nº Documento</label>
-  <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Se generará automáticamente">
-</div>
+
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
@@ -34,7 +31,7 @@
             </div>
             <div class="col-md-4">
               <label class="form-label">Nº Documento</label>
-              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="001-001-0000001">
+              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Se genera automático">
             </div>
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Fecha Emisión</label>
@@ -149,39 +146,11 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
-import { useSecuencias } from '../../composables/useSecuencias'
 
-const generarCodigo = async () => {
-  try {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/contadores/siguiente`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tipo: venta.value.tipo_documento || 'factura' })
-    });
-    const data = await response.json();
-    if (data.codigo) {
-      venta.value.numero_factura = data.codigo;
-    }
-  } catch (e) {
-    console.error('Error generando código:', e);
-  }
-};
-
-// Llamar a generarCodigo al montar si es nuevo
-onMounted(async () => {
-  if (!route.params.id) {
-    await generarCodigo();
-  }
-  // ... resto
-});
-const cambiarTipo = () => {
-  // ... resetear campos ...
-  generarCodigo(); // nuevo código para el nuevo tipo
-};
 const route = useRoute()
 const router = useRouter()
-const { find, insertOne } = useMongoDB()
-const { generarCodigo } = useSecuencias()
+const { find, findById, insertOne, updateOne } = useMongoDB()
+const id = route.params.id
 const clientes = ref([])
 const productos = ref([])
 
@@ -194,6 +163,7 @@ const venta = ref({
   fecha_emision: new Date().toISOString().split('T')[0],
   tipo_documento: tipoInicial,
   detalles: [],
+  // Campos especiales
   numero_guia: '',
   transportista: '',
   placa: '',
@@ -203,38 +173,25 @@ const venta = ref({
   porcentaje_retencion: 0
 })
 
-onMounted(async () => {
+// ===== GENERACIÓN DE CÓDIGO =====
+const generarCodigo = async (tipo) => {
   try {
-    const [clis, prods] = await Promise.all([
-      find('clientes'),
-      find('productos')
-    ])
-    clientes.value = clis
-    productos.value = prods
-    agregarDetalle()
-
-    // Generar número automático según tipo de documento
-    const tipoMap = {
-      'factura': 'factura',
-      'guia_remision': 'guia',
-      'exportacion': 'exportacion',
-      'reembolso': 'factura',
-      'retencion': 'retencion',
-      'liquidacion': 'liquidacion',
-      'nota_credito': 'factura',
-      'proforma': 'factura'
-    }
-    const tipoSecuencia = tipoMap[venta.value.tipo_documento] || 'factura'
-    const numero = await generarCodigo(tipoSecuencia)
-    if (numero) {
-      venta.value.numero_factura = numero
-    }
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/contadores/siguiente`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo })
+    })
+    if (!response.ok) throw new Error('Error al generar código')
+    const data = await response.json()
+    venta.value.numero_factura = data.codigo
   } catch (e) {
-    console.error(e)
+    console.error('Error generando código:', e)
+    // Fallback: código temporal
+    venta.value.numero_factura = `${tipo.toUpperCase()}-${Date.now()}`
   }
-})
+}
 
-
+// ===== FUNCIONES DEL FORMULARIO =====
 const agregarDetalle = () => {
   venta.value.detalles.push({ productoId: '', cantidad: 1, precio_unitario: 0 })
 }
@@ -252,11 +209,11 @@ const subtotal = computed(() => {
   return venta.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.precio_unitario || 0), 0)
 })
 
-const iva = computed(() => subtotal.value * 0.15) // IVA 15% como pide el usuario
+const iva = computed(() => subtotal.value * 0.15)
 const total = computed(() => subtotal.value + iva.value)
 
 const cambiarTipo = () => {
-  // Resetear campos especiales al cambiar de tipo
+  // Resetear campos especiales
   venta.value.numero_guia = ''
   venta.value.transportista = ''
   venta.value.placa = ''
@@ -264,8 +221,11 @@ const cambiarTipo = () => {
   venta.value.pais_destino = ''
   venta.value.numero_retencion = ''
   venta.value.porcentaje_retencion = 0
+  // Generar nuevo código
+  generarCodigo(venta.value.tipo_documento)
 }
 
+// ===== CARGAR DATOS INICIALES =====
 onMounted(async () => {
   try {
     const [clis, prods] = await Promise.all([
@@ -274,12 +234,25 @@ onMounted(async () => {
     ])
     clientes.value = clis
     productos.value = prods
-    agregarDetalle()
+
+    // Si es edición, cargar datos
+    if (id) {
+      const data = await findById('ventas', id)
+      if (data) {
+        venta.value = data
+      }
+    } else {
+      // Nuevo: generar código y agregar primer detalle
+      await generarCodigo(venta.value.tipo_documento)
+      agregarDetalle()
+    }
   } catch (e) {
-    console.error(e)
+    console.error('Error cargando datos:', e)
+    alert('Error al cargar los datos')
   }
 })
 
+// ===== GUARDAR =====
 const guardar = async () => {
   if (!venta.value.clienteId) {
     alert('Seleccione un cliente')
@@ -313,9 +286,17 @@ const guardar = async () => {
       numero_retencion: venta.value.numero_retencion,
       porcentaje_retencion: venta.value.porcentaje_retencion
     }
-    await insertOne('ventas', payload)
+
+    let resultado
+    if (id) {
+      resultado = await updateOne('ventas', id, payload)
+    } else {
+      resultado = await insertOne('ventas', payload)
+    }
+    console.log('Guardado exitoso:', resultado)
     router.push('/ventas')
   } catch (e) {
+    console.error('Error al guardar:', e)
     alert('Error al guardar: ' + e.message)
   }
 }
