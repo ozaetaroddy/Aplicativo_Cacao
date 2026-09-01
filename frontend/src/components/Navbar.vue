@@ -20,30 +20,30 @@
             </router-link>
           </li>
 
-          <!-- ===== DOCUMENTOS (dropdown controlado por Vue) ===== -->
-<li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
-  <a
-    class="nav-link dropdown-toggle"
-    href="#"
-    role="button"
-    @click.prevent="toggleDropdown('documentos')"
-  >
-    <i class="fas fa-file-invoice"></i> Documentos
-  </a>
-  <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
-    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
-    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
-    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
-    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarTodo">Factura Reembolso</router-link></li>
-    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">Comprobante Retención</router-link></li>
-    <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
-    <li><hr class="dropdown-divider"></li>
-    <li><router-link class="dropdown-item" to="/consultar-documentos" @click="cerrarTodo"><i class="fas fa-search"></i> Consultar Documentos</router-link></li>
-    <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
-  </ul>
-</li>
+          <!-- ===== DOCUMENTOS (dropdown con toggle) ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('documentos')"
+            >
+              <i class="fas fa-file-invoice"></i> Documentos
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarTodo">Factura Reembolso</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">Comprobante Retención</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><router-link class="dropdown-item" to="/consultar-documentos" @click="cerrarTodo"><i class="fas fa-search"></i> Consultar Documentos</router-link></li>
+              <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
+            </ul>
+          </li>
 
-          <!-- ===== MAESTROS ===== -->
+          <!-- ===== BASE DE DATOS (antes Maestros) ===== -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
             <a
               class="nav-link dropdown-toggle"
@@ -51,7 +51,7 @@
               role="button"
               @click.prevent="toggleDropdown('maestros')"
             >
-              <i class="fas fa-database"></i> Maestros
+              <i class="fas fa-database"></i> Base de datos
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.maestros }">
               <li><router-link class="dropdown-item" to="/productos" @click="cerrarTodo"><i class="fas fa-boxes"></i> Productos</router-link></li>
@@ -61,7 +61,7 @@
             </ul>
           </li>
 
-          <!-- ===== REPORTES ===== -->
+          <!-- ===== REPORTES (dropdown con toggle) ===== -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
             <a
               class="nav-link dropdown-toggle"
@@ -104,14 +104,18 @@ const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
 }
 
-// Alternar un dropdown específico y cerrar los otros
+// ===== TOGGLE PARA DROPDOWNS (abre/cierra al hacer clic en el título) =====
 const toggleDropdown = (nombre) => {
-  // Cerrar todos
-  Object.keys(dropdowns.value).forEach(key => {
-    dropdowns.value[key] = false
-  })
-  // Abrir el que se hizo clic
-  dropdowns.value[nombre] = true
+  // Si el dropdown ya está abierto, lo cerramos
+  if (dropdowns.value[nombre]) {
+    dropdowns.value[nombre] = false
+  } else {
+    // Cerrar todos los demás y abrir el seleccionado
+    Object.keys(dropdowns.value).forEach(key => {
+      dropdowns.value[key] = false
+    })
+    dropdowns.value[nombre] = true
+  }
 }
 
 // Cerrar todo (navbar y dropdowns)
@@ -125,7 +129,6 @@ const cerrarTodo = () => {
 
 <style scoped>
 /* ===== ESTILOS PARA DROPDOWNS CONTROLADOS POR VUE ===== */
-/* Aseguramos que los dropdowns se comporten como en Bootstrap */
 .navbar-cacao .dropdown-menu {
   display: none;
   position: absolute;
