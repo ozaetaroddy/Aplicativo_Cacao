@@ -2,16 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 
-// Obtener contador para 'compra'
-const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
-  { _id: 'compra' },
-  { $inc: { valor: 1 } },
-  { upsert: true, returnDocument: 'after' }
-);
-const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
-compra.numero_factura = compra.numero_factura || codigo;
-
-// Obtener todas las compras (con populate de proveedor)
+// Obtener todas las compras
 router.get('/', async (req, res) => {
   try {
     const compras = await req.db.collection('compras_v2').aggregate([
@@ -24,9 +15,37 @@ router.get('/', async (req, res) => {
         }
       },
       { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } },
-      { $sort: { fecha: -1 } }
+      { $sort: { fecha_emision: -1 } }
     ]).toArray();
     res.json(compras);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Obtener compra por ID
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+    const compra = await req.db.collection('compras_v2').aggregate([
+      { $match: { _id: new ObjectId(id) } },
+      {
+        $lookup: {
+          from: 'proveedores',
+          localField: 'proveedorId',
+          foreignField: '_id',
+          as: 'proveedor'
+        }
+      },
+      { $unwind: '$proveedor' }
+    ]).toArray();
+    if (compra.length === 0) {
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+    res.json(compra[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -37,20 +56,25 @@ router.post('/', async (req, res) => {
   try {
     const { proveedorId, numero_factura, fecha_emision, detalles, subtotal, iva, total } = req.body;
 
-    // Validar que proveedorId sea válido
     if (!ObjectId.isValid(proveedorId)) {
       return res.status(400).json({ error: 'ID de proveedor inválido' });
     }
 
-    // Iniciar sesión de MongoDB para transacción
     const session = req.db.client.startSession();
     let result;
 
     await session.withTransaction(async () => {
-      // 1. Insertar la compra
+      // ===== OBTENER CONTADOR (sin top-level await) =====
+      const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
+        { _id: 'compra' },
+        { $inc: { valor: 1 } },
+        { upsert: true, returnDocument: 'after' }
+      );
+      const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
+
       const compra = {
         proveedorId: new ObjectId(proveedorId),
-        numero_factura,
+        numero_factura: numero_factura || codigo,
         fecha_emision: new Date(fecha_emision),
         detalles,
         subtotal,
@@ -62,13 +86,12 @@ router.post('/', async (req, res) => {
       const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
       const compraId = compraResult.insertedId;
 
-      // 2. Actualizar stock de cada producto y registrar kardex
+      // Actualizar stock y kardex
       for (const detalle of detalles) {
         const productoId = new ObjectId(detalle.productoId);
         const cantidad = detalle.cantidad;
         const costoUnitario = detalle.costo_unitario;
 
-        // Actualizar stock del producto (sumar)
         await req.db.collection('productos').updateOne(
           { _id: productoId },
           { 
@@ -78,11 +101,9 @@ router.post('/', async (req, res) => {
           { session }
         );
 
-        // Obtener el stock actualizado para el kardex
         const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
         const saldoActual = productoActualizado.stock;
 
-        // Insertar en kardex
         await req.db.collection('kardex').insertOne({
           productoId,
           fecha: new Date(fecha_emision),
@@ -99,7 +120,6 @@ router.post('/', async (req, res) => {
       result = compraResult;
     });
 
-    // Obtener la compra con populate para devolver
     const compraCreada = await req.db.collection('compras_v2').aggregate([
       { $match: { _id: result.insertedId } },
       {
@@ -116,6 +136,54 @@ router.post('/', async (req, res) => {
     res.status(201).json(compraCreada[0]);
   } catch (err) {
     console.error('Error en compra:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Actualizar compra
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+    const { proveedorId, numero_factura, fecha_emision, detalles, subtotal, iva, total } = req.body;
+    const updateData = {
+      proveedorId: new ObjectId(proveedorId),
+      numero_factura,
+      fecha_emision: new Date(fecha_emision),
+      detalles,
+      subtotal,
+      iva,
+      total,
+      updatedAt: new Date()
+    };
+    const result = await req.db.collection('compras_v2').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+    res.json({ message: 'Compra actualizada' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Eliminar compra
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+    const result = await req.db.collection('compras_v2').deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+    res.json({ message: 'Compra eliminada' });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
