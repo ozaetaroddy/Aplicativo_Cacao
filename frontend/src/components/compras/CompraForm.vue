@@ -8,6 +8,10 @@
     </div>
   </div>
 </div>
+<div class="col-md-4">
+  <label class="form-label">Nº Documento</label>
+  <input type="text" class="form-control" v-model="compra.numero_factura" placeholder="Se generará automáticamente">
+</div>
   <div>
     <h4 class="section-title"><i class="fas fa-shopping-cart"></i> Nueva Compra</h4>
     <div class="card card-cacao">
@@ -105,6 +109,35 @@ const router = useRouter()
 const { find, insertOne } = useMongoDB()
 const proveedores = ref([])
 const productos = ref([])
+
+const generarCodigo = async () => {
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/contadores/siguiente`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: compra.value.tipo_documento || 'factura' })
+    });
+    const data = await response.json();
+    if (data.codigo) {
+      compra.value.numero_factura = data.codigo;
+    }
+  } catch (e) {
+    console.error('Error generando código:', e);
+  }
+};
+
+// Llamar a generarCodigo al montar si es nuevo
+onMounted(async () => {
+  if (!route.params.id) {
+    await generarCodigo();
+  }
+  // ... resto
+});
+
+const cambiarTipo = () => {
+  // ... resetear campos ...
+  generarCodigo(); // nuevo código para el nuevo tipo
+};
 
 const compra = ref({
   proveedorId: '',

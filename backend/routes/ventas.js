@@ -1,6 +1,28 @@
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
+// Dentro del POST, antes de insertar, obtener el código
+const tipoDoc = venta.tipo_documento || 'factura';
+// Obtener contador
+const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
+  { _id: tipoDoc },
+  { $inc: { valor: 1 } },
+  { upsert: true, returnDocument: 'after' }
+);
+const prefijos = {
+  'factura': 'FAC',
+  'guia_remision': 'GUI',
+  'exportacion': 'EXP',
+  'reembolso': 'REB',
+  'retencion': 'RET',
+  'liquidacion': 'LIQ',
+  'nota_credito': 'NCR',
+  'proforma': 'PRO'
+};
+const prefijo = prefijos[tipoDoc] || 'DOC';
+const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
+// Si el usuario ya envió un numero_factura, usarlo; sino, el generado
+venta.numero_factura = venta.numero_factura || codigo;
 
 router.get('/', async (req, res) => {
   try {

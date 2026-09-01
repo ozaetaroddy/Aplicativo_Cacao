@@ -9,7 +9,10 @@
          tipoDocumento === 'liquidacion' ? 'Liquidación de Compra' :
          'Nuevo Documento' }}
     </h4>
-
+<div class="col-md-4">
+  <label class="form-label">Nº Documento</label>
+  <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Se generará automáticamente">
+</div>
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
@@ -148,6 +151,33 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useSecuencias } from '../../composables/useSecuencias'
 
+const generarCodigo = async () => {
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/contadores/siguiente`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: venta.value.tipo_documento || 'factura' })
+    });
+    const data = await response.json();
+    if (data.codigo) {
+      venta.value.numero_factura = data.codigo;
+    }
+  } catch (e) {
+    console.error('Error generando código:', e);
+  }
+};
+
+// Llamar a generarCodigo al montar si es nuevo
+onMounted(async () => {
+  if (!route.params.id) {
+    await generarCodigo();
+  }
+  // ... resto
+});
+const cambiarTipo = () => {
+  // ... resetear campos ...
+  generarCodigo(); // nuevo código para el nuevo tipo
+};
 const route = useRoute()
 const router = useRouter()
 const { find, insertOne } = useMongoDB()

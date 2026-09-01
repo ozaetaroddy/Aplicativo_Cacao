@@ -2,6 +2,15 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 
+// Obtener contador para 'compra'
+const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
+  { _id: 'compra' },
+  { $inc: { valor: 1 } },
+  { upsert: true, returnDocument: 'after' }
+);
+const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
+compra.numero_factura = compra.numero_factura || codigo;
+
 // Obtener todas las compras (con populate de proveedor)
 router.get('/', async (req, res) => {
   try {

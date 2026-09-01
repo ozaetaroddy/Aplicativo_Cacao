@@ -50,6 +50,8 @@ const routes = [
   { path: '/compras/nuevo', component: CompraForm },
   { path: '/ventas', component: VentasList },
   { path: '/ventas/nuevo', component: VentaForm },
+  { path: '/ventas/editar/:id', component: VentaForm, props: true },
+{ path: '/compras/editar/:id', component: CompraForm, props: true },
   { path: '/kardex', component: KardexView },
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
