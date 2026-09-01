@@ -55,26 +55,16 @@
             <tr v-for="doc in documentos" :key="doc._id">
               <td>{{ new Date(doc.fecha_emision).toLocaleDateString() }}</td>
               <td>
-                <a href="#" @click.prevent="verDocumento(doc, 'A4')" class="text-primary">
+                <a href="#" @click.prevent="verDocumento(doc)" class="text-primary">
                   {{ doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A' }}
                 </a>
               </td>
               <td>{{ doc.numero_factura || doc.numero_guia || 'N/A' }}</td>
               <td><strong>${{ doc.total?.toFixed(2) || '0.00' }}</strong></td>
               <td>
-                <div class="btn-group">
-                  <button class="btn btn-sm btn-outline-primary" @click="verDocumento(doc, 'A4')" title="Ver">
-                    <i class="fas fa-eye"></i>
-                  </button>
-                  <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-                    <span class="visually-hidden">Toggle</span>
-                  </button>
-                  <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" href="#" @click.prevent="verDocumento(doc, 'A4')"><i class="fas fa-file-pdf"></i> A4</a></li>
-                    <li><a class="dropdown-item" href="#" @click.prevent="verDocumento(doc, 'A2')"><i class="fas fa-file-pdf"></i> A2</a></li>
-                    <li><a class="dropdown-item" href="#" @click.prevent="verDocumento(doc, 'ticket')"><i class="fas fa-receipt"></i> Ticket</a></li>
-                  </ul>
-                </div>
+                <button class="btn btn-sm btn-outline-primary" @click="verDocumento(doc)" title="Ver documento">
+                  <i class="fas fa-eye"></i>
+                </button>
               </td>
             </tr>
             <tr v-if="documentos.length === 0 && !cargando && buscado">
@@ -99,12 +89,10 @@
             <h5 class="modal-title">
               <i class="fas fa-file-invoice me-2"></i>
               {{ documentoActual?.numero_factura || documentoActual?.numero_guia || 'Sin número' }}
-              <span class="badge bg-secondary ms-2">{{ formatoImpresion }}</span>
             </h5>
             <button type="button" class="btn-close" @click="cerrarModal"></button>
           </div>
           <div class="modal-body" id="documentoContenido">
-            <!-- Contenido del documento -->
             <div class="documento-preview" :class="formatoImpresion === 'ticket' ? 'ticket' : ''">
               <!-- Encabezado -->
               <div class="text-center mb-4">
@@ -132,7 +120,7 @@
 
               <!-- Tabla de productos -->
               <div class="table-responsive">
-                <table class="table table-bordered table-striped">
+                <table class="table table-bordered table-striped" id="tablaDetalles">
                   <thead class="table-light">
                     <tr>
                       <th>#</th>
@@ -187,8 +175,21 @@
           </div>
           <div class="modal-footer">
             <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
-            <button class="btn btn-primary" @click="imprimirModal">
-              <i class="fas fa-print me-1"></i> Imprimir
+
+            <!-- Botón Imprimir con dropdown -->
+            <div class="btn-group">
+              <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-print me-1"></i> Imprimir
+              </button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="#" @click.prevent="imprimirModal('A4')">A4</a></li>
+                <li><a class="dropdown-item" href="#" @click.prevent="imprimirModal('A2')">A2</a></li>
+                <li><a class="dropdown-item" href="#" @click.prevent="imprimirModal('ticket')">Ticket</a></li>
+              </ul>
+            </div>
+
+            <button class="btn btn-success" @click="guardarPDF">
+              <i class="fas fa-file-pdf me-1"></i> Guardar PDF
             </button>
           </div>
         </div>
@@ -201,6 +202,8 @@
 import { ref, onMounted } from 'vue'
 import { Modal } from 'bootstrap'
 import { useMongoDB } from '../composables/useMongoDB'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 const { find } = useMongoDB()
 const tipoDocumento = ref('factura')
@@ -223,11 +226,11 @@ const obtenerNombreProducto = (id) => {
   return prod ? prod.nombre : 'Producto eliminado'
 }
 
+// Cargar datos solo al presionar buscar
 const cargarDatos = async () => {
   cargando.value = true
   buscado.value = true
   try {
-    // Cargar productos para mapear nombres
     const productos = await find('productos')
     productosMap.value = {}
     productos.forEach(p => productosMap.value[p._id] = p)
@@ -268,9 +271,9 @@ const limpiarFiltros = () => {
 }
 
 // Ver documento en modal
-const verDocumento = (doc, formato = 'A4') => {
+const verDocumento = (doc) => {
   documentoActual.value = doc
-  formatoImpresion.value = formato
+  formatoImpresion.value = 'A4'
   abrirModal()
 }
 
@@ -291,7 +294,9 @@ const cerrarModal = () => {
   }
 }
 
-const imprimirModal = () => {
+// ===== IMPRIMIR (con formato) =====
+const imprimirModal = (formato) => {
+  formatoImpresion.value = formato
   const contenido = document.getElementById('documentoContenido')
   if (!contenido) return
 
@@ -304,7 +309,6 @@ const imprimirModal = () => {
     return
   }
 
-  // Estilos específicos para impresión según formato
   const estilosImpresion = `
     body { 
       font-family: 'Segoe UI', Arial, sans-serif; 
@@ -380,7 +384,7 @@ const imprimirModal = () => {
     }
   `
 
-  const formatoClass = formatoImpresion.value === 'ticket' ? 'ticket' : ''
+  const formatoClass = formato === 'ticket' ? 'ticket' : ''
 
   ventana.document.write(`
     <!DOCTYPE html>
@@ -405,6 +409,44 @@ const imprimirModal = () => {
   ventana.document.close()
 }
 
+// ===== GUARDAR PDF =====
+const guardarPDF = async () => {
+  const contenido = document.getElementById('documentoContenido')
+  if (!contenido) return
+
+  try {
+    // Mostrar indicador de carga (opcional)
+    const btn = event.target.closest('button')
+    const textoOriginal = btn.innerHTML
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...'
+    btn.disabled = true
+
+    // Capturar el contenido como canvas
+    const canvas = await html2canvas(contenido, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff'
+    })
+
+    const imgData = canvas.toDataURL('image/png')
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'px',
+      format: [canvas.width, canvas.height]
+    })
+    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height)
+    const nombreArchivo = `documento_${documentoActual.value?.numero_factura || documentoActual.value?.numero_guia || 'sin_numero'}.pdf`
+    pdf.save(nombreArchivo)
+
+    // Restaurar botón
+    btn.innerHTML = textoOriginal
+    btn.disabled = false
+  } catch (error) {
+    console.error('Error al generar PDF:', error)
+    alert('Error al generar el PDF. Intente nuevamente.')
+  }
+}
+
 onMounted(() => {
   const modalEl = document.getElementById('modalDocumento')
   if (modalEl) {
@@ -413,7 +455,7 @@ onMounted(() => {
       keyboard: false
     })
   }
-  cargarDatos()
+  // No cargar datos automáticamente - solo se cargan al presionar "Buscar"
 })
 </script>
 
@@ -436,5 +478,8 @@ onMounted(() => {
 }
 .info-cliente p {
   margin-bottom: 4px;
+}
+.modal-footer .btn-group .dropdown-menu {
+  min-width: 100px;
 }
 </style>
