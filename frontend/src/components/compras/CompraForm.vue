@@ -1,48 +1,28 @@
 <template>
   <div>
-    <h4 class="section-title">
-      <i class="fas fa-shopping-cart"></i> Nueva Compra
-    </h4>
+    <h4 class="section-title"><i class="fas fa-shopping-cart"></i> Nueva Compra</h4>
 
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
-          <!-- ===== BÚSQUEDA POR RUC/CÉDULA ===== -->
-          <div class="row g-3 mb-3">
-            <div class="col-md-8">
-              <label class="form-label">Buscar Proveedor por RUC/Cédula</label>
-              <div class="input-group">
-                <input 
-                  type="text" 
-                  class="form-control" 
-                  v-model="rucBusqueda" 
-                  placeholder="Ingrese RUC (13 dígitos) o Cédula (10 dígitos)"
-                >
-                <button class="btn btn-outline-primary" type="button" @click="buscarProveedorPorRuc">
-                  <i class="fas fa-search"></i> Buscar
-                </button>
-              </div>
-              <small class="text-muted">Permite RUC (terminado en 001) o Cédula (10 dígitos)</small>
+          <!-- ===== PROVEEDOR ===== -->
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label"><span class="text-danger">*</span> Proveedor</label>
+              <select class="form-select" v-model="compra.proveedorId" required>
+                <option value="">Seleccionar</option>
+                <option v-for="p in proveedores" :key="p._id" :value="p._id">{{ p.nombre }}</option>
+              </select>
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <router-link to="/proveedores/nuevo" class="btn btn-outline-primary w-100">
+                <i class="fas fa-plus"></i> Nuevo Proveedor
+              </router-link>
             </div>
           </div>
 
-          <hr>
-
-          <!-- ===== DATOS DE LA COMPRA ===== -->
-          <div class="row g-3">
-            <div class="col-md-5">
-              <label class="form-label"><span class="text-danger">*</span> Proveedor</label>
-              <div class="d-flex gap-2">
-                <select class="form-select" v-model="compra.proveedorId" required>
-                  <option value="">Seleccionar Proveedor</option>
-                  <option v-for="p in proveedores" :key="p._id" :value="p._id">{{ p.nombre }}</option>
-                </select>
-                <router-link to="/proveedores/nuevo" class="btn btn-outline-primary" style="white-space: nowrap;">
-                  <i class="fas fa-plus"></i> Nuevo
-                </router-link>
-              </div>
-            </div>
-            <div class="col-md-3">
+          <div class="row g-3 mt-2">
+            <div class="col-md-4">
               <label class="form-label">Nº Factura</label>
               <input type="text" class="form-control" v-model="compra.numero_factura" placeholder="Automático">
             </div>
@@ -54,7 +34,8 @@
 
           <hr />
           <h5>Detalles de compra</h5>
-          
+
+          <!-- ===== DETALLES ===== -->
           <div v-for="(item, index) in compra.detalles" :key="index" class="row g-2 align-items-end mb-2">
             <div class="col-md-4">
               <label class="form-label">Producto</label>
@@ -76,11 +57,14 @@
               <input type="text" class="form-control" :value="(item.cantidad * item.costo_unitario).toFixed(2)" readonly>
             </div>
             <div class="col-md-2">
-              <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)"><i class="fas fa-times"></i></button>
+              <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
+                <i class="fas fa-trash"></i>
+              </button>
             </div>
           </div>
-          
-          <div class="d-flex gap-2 mt-2">
+
+          <!-- ===== BOTONES: Agregar producto y Crear producto ===== -->
+          <div class="d-flex gap-2">
             <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
               <i class="fas fa-plus"></i> Agregar producto
             </button>
@@ -126,8 +110,6 @@ const router = useRouter()
 const { find, insertOne } = useMongoDB()
 const proveedores = ref([])
 const productos = ref([])
-const rucBusqueda = ref('')
-const buscandoProveedor = ref(false)
 
 const compra = ref({
   proveedorId: '',
@@ -139,49 +121,12 @@ const compra = ref({
   total: 0
 })
 
-// ===== GENERAR CÓDIGO LOCAL =====
+// Generar código local (fallback)
 const generarCodigoCompra = () => {
   const numero = String(Date.now()).slice(-6)
   return `COM-${numero}`
 }
 
-// ===== BUSCAR PROVEEDOR POR RUC/CÉDULA =====
-const buscarProveedorPorRuc = async () => {
-  if (!rucBusqueda.value.trim()) {
-    alert('Ingrese un RUC o Cédula para buscar')
-    return
-  }
-
-  const busqueda = rucBusqueda.value.trim()
-  // Validar RUC (13 dígitos terminados en 001) o Cédula (10 dígitos)
-  const esRuc = /^\d{13}$/.test(busqueda) && busqueda.endsWith('001')
-  const esCedula = /^\d{10}$/.test(busqueda)
-  
-  if (!esRuc && !esCedula) {
-    alert('Formato inválido. Use RUC (13 dígitos terminado en 001) o Cédula (10 dígitos)')
-    return
-  }
-
-  buscandoProveedor.value = true
-  try {
-    const todos = await find('proveedores')
-    const encontrado = todos.find(p => p.ruc === busqueda)
-    if (encontrado) {
-      compra.value.proveedorId = encontrado._id
-      alert(`Proveedor encontrado: ${encontrado.nombre}`)
-    } else {
-      const tipo = esRuc ? 'RUC' : 'Cédula'
-      alert(`No se encontró ningún proveedor con ese ${tipo}. Puede crearlo usando el botón "Nuevo"`)
-    }
-  } catch (e) {
-    console.error('Error buscando proveedor:', e)
-    alert('Error al buscar proveedor')
-  } finally {
-    buscandoProveedor.value = false
-  }
-}
-
-// ===== DETALLES =====
 const agregarDetalle = () => {
   compra.value.detalles.push({ productoId: '', cantidad: 1, costo_unitario: 0 })
 }
@@ -192,7 +137,7 @@ const eliminarDetalle = (index) => {
 
 const cargarPrecio = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
-  if (prod) item.costo_unitario = prod.precio_compra
+  if (prod) item.costo_unitario = prod.precio_compra || 0
 }
 
 const subtotal = computed(() => {

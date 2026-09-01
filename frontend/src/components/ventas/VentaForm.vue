@@ -16,7 +16,7 @@
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
-          <!-- ===== SELECCIÓN DE TIPO DE DOCUMENTO ===== -->
+          <!-- ===== SELECCIÓN DE TIPO ===== -->
           <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
@@ -41,7 +41,7 @@
             </div>
           </div>
 
-          <!-- ===== CAMPOS ESPECIALES SEGÚN TIPO (con v-show para mostrar/ocultar) ===== -->
+          <!-- ===== CAMPOS ESPECIALES (con v-show) ===== -->
           <div v-show="venta.tipo_documento === 'guia_remision'" class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Nº Guía</label>
@@ -99,6 +99,8 @@
 
           <hr />
           <h5>Detalles</h5>
+
+          <!-- ===== DETALLES ===== -->
           <div v-for="(item, index) in venta.detalles" :key="index" class="row g-2 align-items-end mb-2">
             <div class="col-md-4">
               <label class="form-label">Producto</label>
@@ -119,25 +121,39 @@
               <label class="form-label">Subtotal</label>
               <input type="text" class="form-control" :value="(item.cantidad * item.precio_unitario).toFixed(2)" readonly>
             </div>
-            <div class="d-flex gap-2 mt-2">
-  <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
-    <i class="fas fa-plus"></i> Agregar producto
-  </button>
-  <!-- NUEVO BOTÓN -->
-  <router-link to="/productos/nuevo" class="btn btn-outline-success btn-sm">
-    <i class="fas fa-box"></i> Crear Producto
-  </router-link>
-</div>
+            <div class="col-md-2">
+              <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
           </div>
-          <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle"><i class="fas fa-plus"></i> Agregar producto</button>
+
+          <!-- ===== BOTONES: Agregar producto y Crear producto ===== -->
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
+              <i class="fas fa-plus"></i> Agregar producto
+            </button>
+            <router-link to="/productos/nuevo" class="btn btn-outline-success btn-sm">
+              <i class="fas fa-box"></i> Crear Producto
+            </router-link>
+          </div>
 
           <hr />
           <div class="row g-3">
-            <div class="col-md-3 offset-md-6"><label class="form-label">Subtotal</label><input type="text" class="form-control" :value="subtotal.toFixed(2)" readonly></div>
-            <div class="col-md-3"><label class="form-label">IVA (15%)</label><input type="text" class="form-control" :value="iva.toFixed(2)" readonly></div>
+            <div class="col-md-3 offset-md-6">
+              <label class="form-label">Subtotal</label>
+              <input type="text" class="form-control" :value="subtotal.toFixed(2)" readonly>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">IVA (15%)</label>
+              <input type="text" class="form-control" :value="iva.toFixed(2)" readonly>
+            </div>
           </div>
           <div class="row g-3">
-            <div class="col-md-3 offset-md-6"><label class="form-label">Total</label><input type="text" class="form-control" :value="total.toFixed(2)" readonly style="font-weight:700;"></div>
+            <div class="col-md-3 offset-md-6">
+              <label class="form-label">Total</label>
+              <input type="text" class="form-control" :value="total.toFixed(2)" readonly style="font-weight:700;">
+            </div>
           </div>
 
           <div class="mt-4">
@@ -151,7 +167,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 
@@ -161,7 +177,6 @@ const { find, insertOne } = useMongoDB()
 const clientes = ref([])
 const productos = ref([])
 
-// Detectar tipo de documento desde la URL
 const tipoInicial = route.query.tipo || 'factura'
 
 const venta = ref({
@@ -170,7 +185,6 @@ const venta = ref({
   fecha_emision: new Date().toISOString().split('T')[0],
   tipo_documento: tipoInicial,
   detalles: [],
-  // Campos especiales
   numero_guia: '',
   transportista: '',
   placa: '',
@@ -180,7 +194,6 @@ const venta = ref({
   porcentaje_retencion: 0
 })
 
-// ===== GENERAR CÓDIGO SECUENCIAL LOCAL (fallback) =====
 const generarCodigoLocal = (tipo) => {
   const prefijos = {
     'factura': 'FAC',
@@ -197,34 +210,18 @@ const generarCodigoLocal = (tipo) => {
   return `${prefijo}-${numero}`
 }
 
-// ===== ASIGNAR CÓDIGOS AL CAMBIAR TIPO =====
 const asignarCodigos = () => {
   const tipo = venta.value.tipo_documento
-  // Número de documento principal
   venta.value.numero_factura = generarCodigoLocal(tipo)
-  // Número de exportación si aplica
-  if (tipo === 'exportacion') {
-    venta.value.numero_exportacion = generarCodigoLocal('exportacion')
-  } else {
-    venta.value.numero_exportacion = ''
-  }
-  // Número de guía si aplica
-  if (tipo === 'guia_remision') {
-    venta.value.numero_guia = generarCodigoLocal('guia_remision')
-  } else {
-    venta.value.numero_guia = ''
-  }
-  // Número de retención si aplica
-  if (tipo === 'retencion') {
-    venta.value.numero_retencion = generarCodigoLocal('retencion')
-  } else {
-    venta.value.numero_retencion = ''
-  }
+  if (tipo === 'exportacion') venta.value.numero_exportacion = generarCodigoLocal('exportacion')
+  else venta.value.numero_exportacion = ''
+  if (tipo === 'guia_remision') venta.value.numero_guia = generarCodigoLocal('guia_remision')
+  else venta.value.numero_guia = ''
+  if (tipo === 'retencion') venta.value.numero_retencion = generarCodigoLocal('retencion')
+  else venta.value.numero_retencion = ''
 }
 
-// ===== CAMBIAR TIPO =====
 const cambiarTipo = () => {
-  // Resetear campos especiales
   venta.value.numero_guia = ''
   venta.value.transportista = ''
   venta.value.placa = ''
@@ -232,7 +229,6 @@ const cambiarTipo = () => {
   venta.value.pais_destino = ''
   venta.value.numero_retencion = ''
   venta.value.porcentaje_retencion = 0
-  // Asignar nuevos códigos según el tipo
   asignarCodigos()
 }
 
@@ -246,7 +242,7 @@ const eliminarDetalle = (index) => {
 
 const cargarPrecioVenta = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
-  if (prod) item.precio_unitario = prod.precio_venta
+  if (prod) item.precio_unitario = prod.precio_venta || 0
 }
 
 const subtotal = computed(() => {
@@ -265,10 +261,7 @@ onMounted(async () => {
     clientes.value = clis
     productos.value = prods
     agregarDetalle()
-    // Si es nuevo, asignar códigos
-    if (!route.params.id) {
-      asignarCodigos()
-    }
+    if (!route.params.id) asignarCodigos()
   } catch (e) {
     console.error(e)
   }
