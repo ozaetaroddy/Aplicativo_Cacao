@@ -1,29 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
-// Dentro del POST, antes de insertar, obtener el código
-const tipoDoc = venta.tipo_documento || 'factura';
-// Obtener contador
-const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
-  { _id: tipoDoc },
-  { $inc: { valor: 1 } },
-  { upsert: true, returnDocument: 'after' }
-);
-const prefijos = {
-  'factura': 'FAC',
-  'guia_remision': 'GUI',
-  'exportacion': 'EXP',
-  'reembolso': 'REB',
-  'retencion': 'RET',
-  'liquidacion': 'LIQ',
-  'nota_credito': 'NCR',
-  'proforma': 'PRO'
-};
-const prefijo = prefijos[tipoDoc] || 'DOC';
-const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
-// Si el usuario ya envió un numero_factura, usarlo; sino, el generado
-venta.numero_factura = venta.numero_factura || codigo;
 
+// Obtener todas las ventas
 router.get('/', async (req, res) => {
   try {
     const ventas = await req.db.collection('ventas_v2').aggregate([
@@ -36,7 +15,7 @@ router.get('/', async (req, res) => {
         }
       },
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
-      { $sort: { fecha: -1 } }
+      { $sort: { fecha_emision: -1 } }
     ]).toArray();
     res.json(ventas);
   } catch (err) {
@@ -44,6 +23,35 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Obtener venta por ID
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+    const venta = await req.db.collection('ventas_v2').aggregate([
+      { $match: { _id: new ObjectId(id) } },
+      {
+        $lookup: {
+          from: 'clientes',
+          localField: 'clienteId',
+          foreignField: '_id',
+          as: 'cliente'
+        }
+      },
+      { $unwind: '$cliente' }
+    ]).toArray();
+    if (venta.length === 0) {
+      return res.status(404).json({ error: 'Venta no encontrada' });
+    }
+    res.json(venta[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Crear venta (con código automático)
 router.post('/', async (req, res) => {
   try {
     const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total } = req.body;
@@ -56,12 +64,31 @@ router.post('/', async (req, res) => {
     let result;
 
     await session.withTransaction(async () => {
-      // 1. Insertar venta
+      // ===== GENERAR CÓDIGO SECUENCIAL =====
+      const tipoDoc = tipo_documento || 'factura';
+      const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
+        { _id: tipoDoc },
+        { $inc: { valor: 1 } },
+        { upsert: true, returnDocument: 'after' }
+      );
+      const prefijos = {
+        'factura': 'FAC',
+        'guia_remision': 'GUI',
+        'exportacion': 'EXP',
+        'reembolso': 'REB',
+        'retencion': 'RET',
+        'liquidacion': 'LIQ',
+        'nota_credito': 'NCR',
+        'proforma': 'PRO'
+      };
+      const prefijo = prefijos[tipoDoc] || 'DOC';
+      const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
+
       const venta = {
         clienteId: new ObjectId(clienteId),
-        numero_factura,
+        numero_factura: numero_factura || codigo,
         fecha_emision: new Date(fecha_emision),
-        tipo_documento: tipo_documento || 'factura',
+        tipo_documento: tipoDoc,
         detalles,
         subtotal,
         iva,
@@ -72,14 +99,13 @@ router.post('/', async (req, res) => {
       const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
       const ventaId = ventaResult.insertedId;
 
-      // 2. Si es factura o nota de venta, restar stock y registrar kardex
-      if (tipo_documento !== 'nota_credito') {
+      // Actualizar stock y kardex (solo si no es nota de crédito)
+      if (tipoDoc !== 'nota_credito') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
           const cantidad = detalle.cantidad;
           const precioUnitario = detalle.precio_unitario;
 
-          // Restar stock
           await req.db.collection('productos').updateOne(
             { _id: productoId },
             { 
@@ -89,26 +115,21 @@ router.post('/', async (req, res) => {
             { session }
           );
 
-          // Obtener stock actualizado
           const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
           const saldoActual = productoActualizado.stock;
 
-          // Insertar kardex (cantidad negativa)
           await req.db.collection('kardex').insertOne({
             productoId,
             fecha: new Date(fecha_emision),
             tipo_movimiento: 'venta',
             cantidad: -cantidad,
-            costo_unitario: precioUnitario, // Usamos precio de venta como referencia
+            costo_unitario: precioUnitario,
             saldo: saldoActual,
             referencia_id: ventaId,
             referencia_tipo: 'venta',
             createdAt: new Date()
           }, { session });
         }
-      } else {
-        // Nota de crédito: no afecta stock (o ajuste según lógica)
-        // Aquí podrías sumar stock si devuelven productos
       }
 
       result = ventaResult;
@@ -130,6 +151,55 @@ router.post('/', async (req, res) => {
     res.status(201).json(ventaCreada[0]);
   } catch (err) {
     console.error('Error en venta:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Actualizar venta
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+    const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total } = req.body;
+    const updateData = {
+      clienteId: new ObjectId(clienteId),
+      numero_factura,
+      fecha_emision: new Date(fecha_emision),
+      tipo_documento: tipo_documento || 'factura',
+      detalles,
+      subtotal,
+      iva,
+      total,
+      updatedAt: new Date()
+    };
+    const result = await req.db.collection('ventas_v2').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Venta no encontrada' });
+    }
+    res.json({ message: 'Venta actualizada' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Eliminar venta
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+    const result = await req.db.collection('ventas_v2').deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Venta no encontrada' });
+    }
+    res.json({ message: 'Venta eliminada' });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
