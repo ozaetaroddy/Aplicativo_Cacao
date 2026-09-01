@@ -55,7 +55,7 @@
             <tr v-for="doc in documentos" :key="doc._id">
               <td>{{ new Date(doc.fecha_emision).toLocaleDateString() }}</td>
               <td>
-                <a href="#" @click.prevent="verEditar(doc)" class="text-primary">
+                <a href="#" @click.prevent="verDocumento(doc, 'A4')" class="text-primary">
                   {{ doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A' }}
                 </a>
               </td>
@@ -63,16 +63,16 @@
               <td><strong>${{ doc.total?.toFixed(2) || '0.00' }}</strong></td>
               <td>
                 <div class="btn-group">
-                  <button class="btn btn-sm btn-outline-primary" @click="verEditar(doc)">
+                  <button class="btn btn-sm btn-outline-primary" @click="verDocumento(doc, 'A4')" title="Ver">
                     <i class="fas fa-eye"></i>
                   </button>
                   <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-                    <span class="visually-hidden">Toggle Dropdown</span>
+                    <span class="visually-hidden">Toggle</span>
                   </button>
                   <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" href="#" @click.prevent="imprimirDoc(doc, 'A4')"><i class="fas fa-file-pdf"></i> A4</a></li>
-                    <li><a class="dropdown-item" href="#" @click.prevent="imprimirDoc(doc, 'A2')"><i class="fas fa-file-pdf"></i> A2</a></li>
-                    <li><a class="dropdown-item" href="#" @click.prevent="imprimirDoc(doc, 'ticket')"><i class="fas fa-receipt"></i> Ticket</a></li>
+                    <li><a class="dropdown-item" href="#" @click.prevent="verDocumento(doc, 'A4')"><i class="fas fa-file-pdf"></i> A4</a></li>
+                    <li><a class="dropdown-item" href="#" @click.prevent="verDocumento(doc, 'A2')"><i class="fas fa-file-pdf"></i> A2</a></li>
+                    <li><a class="dropdown-item" href="#" @click.prevent="verDocumento(doc, 'ticket')"><i class="fas fa-receipt"></i> Ticket</a></li>
                   </ul>
                 </div>
               </td>
@@ -90,15 +90,118 @@
         </table>
       </div>
     </div>
+
+    <!-- ===== MODAL DE VISTA PREVIA ===== -->
+    <div class="modal fade" id="modalDocumento" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="fas fa-file-invoice me-2"></i>
+              {{ documentoActual?.numero_factura || documentoActual?.numero_guia || 'Sin número' }}
+              <span class="badge bg-secondary ms-2">{{ formatoImpresion }}</span>
+            </h5>
+            <button type="button" class="btn-close" @click="cerrarModal"></button>
+          </div>
+          <div class="modal-body" id="documentoContenido">
+            <!-- Contenido del documento -->
+            <div class="documento-preview" :class="formatoImpresion === 'ticket' ? 'ticket' : ''">
+              <!-- Encabezado -->
+              <div class="text-center mb-4">
+                <h1 class="h3"><i class="fas fa-microchip me-2"></i>System Ozaet's Electronics</h1>
+                <p class="text-muted">Sistema Contable - Documento Electrónico</p>
+                <hr>
+                <h2 class="h4">{{ (documentoActual?.tipo_documento || 'DOCUMENTO').toUpperCase() }}</h2>
+                <p><strong>Nº:</strong> {{ documentoActual?.numero_factura || documentoActual?.numero_guia || 'N/A' }}</p>
+                <p><strong>Fecha Emisión:</strong> {{ documentoActual?.fecha_emision ? new Date(documentoActual.fecha_emision).toLocaleDateString() : 'N/A' }}</p>
+              </div>
+
+              <!-- Datos del cliente/proveedor -->
+              <div class="info-cliente mb-4">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p><strong>Cliente/Proveedor:</strong> {{ documentoActual?.cliente?.nombre || documentoActual?.proveedor?.nombre || 'N/A' }}</p>
+                    <p><strong>RUC/Cédula:</strong> {{ documentoActual?.cliente?.ruc || documentoActual?.proveedor?.ruc || 'N/A' }}</p>
+                  </div>
+                  <div class="col-md-6">
+                    <p><strong>Dirección:</strong> {{ documentoActual?.cliente?.direccion || documentoActual?.proveedor?.direccion || 'N/A' }}</p>
+                    <p><strong>Teléfono:</strong> {{ documentoActual?.cliente?.telefono || documentoActual?.proveedor?.telefono || 'N/A' }}</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tabla de productos -->
+              <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                  <thead class="table-light">
+                    <tr>
+                      <th>#</th>
+                      <th>Producto</th>
+                      <th>Cantidad</th>
+                      <th>Precio Unit.</th>
+                      <th>Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, idx) in documentoActual?.detalles || []" :key="idx">
+                      <td>{{ idx + 1 }}</td>
+                      <td>{{ obtenerNombreProducto(item.productoId) }}</td>
+                      <td>{{ item.cantidad }}</td>
+                      <td>${{ (item.precio_unitario || item.costo_unitario || 0).toFixed(2) }}</td>
+                      <td class="text-end">${{ (item.cantidad * (item.precio_unitario || item.costo_unitario || 0)).toFixed(2) }}</td>
+                    </tr>
+                    <tr v-if="!documentoActual?.detalles || documentoActual.detalles.length === 0">
+                      <td colspan="5" class="text-center text-muted">Sin detalles</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Totales -->
+              <div class="row mt-3">
+                <div class="col-md-6 offset-md-6">
+                  <table class="table table-borderless">
+                    <tr>
+                      <td><strong>Subtotal:</strong></td>
+                      <td class="text-end">${{ documentoActual?.subtotal?.toFixed(2) || '0.00' }}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>IVA (15%):</strong></td>
+                      <td class="text-end">${{ documentoActual?.iva?.toFixed(2) || '0.00' }}</td>
+                    </tr>
+                    <tr>
+                      <td><strong class="h5">Total:</strong></td>
+                      <td class="text-end h5">${{ documentoActual?.total?.toFixed(2) || '0.00' }}</td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Pie de página -->
+              <div class="text-center mt-4 text-muted small">
+                <hr>
+                <p>Documento generado por Sistema Contable - System Ozaet's Electronics</p>
+                <p>Formato: {{ formatoImpresion }}</p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
+            <button class="btn btn-primary" @click="imprimirModal">
+              <i class="fas fa-print me-1"></i> Imprimir
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { Modal } from 'bootstrap'
 import { useMongoDB } from '../composables/useMongoDB'
 
-const router = useRouter()
 const { find } = useMongoDB()
 const tipoDocumento = ref('factura')
 const fechaDesde = ref('')
@@ -107,10 +210,28 @@ const documentos = ref([])
 const cargando = ref(false)
 const buscado = ref(false)
 
+// Modal
+const modalInstance = ref(null)
+const documentoActual = ref(null)
+const formatoImpresion = ref('A4')
+const productosMap = ref({})
+
+// Obtener nombre de producto por ID
+const obtenerNombreProducto = (id) => {
+  if (!id) return 'Producto eliminado'
+  const prod = productosMap.value[id]
+  return prod ? prod.nombre : 'Producto eliminado'
+}
+
 const cargarDatos = async () => {
   cargando.value = true
   buscado.value = true
   try {
+    // Cargar productos para mapear nombres
+    const productos = await find('productos')
+    productosMap.value = {}
+    productos.forEach(p => productosMap.value[p._id] = p)
+
     let datos = []
     if (tipoDocumento.value === 'compras') {
       datos = await find('compras')
@@ -119,7 +240,6 @@ const cargarDatos = async () => {
       datos = todasVentas.filter(d => d.tipo_documento === tipoDocumento.value)
     }
 
-    // Filtro de fechas
     if (fechaDesde.value) {
       const desde = new Date(fechaDesde.value)
       datos = datos.filter(d => new Date(d.fecha_emision) >= desde)
@@ -147,109 +267,174 @@ const limpiarFiltros = () => {
   buscado.value = false
 }
 
-const verEditar = (doc) => {
-  if (doc.tipo_documento === 'compras' || !doc.tipo_documento) {
-    router.push(`/compras/editar/${doc._id}`)
-  } else {
-    router.push(`/ventas/editar/${doc._id}`)
+// Ver documento en modal
+const verDocumento = (doc, formato = 'A4') => {
+  documentoActual.value = doc
+  formatoImpresion.value = formato
+  abrirModal()
+}
+
+const abrirModal = () => {
+  if (!modalInstance.value) {
+    const modalEl = document.getElementById('modalDocumento')
+    modalInstance.value = new Modal(modalEl, {
+      backdrop: 'static',
+      keyboard: false
+    })
+  }
+  modalInstance.value.show()
+}
+
+const cerrarModal = () => {
+  if (modalInstance.value) {
+    modalInstance.value.hide()
   }
 }
 
-// ===== IMPRESIÓN DIRECTA (sin alert) =====
-const imprimirDoc = (doc, formato) => {
-  // Crear contenido HTML para impresión
-  const contenido = `
+const imprimirModal = () => {
+  const contenido = document.getElementById('documentoContenido')
+  if (!contenido) return
+
+  const html = contenido.innerHTML
+  const titulo = `Documento ${documentoActual.value?.numero_factura || documentoActual.value?.numero_guia || 'Sin número'}`
+
+  const ventana = window.open('', '_blank', 'width=800,height=600')
+  if (!ventana) {
+    alert('Por favor, permita ventanas emergentes para imprimir')
+    return
+  }
+
+  // Estilos específicos para impresión según formato
+  const estilosImpresion = `
+    body { 
+      font-family: 'Segoe UI', Arial, sans-serif; 
+      padding: 20px; 
+      margin: 0; 
+      background: white;
+    }
+    .documento-preview { 
+      max-width: 100%; 
+      margin: 0 auto; 
+    }
+    .ticket { 
+      max-width: 80mm; 
+      margin: 0 auto; 
+      font-size: 12px; 
+    }
+    .ticket .table { 
+      font-size: 10px; 
+    }
+    .ticket .table td, .ticket .table th { 
+      padding: 4px; 
+    }
+    .table { 
+      width: 100%; 
+      border-collapse: collapse; 
+    }
+    .table th, .table td { 
+      border: 1px solid #dee2e6; 
+      padding: 8px; 
+    }
+    .table-light { 
+      background-color: #f8f9fa; 
+    }
+    .text-center { 
+      text-align: center; 
+    }
+    .text-end { 
+      text-align: right; 
+    }
+    .text-muted { 
+      color: #6c757d; 
+    }
+    .mb-4 { 
+      margin-bottom: 1.5rem; 
+    }
+    .mt-3 { 
+      margin-top: 1rem; 
+    }
+    .mt-4 { 
+      margin-top: 1.5rem; 
+    }
+    .h3 { 
+      font-size: 1.5rem; 
+    }
+    .h4 { 
+      font-size: 1.2rem; 
+    }
+    .h5 { 
+      font-size: 1.1rem; 
+    }
+    .table-borderless td { 
+      border: none; 
+      padding: 4px; 
+    }
+    .btn { 
+      display: none; 
+    }
+    @media print {
+      .btn { display: none; }
+      body { padding: 0.5in; }
+      .ticket { max-width: 80mm; }
+      .table { font-size: 10px; }
+    }
+  `
+
+  const formatoClass = formatoImpresion.value === 'ticket' ? 'ticket' : ''
+
+  ventana.document.write(`
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Documento ${doc.numero_factura || doc.numero_guia}</title>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .header h1 { color: #1a2a3a; }
-        .info { margin-bottom: 20px; }
-        .info table { width: 100%; }
-        .info td { padding: 5px; }
-        .detalles { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        .detalles th, .detalles td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        .detalles th { background: #f2f2f2; }
-        .total { text-align: right; font-weight: bold; margin-top: 20px; }
-        .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #888; }
-        @media print {
-          .no-print { display: none; }
-        }
-      </style>
+      <title>${titulo}</title>
+      <style>${estilosImpresion}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>System Ozaet's Electronics</h1>
-        <h2>${doc.tipo_documento?.toUpperCase() || 'DOCUMENTO'}</h2>
-        <p>Nº: ${doc.numero_factura || doc.numero_guia || 'N/A'}</p>
-        <p>Fecha: ${new Date(doc.fecha_emision).toLocaleDateString()}</p>
+      <div class="documento-preview ${formatoClass}">
+        ${html}
       </div>
-
-      <div class="info">
-        <table>
-          <tr>
-            <td><strong>Cliente:</strong></td>
-            <td>${doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A'}</td>
-          </tr>
-          <tr>
-            <td><strong>RUC:</strong></td>
-            <td>${doc.cliente?.ruc || doc.proveedor?.ruc || 'N/A'}</td>
-          </tr>
-        </table>
-      </div>
-
-      <table class="detalles">
-        <thead>
-          <tr>
-            <th>Producto</th>
-            <th>Cantidad</th>
-            <th>Precio Unit.</th>
-            <th>Subtotal</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${doc.detalles?.map(d => `
-            <tr>
-              <td>${d.productoId || 'N/A'}</td>
-              <td>${d.cantidad || 0}</td>
-              <td>$${d.precio_unitario?.toFixed(2) || d.costo_unitario?.toFixed(2) || '0.00'}</td>
-              <td>$${(d.cantidad * (d.precio_unitario || d.costo_unitario || 0)).toFixed(2)}</td>
-            </tr>
-          `).join('') || '<tr><td colspan="4">Sin detalles</td></tr>'}
-        </tbody>
-      </table>
-
-      <div class="total">
-        <p>Subtotal: $${doc.subtotal?.toFixed(2) || '0.00'}</p>
-        <p>IVA (15%): $${doc.iva?.toFixed(2) || '0.00'}</p>
-        <p style="font-size: 1.2em;">Total: $${doc.total?.toFixed(2) || '0.00'}</p>
-      </div>
-
-      <div class="footer">
-        <p>Documento generado por Sistema Contable - System Ozaet's Electronics</p>
-        <p>Formato: ${formato}</p>
-      </div>
-
-      <div class="no-print" style="text-align:center; margin-top:30px;">
-        <button onclick="window.print()">Imprimir</button>
-        <button onclick="window.close()">Cerrar</button>
-      </div>
+      <script>
+        window.onload = function() {
+          window.print();
+          window.close();
+        }
+      <\/script>
     </body>
     </html>
-  `;
-
-  // Abrir ventana para impresión
-  const ventana = window.open('', '_blank', 'width=800,height=600');
-  if (ventana) {
-    ventana.document.write(contenido);
-    ventana.document.close();
-    // Esperar a que cargue y luego imprimir automáticamente (opcional)
-    // ventana.onload = function() { ventana.print(); };
-  } else {
-    alert('Por favor, permita ventanas emergentes para imprimir');
-  }
+  `)
+  ventana.document.close()
 }
+
+onMounted(() => {
+  const modalEl = document.getElementById('modalDocumento')
+  if (modalEl) {
+    modalInstance.value = new Modal(modalEl, {
+      backdrop: 'static',
+      keyboard: false
+    })
+  }
+  cargarDatos()
+})
 </script>
+
+<style scoped>
+.documento-preview {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+}
+.ticket {
+  max-width: 80mm;
+  margin: 0 auto;
+}
+.ticket .table {
+  font-size: 10px;
+}
+.ticket .table td, .ticket .table th {
+  padding: 4px;
+}
+.info-cliente p {
+  margin-bottom: 4px;
+}
+</style>
