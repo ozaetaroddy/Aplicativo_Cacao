@@ -149,8 +149,7 @@ import { useMongoDB } from '../../composables/useMongoDB'
 
 const route = useRoute()
 const router = useRouter()
-const { find, findById, insertOne, updateOne } = useMongoDB()
-const id = route.params.id
+const { find, insertOne } = useMongoDB()
 const clientes = ref([])
 const productos = ref([])
 
@@ -173,25 +172,32 @@ const venta = ref({
   porcentaje_retencion: 0
 })
 
-// ===== GENERACIÓN DE CÓDIGO =====
-const generarCodigo = async (tipo) => {
-  try {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/contadores/siguiente`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tipo })
-    })
-    if (!response.ok) throw new Error('Error al generar código')
-    const data = await response.json()
-    venta.value.numero_factura = data.codigo
-  } catch (e) {
-    console.error('Error generando código:', e)
-    // Fallback: código temporal
-    venta.value.numero_factura = `${tipo.toUpperCase()}-${Date.now()}`
+// ===== GENERAR CÓDIGO SECUENCIAL LOCAL =====
+// Simula un contador simple (para demostración, en producción se debe hacer en backend)
+const generarCodigoLocal = (tipo) => {
+  const prefijos = {
+    'factura': 'FAC',
+    'guia_remision': 'GUI',
+    'exportacion': 'EXP',
+    'reembolso': 'REB',
+    'retencion': 'RET',
+    'liquidacion': 'LIQ',
+    'nota_credito': 'NCR',
+    'proforma': 'PRO'
+  }
+  const prefijo = prefijos[tipo] || 'DOC'
+  // Número secuencial basado en timestamp (solo para demo)
+  const numero = String(Date.now()).slice(-6)
+  return `${prefijo}-${numero}`
+}
+
+// Asignar código al montar si es nuevo
+const asignarCodigo = () => {
+  if (!route.params.id) {
+    venta.value.numero_factura = generarCodigoLocal(venta.value.tipo_documento)
   }
 }
 
-// ===== FUNCIONES DEL FORMULARIO =====
 const agregarDetalle = () => {
   venta.value.detalles.push({ productoId: '', cantidad: 1, precio_unitario: 0 })
 }
@@ -221,11 +227,10 @@ const cambiarTipo = () => {
   venta.value.pais_destino = ''
   venta.value.numero_retencion = ''
   venta.value.porcentaje_retencion = 0
-  // Generar nuevo código
-  generarCodigo(venta.value.tipo_documento)
+  // Regenerar código
+  venta.value.numero_factura = generarCodigoLocal(venta.value.tipo_documento)
 }
 
-// ===== CARGAR DATOS INICIALES =====
 onMounted(async () => {
   try {
     const [clis, prods] = await Promise.all([
@@ -234,25 +239,13 @@ onMounted(async () => {
     ])
     clientes.value = clis
     productos.value = prods
-
-    // Si es edición, cargar datos
-    if (id) {
-      const data = await findById('ventas', id)
-      if (data) {
-        venta.value = data
-      }
-    } else {
-      // Nuevo: generar código y agregar primer detalle
-      await generarCodigo(venta.value.tipo_documento)
-      agregarDetalle()
-    }
+    agregarDetalle()
+    asignarCodigo()
   } catch (e) {
-    console.error('Error cargando datos:', e)
-    alert('Error al cargar los datos')
+    console.error(e)
   }
 })
 
-// ===== GUARDAR =====
 const guardar = async () => {
   if (!venta.value.clienteId) {
     alert('Seleccione un cliente')
@@ -277,7 +270,6 @@ const guardar = async () => {
       subtotal: subtotal.value,
       iva: iva.value,
       total: total.value,
-      // Campos especiales
       numero_guia: venta.value.numero_guia,
       transportista: venta.value.transportista,
       placa: venta.value.placa,
@@ -286,17 +278,9 @@ const guardar = async () => {
       numero_retencion: venta.value.numero_retencion,
       porcentaje_retencion: venta.value.porcentaje_retencion
     }
-
-    let resultado
-    if (id) {
-      resultado = await updateOne('ventas', id, payload)
-    } else {
-      resultado = await insertOne('ventas', payload)
-    }
-    console.log('Guardado exitoso:', resultado)
+    await insertOne('ventas', payload)
     router.push('/ventas')
   } catch (e) {
-    console.error('Error al guardar:', e)
     alert('Error al guardar: ' + e.message)
   }
 }

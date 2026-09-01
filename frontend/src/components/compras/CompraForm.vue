@@ -86,58 +86,11 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
-const rucBusqueda = ref('')
-
-const buscarProveedorPorRuc = async () => {
-  if (!rucBusqueda.value.trim()) return
-  try {
-    const proveedores = await find('proveedores')
-    const encontrado = proveedores.find(p => p.ruc === rucBusqueda.value.trim())
-    if (encontrado) {
-      compra.value.proveedorId = encontrado._id
-      // Si quieres mostrar un mensaje de éxito
-      alert('Proveedor encontrado: ' + encontrado.nombre)
-    } else {
-      alert('No se encontró ningún proveedor con ese RUC/Cédula. Puede crear uno nuevo en la sección de Proveedores.')
-    }
-  } catch (e) {
-    alert('Error en la búsqueda: ' + e.message)
-  }
-}
 
 const router = useRouter()
 const { find, insertOne } = useMongoDB()
 const proveedores = ref([])
 const productos = ref([])
-
-const generarCodigo = async () => {
-  try {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/contadores/siguiente`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tipo: compra.value.tipo_documento || 'factura' })
-    });
-    const data = await response.json();
-    if (data.codigo) {
-      compra.value.numero_factura = data.codigo;
-    }
-  } catch (e) {
-    console.error('Error generando código:', e);
-  }
-};
-
-// Llamar a generarCodigo al montar si es nuevo
-onMounted(async () => {
-  if (!route.params.id) {
-    await generarCodigo();
-  }
-  // ... resto
-});
-
-const cambiarTipo = () => {
-  // ... resetear campos ...
-  generarCodigo(); // nuevo código para el nuevo tipo
-};
 
 const compra = ref({
   proveedorId: '',
@@ -148,6 +101,12 @@ const compra = ref({
   iva: 0,
   total: 0
 })
+
+// Generar código local
+const generarCodigoCompra = () => {
+  const numero = String(Date.now()).slice(-6)
+  return `COM-${numero}`
+}
 
 const agregarDetalle = () => {
   compra.value.detalles.push({ productoId: '', cantidad: 1, costo_unitario: 0 })
@@ -178,12 +137,22 @@ onMounted(async () => {
     proveedores.value = provs
     productos.value = prods
     agregarDetalle()
+    compra.value.numero_factura = generarCodigoCompra()
   } catch (e) {
     console.error(e)
   }
 })
 
 const guardar = async () => {
+  if (!compra.value.proveedorId) {
+    alert('Seleccione un proveedor')
+    return
+  }
+  if (compra.value.detalles.length === 0 || !compra.value.detalles[0].productoId) {
+    alert('Agregue al menos un producto')
+    return
+  }
+
   try {
     const payload = {
       proveedorId: compra.value.proveedorId,
