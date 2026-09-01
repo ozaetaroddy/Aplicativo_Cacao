@@ -148,7 +148,6 @@ const limpiarFiltros = () => {
 }
 
 const verEditar = (doc) => {
-  // Redirigir a la vista de edición según el tipo
   if (doc.tipo_documento === 'compras' || !doc.tipo_documento) {
     router.push(`/compras/editar/${doc._id}`)
   } else {
@@ -156,7 +155,101 @@ const verEditar = (doc) => {
   }
 }
 
+// ===== IMPRESIÓN DIRECTA (sin alert) =====
 const imprimirDoc = (doc, formato) => {
-  alert(`Imprimir documento ${doc.numero_factura || doc.numero_guia} en formato ${formato}`)
+  // Crear contenido HTML para impresión
+  const contenido = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Documento ${doc.numero_factura || doc.numero_guia}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { color: #1a2a3a; }
+        .info { margin-bottom: 20px; }
+        .info table { width: 100%; }
+        .info td { padding: 5px; }
+        .detalles { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .detalles th, .detalles td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        .detalles th { background: #f2f2f2; }
+        .total { text-align: right; font-weight: bold; margin-top: 20px; }
+        .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #888; }
+        @media print {
+          .no-print { display: none; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>System Ozaet's Electronics</h1>
+        <h2>${doc.tipo_documento?.toUpperCase() || 'DOCUMENTO'}</h2>
+        <p>Nº: ${doc.numero_factura || doc.numero_guia || 'N/A'}</p>
+        <p>Fecha: ${new Date(doc.fecha_emision).toLocaleDateString()}</p>
+      </div>
+
+      <div class="info">
+        <table>
+          <tr>
+            <td><strong>Cliente:</strong></td>
+            <td>${doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td><strong>RUC:</strong></td>
+            <td>${doc.cliente?.ruc || doc.proveedor?.ruc || 'N/A'}</td>
+          </tr>
+        </table>
+      </div>
+
+      <table class="detalles">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Precio Unit.</th>
+            <th>Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${doc.detalles?.map(d => `
+            <tr>
+              <td>${d.productoId || 'N/A'}</td>
+              <td>${d.cantidad || 0}</td>
+              <td>$${d.precio_unitario?.toFixed(2) || d.costo_unitario?.toFixed(2) || '0.00'}</td>
+              <td>$${(d.cantidad * (d.precio_unitario || d.costo_unitario || 0)).toFixed(2)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="4">Sin detalles</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="total">
+        <p>Subtotal: $${doc.subtotal?.toFixed(2) || '0.00'}</p>
+        <p>IVA (15%): $${doc.iva?.toFixed(2) || '0.00'}</p>
+        <p style="font-size: 1.2em;">Total: $${doc.total?.toFixed(2) || '0.00'}</p>
+      </div>
+
+      <div class="footer">
+        <p>Documento generado por Sistema Contable - System Ozaet's Electronics</p>
+        <p>Formato: ${formato}</p>
+      </div>
+
+      <div class="no-print" style="text-align:center; margin-top:30px;">
+        <button onclick="window.print()">Imprimir</button>
+        <button onclick="window.close()">Cerrar</button>
+      </div>
+    </body>
+    </html>
+  `;
+
+  // Abrir ventana para impresión
+  const ventana = window.open('', '_blank', 'width=800,height=600');
+  if (ventana) {
+    ventana.document.write(contenido);
+    ventana.document.close();
+    // Esperar a que cargue y luego imprimir automáticamente (opcional)
+    // ventana.onload = function() { ventana.print(); };
+  } else {
+    alert('Por favor, permita ventanas emergentes para imprimir');
+  }
 }
 </script>

@@ -51,10 +51,10 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Crear venta (con código automático)
+// Crear venta
 router.post('/', async (req, res) => {
   try {
-    const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total } = req.body;
+    const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total, numero_exportacion, pais_destino, numero_guia, transportista, placa, numero_retencion, porcentaje_retencion } = req.body;
 
     if (!ObjectId.isValid(clienteId)) {
       return res.status(400).json({ error: 'ID de cliente inválido' });
@@ -66,6 +66,8 @@ router.post('/', async (req, res) => {
     await session.withTransaction(async () => {
       // ===== GENERAR CÓDIGO SECUENCIAL =====
       const tipoDoc = tipo_documento || 'factura';
+      
+      // Obtener contador para el número de documento principal
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: tipoDoc },
         { $inc: { valor: 1 } },
@@ -84,6 +86,17 @@ router.post('/', async (req, res) => {
       const prefijo = prefijos[tipoDoc] || 'DOC';
       const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
 
+      // ===== GENERAR NÚMERO DE EXPORTACIÓN (si aplica) =====
+      let exportacionCodigo = null;
+      if (tipoDoc === 'exportacion') {
+        const expContador = await req.db.collection('contadores').findOneAndUpdate(
+          { _id: 'exportacion_numero' },
+          { $inc: { valor: 1 } },
+          { upsert: true, returnDocument: 'after' }
+        );
+        exportacionCodigo = `EXP-${String(expContador.valor).padStart(6, '0')}`;
+      }
+
       const venta = {
         clienteId: new ObjectId(clienteId),
         numero_factura: numero_factura || codigo,
@@ -93,6 +106,14 @@ router.post('/', async (req, res) => {
         subtotal,
         iva,
         total,
+        // Campos especiales
+        numero_exportacion: numero_exportacion || exportacionCodigo,
+        pais_destino: pais_destino || '',
+        numero_guia: numero_guia || '',
+        transportista: transportista || '',
+        placa: placa || '',
+        numero_retencion: numero_retencion || '',
+        porcentaje_retencion: porcentaje_retencion || 0,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -162,7 +183,7 @@ router.put('/:id', async (req, res) => {
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: 'ID inválido' });
     }
-    const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total } = req.body;
+    const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total, numero_exportacion, pais_destino, numero_guia, transportista, placa, numero_retencion, porcentaje_retencion } = req.body;
     const updateData = {
       clienteId: new ObjectId(clienteId),
       numero_factura,
@@ -172,6 +193,13 @@ router.put('/:id', async (req, res) => {
       subtotal,
       iva,
       total,
+      numero_exportacion,
+      pais_destino,
+      numero_guia,
+      transportista,
+      placa,
+      numero_retencion,
+      porcentaje_retencion,
       updatedAt: new Date()
     };
     const result = await req.db.collection('ventas_v2').updateOne(

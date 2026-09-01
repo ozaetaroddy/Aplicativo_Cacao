@@ -2,12 +2,15 @@
   <div>
     <h4 class="section-title">
       <i class="fas fa-file-invoice"></i>
-      {{ tipoDocumento === 'guia_remision' ? 'Guía de Remisión' :
+      {{ tipoDocumento === 'factura' ? 'Nueva Factura' :
+         tipoDocumento === 'guia_remision' ? 'Guía de Remisión' :
          tipoDocumento === 'exportacion' ? 'Factura de Exportación' :
          tipoDocumento === 'reembolso' ? 'Factura de Reembolso' :
          tipoDocumento === 'retencion' ? 'Comprobante de Retención' :
          tipoDocumento === 'liquidacion' ? 'Liquidación de Compra' :
-         id ? 'Editar Documento' : 'Nuevo Documento' }}
+         tipoDocumento === 'nota_credito' ? 'Nota de Crédito' :
+         tipoDocumento === 'proforma' ? 'Proforma' :
+         'Nuevo Documento' }}
     </h4>
 
     <div class="card card-cacao">
@@ -26,12 +29,11 @@
                 <option value="liquidacion">Liquidación de Compra</option>
                 <option value="nota_credito">Nota de Crédito</option>
                 <option value="proforma">Proforma</option>
-                <option value="nota_venta">Nota de Venta</option>
               </select>
             </div>
             <div class="col-md-4">
               <label class="form-label">Nº Documento</label>
-              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Se genera automático">
+              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Automático">
             </div>
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Fecha Emisión</label>
@@ -39,11 +41,11 @@
             </div>
           </div>
 
-          <!-- ===== CAMPOS ESPECIALES SEGÚN TIPO ===== -->
-          <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
+          <!-- ===== CAMPOS ESPECIALES SEGÚN TIPO (con v-show para mostrar/ocultar) ===== -->
+          <div v-show="venta.tipo_documento === 'guia_remision'" class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Nº Guía</label>
-              <input type="text" class="form-control" v-model="venta.numero_guia">
+              <input type="text" class="form-control" v-model="venta.numero_guia" placeholder="Automático">
             </div>
             <div class="col-md-4">
               <label class="form-label">Transportista</label>
@@ -55,10 +57,10 @@
             </div>
           </div>
 
-          <div v-if="venta.tipo_documento === 'exportacion'" class="row g-3">
+          <div v-show="venta.tipo_documento === 'exportacion'" class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Nº Exportación</label>
-              <input type="text" class="form-control" v-model="venta.numero_exportacion">
+              <input type="text" class="form-control" v-model="venta.numero_exportacion" placeholder="Automático">
             </div>
             <div class="col-md-4">
               <label class="form-label">País Destino</label>
@@ -66,10 +68,10 @@
             </div>
           </div>
 
-          <div v-if="venta.tipo_documento === 'retencion'" class="row g-3">
+          <div v-show="venta.tipo_documento === 'retencion'" class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Nº Retención</label>
-              <input type="text" class="form-control" v-model="venta.numero_retencion">
+              <input type="text" class="form-control" v-model="venta.numero_retencion" placeholder="Automático">
             </div>
             <div class="col-md-4">
               <label class="form-label">Porcentaje Retenido</label>
@@ -143,7 +145,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 
@@ -172,8 +174,7 @@ const venta = ref({
   porcentaje_retencion: 0
 })
 
-// ===== GENERAR CÓDIGO SECUENCIAL LOCAL =====
-// Simula un contador simple (para demostración, en producción se debe hacer en backend)
+// ===== GENERAR CÓDIGO SECUENCIAL LOCAL (fallback) =====
 const generarCodigoLocal = (tipo) => {
   const prefijos = {
     'factura': 'FAC',
@@ -186,16 +187,47 @@ const generarCodigoLocal = (tipo) => {
     'proforma': 'PRO'
   }
   const prefijo = prefijos[tipo] || 'DOC'
-  // Número secuencial basado en timestamp (solo para demo)
   const numero = String(Date.now()).slice(-6)
   return `${prefijo}-${numero}`
 }
 
-// Asignar código al montar si es nuevo
-const asignarCodigo = () => {
-  if (!route.params.id) {
-    venta.value.numero_factura = generarCodigoLocal(venta.value.tipo_documento)
+// ===== ASIGNAR CÓDIGOS AL CAMBIAR TIPO =====
+const asignarCodigos = () => {
+  const tipo = venta.value.tipo_documento
+  // Número de documento principal
+  venta.value.numero_factura = generarCodigoLocal(tipo)
+  // Número de exportación si aplica
+  if (tipo === 'exportacion') {
+    venta.value.numero_exportacion = generarCodigoLocal('exportacion')
+  } else {
+    venta.value.numero_exportacion = ''
   }
+  // Número de guía si aplica
+  if (tipo === 'guia_remision') {
+    venta.value.numero_guia = generarCodigoLocal('guia_remision')
+  } else {
+    venta.value.numero_guia = ''
+  }
+  // Número de retención si aplica
+  if (tipo === 'retencion') {
+    venta.value.numero_retencion = generarCodigoLocal('retencion')
+  } else {
+    venta.value.numero_retencion = ''
+  }
+}
+
+// ===== CAMBIAR TIPO =====
+const cambiarTipo = () => {
+  // Resetear campos especiales
+  venta.value.numero_guia = ''
+  venta.value.transportista = ''
+  venta.value.placa = ''
+  venta.value.numero_exportacion = ''
+  venta.value.pais_destino = ''
+  venta.value.numero_retencion = ''
+  venta.value.porcentaje_retencion = 0
+  // Asignar nuevos códigos según el tipo
+  asignarCodigos()
 }
 
 const agregarDetalle = () => {
@@ -218,19 +250,6 @@ const subtotal = computed(() => {
 const iva = computed(() => subtotal.value * 0.15)
 const total = computed(() => subtotal.value + iva.value)
 
-const cambiarTipo = () => {
-  // Resetear campos especiales
-  venta.value.numero_guia = ''
-  venta.value.transportista = ''
-  venta.value.placa = ''
-  venta.value.numero_exportacion = ''
-  venta.value.pais_destino = ''
-  venta.value.numero_retencion = ''
-  venta.value.porcentaje_retencion = 0
-  // Regenerar código
-  venta.value.numero_factura = generarCodigoLocal(venta.value.tipo_documento)
-}
-
 onMounted(async () => {
   try {
     const [clis, prods] = await Promise.all([
@@ -240,7 +259,10 @@ onMounted(async () => {
     clientes.value = clis
     productos.value = prods
     agregarDetalle()
-    asignarCodigo()
+    // Si es nuevo, asignar códigos
+    if (!route.params.id) {
+      asignarCodigos()
+    }
   } catch (e) {
     console.error(e)
   }
