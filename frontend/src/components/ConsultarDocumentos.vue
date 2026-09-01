@@ -92,7 +92,7 @@
             </h5>
             <button type="button" class="btn-close" @click="cerrarModal"></button>
           </div>
-          <div class="modal-body" id="documentoContenido">
+          <div class="modal-body" id="documentoContenido" style="overflow: auto; max-height: 70vh;">
             <div class="documento-preview" :class="formatoImpresion === 'ticket' ? 'ticket' : ''">
               <!-- Encabezado -->
               <div class="text-center mb-4">
@@ -118,8 +118,31 @@
                 </div>
               </div>
 
-              <!-- Tabla de productos -->
-              <div class="table-responsive">
+              <!-- Datos específicos para guía de remisión -->
+              <div v-if="documentoActual?.tipo_documento === 'guia_remision'" class="mb-4">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p><strong>Establecimiento:</strong> {{ documentoActual.establecimiento || 'N/A' }}</p>
+                    <p><strong>Nombre Comercial:</strong> {{ documentoActual.nombre_comercial || 'N/A' }}</p>
+                    <p><strong>Punto de Emisión:</strong> {{ documentoActual.punto_emision || 'N/A' }}</p>
+                  </div>
+                  <div class="col-md-6">
+                    <p><strong>Transportista:</strong> {{ documentoActual.transportista_razon_social || 'N/A' }}</p>
+                    <p><strong>Identificación:</strong> {{ documentoActual.transportista_identificacion || 'N/A' }}</p>
+                    <p><strong>Tipo:</strong> {{ documentoActual.transportista_tipo || 'N/A' }}</p>
+                    <p><strong>Correo:</strong> {{ documentoActual.transportista_correo || 'N/A' }}</p>
+                  </div>
+                </div>
+                <div class="row mt-2">
+                  <div class="col-md-4"><strong>Dirección Partida:</strong> {{ documentoActual.direccion_partida || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Inicio Transporte:</strong> {{ documentoActual.inicio_transporte || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Fin Transporte:</strong> {{ documentoActual.fin_transporte || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Placa:</strong> {{ documentoActual.placa_transporte || 'N/A' }}</div>
+                </div>
+              </div>
+
+              <!-- Tabla de productos (solo si no es guía) -->
+              <div v-if="documentoActual?.tipo_documento !== 'guia_remision'" class="table-responsive">
                 <table class="table table-bordered table-striped" id="tablaDetalles">
                   <thead class="table-light">
                     <tr>
@@ -127,6 +150,7 @@
                       <th>Producto</th>
                       <th>Cantidad</th>
                       <th>Precio Unit.</th>
+                      <th>¿Aplica IVA?</th>
                       <th>Subtotal</th>
                     </tr>
                   </thead>
@@ -136,17 +160,18 @@
                       <td>{{ obtenerNombreProducto(item.productoId) }}</td>
                       <td>{{ item.cantidad }}</td>
                       <td>${{ (item.precio_unitario || item.costo_unitario || 0).toFixed(2) }}</td>
+                      <td>{{ item.aplica_iva !== false ? 'Sí' : 'No' }}</td>
                       <td class="text-end">${{ (item.cantidad * (item.precio_unitario || item.costo_unitario || 0)).toFixed(2) }}</td>
                     </tr>
                     <tr v-if="!documentoActual?.detalles || documentoActual.detalles.length === 0">
-                      <td colspan="5" class="text-center text-muted">Sin detalles</td>
+                      <td colspan="6" class="text-center text-muted">Sin detalles</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
-              <!-- Totales -->
-              <div class="row mt-3">
+              <!-- Totales (solo si no es guía) -->
+              <div v-if="documentoActual?.tipo_documento !== 'guia_remision'" class="row mt-3">
                 <div class="col-md-6 offset-md-6">
                   <table class="table table-borderless">
                     <tr>
@@ -174,20 +199,20 @@
             </div>
           </div>
           <div class="modal-footer">
-  <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
-  <button class="btn btn-primary" @click="imprimirModal('A4')">
-    <i class="fas fa-print me-1"></i> Imprimir A4
-  </button>
-  <button class="btn btn-primary" @click="imprimirModal('A2')">
-    <i class="fas fa-print me-1"></i> Imprimir A2
-  </button>
-  <button class="btn btn-primary" @click="imprimirModal('ticket')">
-    <i class="fas fa-receipt me-1"></i> Imprimir Ticket
-  </button>
-  <button class="btn btn-success" @click="guardarPDF">
-    <i class="fas fa-file-pdf me-1"></i> Guardar PDF
-  </button>
-</div>
+            <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
+            <button class="btn btn-primary" @click="imprimirModal('A4')">
+              <i class="fas fa-print me-1"></i> Imprimir A4
+            </button>
+            <button class="btn btn-primary" @click="imprimirModal('A2')">
+              <i class="fas fa-print me-1"></i> Imprimir A2
+            </button>
+            <button class="btn btn-primary" @click="imprimirModal('ticket')">
+              <i class="fas fa-receipt me-1"></i> Imprimir Ticket
+            </button>
+            <button class="btn btn-success" @click="guardarPDF">
+              <i class="fas fa-file-pdf me-1"></i> Guardar PDF
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -209,20 +234,17 @@ const documentos = ref([])
 const cargando = ref(false)
 const buscado = ref(false)
 
-// Modal
 const modalInstance = ref(null)
 const documentoActual = ref(null)
 const formatoImpresion = ref('A4')
 const productosMap = ref({})
 
-// Obtener nombre de producto por ID
 const obtenerNombreProducto = (id) => {
   if (!id) return 'Producto eliminado'
   const prod = productosMap.value[id]
   return prod ? prod.nombre : 'Producto eliminado'
 }
 
-// Cargar datos solo al presionar buscar
 const cargarDatos = async () => {
   cargando.value = true
   buscado.value = true
@@ -266,7 +288,6 @@ const limpiarFiltros = () => {
   buscado.value = false
 }
 
-// Ver documento en modal
 const verDocumento = (doc) => {
   documentoActual.value = doc
   formatoImpresion.value = 'A4'
@@ -290,7 +311,6 @@ const cerrarModal = () => {
   }
 }
 
-// ===== IMPRIMIR (con formato) =====
 const imprimirModal = (formato) => {
   formatoImpresion.value = formato
   const contenido = document.getElementById('documentoContenido')
@@ -405,23 +425,26 @@ const imprimirModal = (formato) => {
   ventana.document.close()
 }
 
-// ===== GUARDAR PDF =====
 const guardarPDF = async () => {
   const contenido = document.getElementById('documentoContenido')
   if (!contenido) return
 
   try {
-    // Mostrar indicador de carga (opcional)
     const btn = event.target.closest('button')
     const textoOriginal = btn.innerHTML
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...'
     btn.disabled = true
 
-    // Capturar el contenido como canvas
+    // Capturar todo el contenido con scroll
     const canvas = await html2canvas(contenido, {
       scale: 2,
       useCORS: true,
-      backgroundColor: '#ffffff'
+      backgroundColor: '#ffffff',
+      height: contenido.scrollHeight,
+      windowHeight: contenido.scrollHeight,
+      width: contenido.scrollWidth,
+      windowWidth: contenido.scrollWidth,
+      logging: false
     })
 
     const imgData = canvas.toDataURL('image/png')
@@ -434,7 +457,6 @@ const guardarPDF = async () => {
     const nombreArchivo = `documento_${documentoActual.value?.numero_factura || documentoActual.value?.numero_guia || 'sin_numero'}.pdf`
     pdf.save(nombreArchivo)
 
-    // Restaurar botón
     btn.innerHTML = textoOriginal
     btn.disabled = false
   } catch (error) {
@@ -451,7 +473,7 @@ onMounted(() => {
       keyboard: false
     })
   }
-  // No cargar datos automáticamente - solo se cargan al presionar "Buscar"
+  // No cargar automáticamente
 })
 </script>
 

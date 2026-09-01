@@ -26,21 +26,29 @@ router.get('/:id', async (req, res) => {
 // Crear producto
 router.post('/', async (req, res) => {
   try {
-    const { nombre, codigo, categoriaId, descripcion, precio_compra, precio_venta, stock_minimo, unidad_medida } = req.body;
+    const {
+      nombre, codigo, categoriaId, descripcion,
+      precio_compra, precio_venta, stock_minimo,
+      unidad_medida, codigo_barras, foto, observaciones,
+      aplica_iva, tipo_medida
+    } = req.body;
+
     const nuevoProducto = {
       nombre,
       codigo,
       categoriaId: categoriaId ? new ObjectId(categoriaId) : null,
-      codigo_barras: req.body.codigo_barras || '',
-      foto: req.body.foto || '',
-      observaciones: req.body.observaciones || '',
       descripcion,
-      precio_compra,
-      precio_venta,
+      precio_compra: precio_compra || 0,
+      precio_venta: precio_venta || 0,
       stock_minimo: stock_minimo || 0,
       unidad_medida: unidad_medida || 'unidad',
+      codigo_barras: codigo_barras || '',
+      foto: foto || '',
+      observaciones: observaciones || '',
       stock: 0,
       estado: 'activo',
+      aplica_iva: aplica_iva !== undefined ? aplica_iva : true, // por defecto aplica IVA
+      tipo_medida: tipo_medida || 'unidad', // unidad, peso, volumen, longitud
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -54,19 +62,27 @@ router.post('/', async (req, res) => {
 // Actualizar producto
 router.put('/:id', async (req, res) => {
   try {
-    const { nombre, codigo, categoriaId, descripcion, precio_compra, precio_venta, stock_minimo, unidad_medida } = req.body;
+    const {
+      nombre, codigo, categoriaId, descripcion,
+      precio_compra, precio_venta, stock_minimo,
+      unidad_medida, codigo_barras, foto, observaciones,
+      aplica_iva, tipo_medida
+    } = req.body;
+
     const updateData = {
       nombre,
       codigo,
       categoriaId: categoriaId ? new ObjectId(categoriaId) : null,
-      codigo_barras: req.body.codigo_barras || '',
-      foto: req.body.foto || '',
-      observaciones: req.body.observaciones || '',
       descripcion,
       precio_compra,
       precio_venta,
       stock_minimo,
       unidad_medida,
+      codigo_barras,
+      foto,
+      observaciones,
+      aplica_iva,
+      tipo_medida,
       updatedAt: new Date()
     };
     const result = await req.db.collection('productos').updateOne(

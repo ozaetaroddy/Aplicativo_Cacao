@@ -51,10 +51,21 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Crear venta
+// Crear venta (incluye guía de remisión)
 router.post('/', async (req, res) => {
   try {
-    const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total, numero_exportacion, pais_destino, numero_guia, transportista, placa, numero_retencion, porcentaje_retencion } = req.body;
+    const {
+      clienteId, numero_factura, fecha_emision, tipo_documento,
+      detalles, subtotal, iva, total,
+      // Campos específicos
+      numero_guia, transportista, placa,
+      numero_exportacion, pais_destino,
+      numero_retencion, porcentaje_retencion,
+      // Guía de remisión
+      establecimiento, nombre_comercial, punto_emision,
+      transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
+      direccion_partida, inicio_transporte, fin_transporte, placa_transporte
+    } = req.body;
 
     if (!ObjectId.isValid(clienteId)) {
       return res.status(400).json({ error: 'ID de cliente inválido' });
@@ -64,10 +75,9 @@ router.post('/', async (req, res) => {
     let result;
 
     await session.withTransaction(async () => {
-      // ===== GENERAR CÓDIGO SECUENCIAL =====
       const tipoDoc = tipo_documento || 'factura';
-      
-      // Obtener contador para el número de documento principal
+
+      // Obtener contador
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: tipoDoc },
         { $inc: { valor: 1 } },
@@ -86,7 +96,7 @@ router.post('/', async (req, res) => {
       const prefijo = prefijos[tipoDoc] || 'DOC';
       const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
 
-      // ===== GENERAR NÚMERO DE EXPORTACIÓN (si aplica) =====
+      // Generar número de exportación si aplica
       let exportacionCodigo = null;
       if (tipoDoc === 'exportacion') {
         const expContador = await req.db.collection('contadores').findOneAndUpdate(
@@ -106,22 +116,35 @@ router.post('/', async (req, res) => {
         subtotal,
         iva,
         total,
-        // Campos especiales
-        numero_exportacion: numero_exportacion || exportacionCodigo,
-        pais_destino: pais_destino || '',
+        // Campos comunes
         numero_guia: numero_guia || '',
         transportista: transportista || '',
         placa: placa || '',
+        numero_exportacion: numero_exportacion || exportacionCodigo,
+        pais_destino: pais_destino || '',
         numero_retencion: numero_retencion || '',
         porcentaje_retencion: porcentaje_retencion || 0,
+        // Campos de guía de remisión (si aplica)
+        establecimiento: establecimiento || '',
+        nombre_comercial: nombre_comercial || '',
+        punto_emision: punto_emision || '',
+        transportista_identificacion: transportista_identificacion || '',
+        transportista_tipo: transportista_tipo || '',
+        transportista_razon_social: transportista_razon_social || '',
+        transportista_correo: transportista_correo || '',
+        direccion_partida: direccion_partida || '',
+        inicio_transporte: inicio_transporte || '',
+        fin_transporte: fin_transporte || '',
+        placa_transporte: placa_transporte || '',
         createdAt: new Date(),
         updatedAt: new Date()
       };
+
       const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
       const ventaId = ventaResult.insertedId;
 
       // Actualizar stock y kardex (solo si no es nota de crédito)
-      if (tipoDoc !== 'nota_credito') {
+      if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') { // guía no afecta stock
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
           const cantidad = detalle.cantidad;
@@ -183,7 +206,17 @@ router.put('/:id', async (req, res) => {
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: 'ID inválido' });
     }
-    const { clienteId, numero_factura, fecha_emision, tipo_documento, detalles, subtotal, iva, total, numero_exportacion, pais_destino, numero_guia, transportista, placa, numero_retencion, porcentaje_retencion } = req.body;
+    const {
+      clienteId, numero_factura, fecha_emision, tipo_documento,
+      detalles, subtotal, iva, total,
+      numero_guia, transportista, placa,
+      numero_exportacion, pais_destino,
+      numero_retencion, porcentaje_retencion,
+      establecimiento, nombre_comercial, punto_emision,
+      transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
+      direccion_partida, inicio_transporte, fin_transporte, placa_transporte
+    } = req.body;
+
     const updateData = {
       clienteId: new ObjectId(clienteId),
       numero_factura,
@@ -193,13 +226,24 @@ router.put('/:id', async (req, res) => {
       subtotal,
       iva,
       total,
-      numero_exportacion,
-      pais_destino,
       numero_guia,
       transportista,
       placa,
+      numero_exportacion,
+      pais_destino,
       numero_retencion,
       porcentaje_retencion,
+      establecimiento,
+      nombre_comercial,
+      punto_emision,
+      transportista_identificacion,
+      transportista_tipo,
+      transportista_razon_social,
+      transportista_correo,
+      direccion_partida,
+      inicio_transporte,
+      fin_transporte,
+      placa_transporte,
       updatedAt: new Date()
     };
     const result = await req.db.collection('ventas_v2').updateOne(

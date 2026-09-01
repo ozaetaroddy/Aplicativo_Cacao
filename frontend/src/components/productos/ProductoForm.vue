@@ -66,6 +66,27 @@
               </select>
             </div>
 
+            <!-- Tipo de medida (nuevo) -->
+            <div class="col-md-3">
+              <label class="form-label">Tipo de Medida</label>
+              <select class="form-select" v-model="form.tipo_medida">
+                <option value="unidad">Unidad (sin decimales)</option>
+                <option value="peso">Peso (permite decimales)</option>
+                <option value="volumen">Volumen (permite decimales)</option>
+                <option value="longitud">Longitud (permite decimales)</option>
+              </select>
+            </div>
+
+            <!-- Aplica IVA -->
+            <div class="col-md-3 d-flex align-items-center">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" v-model="form.aplica_iva" id="aplicaIVA">
+                <label class="form-check-label" for="aplicaIVA">
+                  Aplica IVA
+                </label>
+              </div>
+            </div>
+
             <!-- Código de barras -->
             <div class="col-md-4">
               <label class="form-label">Código de Barras</label>
@@ -93,7 +114,7 @@
       </div>
     </div>
 
-    <!-- ===== MODAL PARA NUEVA CATEGORÍA ===== -->
+    <!-- Modal para nueva categoría -->
     <div class="modal fade" id="modalCategoria" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -139,7 +160,6 @@ const id = route.params.id
 const categorias = ref([])
 const cargandoCategoria = ref(false)
 
-// ===== FORMULARIO PRODUCTO =====
 const form = ref({
   codigo: '',
   nombre: '',
@@ -151,10 +171,12 @@ const form = ref({
   unidad_medida: 'unidad',
   codigo_barras: '',
   foto: '',
-  observaciones: ''
+  observaciones: '',
+  aplica_iva: true,
+  tipo_medida: 'unidad'
 })
 
-// ===== MODAL NUEVA CATEGORÍA =====
+// Modal
 const nuevaCategoria = ref({ nombre: '', descripcion: '' })
 let modalInstance = null
 
@@ -179,11 +201,8 @@ const guardarCategoria = async () => {
       descripcion: nuevaCategoria.value.descripcion?.trim() || ''
     }
     const result = await insertOne('categorias', nueva)
-    // Recargar lista de categorías
     categorias.value = await find('categorias')
-    // Seleccionar la nueva categoría
     form.value.categoriaId = result._id
-    // Cerrar modal
     modalInstance.hide()
     alert('Categoría creada exitosamente')
   } catch (e) {
@@ -193,7 +212,6 @@ const guardarCategoria = async () => {
   }
 }
 
-// ===== GENERAR CÓDIGO AUTOMÁTICO =====
 const generarCodigoProducto = () => {
   const ahora = new Date()
   const año = ahora.getFullYear().toString().slice(-2)
@@ -203,7 +221,6 @@ const generarCodigoProducto = () => {
   return `PROD-${año}${mes}${dia}-${aleatorio}`
 }
 
-// ===== CARGAR DATOS =====
 onMounted(async () => {
   try {
     const cats = await find('categorias')
@@ -220,7 +237,6 @@ onMounted(async () => {
   }
 })
 
-// ===== GUARDAR PRODUCTO =====
 const guardar = async () => {
   if (!form.value.nombre) {
     alert('El nombre es obligatorio')
