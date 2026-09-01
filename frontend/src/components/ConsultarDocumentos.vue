@@ -435,25 +435,41 @@ const guardarPDF = async () => {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...'
     btn.disabled = true
 
-    // Capturar todo el contenido con scroll
+    // Configuración para capturar todo el contenido
+    const scale = 2
     const canvas = await html2canvas(contenido, {
-      scale: 2,
+      scale: scale,
       useCORS: true,
       backgroundColor: '#ffffff',
+      logging: false,
+      // Capturar el contenido completo aunque esté en scroll
       height: contenido.scrollHeight,
-      windowHeight: contenido.scrollHeight,
       width: contenido.scrollWidth,
+      windowHeight: contenido.scrollHeight,
       windowWidth: contenido.scrollWidth,
-      logging: false
+      // Para evitar que se recorte
+      onclone: function (document) {
+        // Asegurar que el contenido sea visible
+        const clonedElement = document.getElementById('documentoContenido')
+        if (clonedElement) {
+          clonedElement.style.overflow = 'visible'
+          clonedElement.style.maxHeight = 'none'
+        }
+      }
     })
 
     const imgData = canvas.toDataURL('image/png')
+    const imgWidth = canvas.width
+    const imgHeight = canvas.height
+    
+    // Crear PDF con tamaño personalizado
     const pdf = new jsPDF({
-      orientation: 'portrait',
+      orientation: imgWidth > imgHeight ? 'landscape' : 'portrait',
       unit: 'px',
-      format: [canvas.width, canvas.height]
+      format: [imgWidth, imgHeight]
     })
-    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height)
+    
+    pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight)
     const nombreArchivo = `documento_${documentoActual.value?.numero_factura || documentoActual.value?.numero_guia || 'sin_numero'}.pdf`
     pdf.save(nombreArchivo)
 
