@@ -146,16 +146,23 @@ const errores = ref({
   email: ''
 })
 
+// ===== VALIDAR RUC/CÉDULA =====
 const validarRuc = () => {
   const ruc = form.value.ruc?.trim() || ''
   if (!ruc) {
     errores.value.ruc = 'El RUC/Cédula es obligatorio'
     return false
   }
-  if (ruc.length !== 10 || !/^\d+$/.test(ruc)) {
-    errores.value.ruc = 'El RUC/Cédula debe tener 10 dígitos numéricos'
+  
+  // Validar RUC (13 dígitos terminados en 001) o Cédula (10 dígitos)
+  const esRuc = /^\d{13}$/.test(ruc) && ruc.endsWith('001')
+  const esCedula = /^\d{10}$/.test(ruc)
+  
+  if (!esRuc && !esCedula) {
+    errores.value.ruc = 'Ingrese un RUC válido (13 dígitos terminado en 001) o Cédula (10 dígitos)'
     return false
   }
+  
   errores.value.ruc = ''
   return true
 }

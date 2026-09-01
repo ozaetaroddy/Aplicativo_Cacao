@@ -119,9 +119,15 @@
               <label class="form-label">Subtotal</label>
               <input type="text" class="form-control" :value="(item.cantidad * item.precio_unitario).toFixed(2)" readonly>
             </div>
-            <div class="col-md-2">
-              <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)"><i class="fas fa-times"></i></button>
-            </div>
+            <div class="d-flex gap-2 mt-2">
+  <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
+    <i class="fas fa-plus"></i> Agregar producto
+  </button>
+  <!-- NUEVO BOTÓN -->
+  <router-link to="/productos/nuevo" class="btn btn-outline-success btn-sm">
+    <i class="fas fa-box"></i> Crear Producto
+  </router-link>
+</div>
           </div>
           <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle"><i class="fas fa-plus"></i> Agregar producto</button>
 
