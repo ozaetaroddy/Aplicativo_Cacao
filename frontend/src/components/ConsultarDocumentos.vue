@@ -174,24 +174,20 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
-
-            <!-- Botón Imprimir con dropdown -->
-            <div class="btn-group">
-              <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="fas fa-print me-1"></i> Imprimir
-              </button>
-              <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="#" @click.prevent="imprimirModal('A4')">A4</a></li>
-                <li><a class="dropdown-item" href="#" @click.prevent="imprimirModal('A2')">A2</a></li>
-                <li><a class="dropdown-item" href="#" @click.prevent="imprimirModal('ticket')">Ticket</a></li>
-              </ul>
-            </div>
-
-            <button class="btn btn-success" @click="guardarPDF">
-              <i class="fas fa-file-pdf me-1"></i> Guardar PDF
-            </button>
-          </div>
+  <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
+  <button class="btn btn-primary" @click="imprimirModal('A4')">
+    <i class="fas fa-print me-1"></i> Imprimir A4
+  </button>
+  <button class="btn btn-primary" @click="imprimirModal('A2')">
+    <i class="fas fa-print me-1"></i> Imprimir A2
+  </button>
+  <button class="btn btn-primary" @click="imprimirModal('ticket')">
+    <i class="fas fa-receipt me-1"></i> Imprimir Ticket
+  </button>
+  <button class="btn btn-success" @click="guardarPDF">
+    <i class="fas fa-file-pdf me-1"></i> Guardar PDF
+  </button>
+</div>
         </div>
       </div>
     </div>
