@@ -6,8 +6,8 @@
         <div class="card-header">
           <i class="fas fa-chart-line me-2" style="color: #3498db;"></i> Ventas (últimos 7 días)
         </div>
-        <div class="card-body" style="position: relative; height: 200px;">
-          <canvas id="ventasChart" ref="ventasChartRef"></canvas>
+        <div class="card-body">
+          <canvas id="ventasChart" ref="ventasChartRef" style="height: 200px;"></canvas>
         </div>
       </div>
     </div>
@@ -17,8 +17,8 @@
         <div class="card-header">
           <i class="fas fa-chart-bar me-2" style="color: #2ecc71;"></i> Compras (últimos 7 días)
         </div>
-        <div class="card-body" style="position: relative; height: 200px;">
-          <canvas id="comprasChart" ref="comprasChartRef"></canvas>
+        <div class="card-body">
+          <canvas id="comprasChart" ref="comprasChartRef" style="height: 200px;"></canvas>
         </div>
       </div>
     </div>
@@ -26,14 +26,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { Chart, registerables } from 'chart.js'
 Chart.register(...registerables)
 
 const props = defineProps({
-  ventasDiarias: { type: Array, default: () => Array(7).fill(0) },
-  comprasDiarias: { type: Array, default: () => Array(7).fill(0) },
-  dias: { type: Array, default: () => ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'] }
+  ventasDiarias: { type: Array, default: () => [] },
+  comprasDiarias: { type: Array, default: () => [] },
+  dias: { type: Array, default: () => [] }
 })
 
 const ventasChartRef = ref(null)
@@ -41,23 +41,22 @@ const comprasChartRef = ref(null)
 let ventasChartInstance = null
 let comprasChartInstance = null
 
-const crearGrafico = (canvas, datos, etiqueta, color, borderColor) => {
+const crearGrafico = (canvas, tipo, datos, etiqueta, color) => {
   if (!canvas) return null
   const ctx = canvas.getContext('2d')
   return new Chart(ctx, {
-    type: 'line',
+    type: tipo,
     data: {
       labels: props.dias,
       datasets: [{
         label: etiqueta,
-        data: datos.length === 7 ? datos : Array(7).fill(0),
+        data: datos,
         backgroundColor: color,
-        borderColor: borderColor,
+        borderColor: color,
         borderWidth: 2,
         tension: 0.3,
         fill: true,
-        pointBackgroundColor: borderColor,
-        pointRadius: 4
+        pointBackgroundColor: color
       }]
     },
     options: {
@@ -69,61 +68,44 @@ const crearGrafico = (canvas, datos, etiqueta, color, borderColor) => {
       scales: {
         y: {
           beginAtZero: true,
-          ticks: {
-            callback: (value) => '$' + value.toFixed(2)
-          }
+          ticks: { callback: (value) => '$' + value.toFixed(2) }
         }
-      },
-      layout: {
-        padding: { top: 10, bottom: 10 }
       }
     }
   })
 }
 
-const actualizarGrafico = (chart, datos) => {
-  if (!chart) return
-  chart.data.datasets[0].data = datos.length === 7 ? datos : Array(7).fill(0)
-  chart.update()
-}
-
 onMounted(() => {
-  nextTick(() => {
-    if (ventasChartRef.value) {
-      ventasChartInstance = crearGrafico(
-        ventasChartRef.value,
-        props.ventasDiarias,
-        'Ventas',
-        'rgba(52, 152, 219, 0.2)',
-        '#3498db'
-      )
-    }
-    if (comprasChartRef.value) {
-      comprasChartInstance = crearGrafico(
-        comprasChartRef.value,
-        props.comprasDiarias,
-        'Compras',
-        'rgba(46, 204, 113, 0.2)',
-        '#2ecc71'
-      )
-    }
-  })
+  console.log('📊 DashboardCharts montado')
+  if (ventasChartRef.value) {
+    ventasChartInstance = crearGrafico(
+      ventasChartRef.value,
+      'line',
+      props.ventasDiarias,
+      'Ventas',
+      'rgba(52, 152, 219, 0.6)'
+    )
+  }
+  if (comprasChartRef.value) {
+    comprasChartInstance = crearGrafico(
+      comprasChartRef.value,
+      'line',
+      props.comprasDiarias,
+      'Compras',
+      'rgba(46, 204, 113, 0.6)'
+    )
+  }
 })
 
-// Observar cambios en los datos
-watch(
-  () => [props.ventasDiarias, props.comprasDiarias],
-  ([nuevasVentas, nuevasCompras]) => {
-    actualizarGrafico(ventasChartInstance, nuevasVentas)
-    actualizarGrafico(comprasChartInstance, nuevasCompras)
-  },
-  { deep: true }
-)
+watch(() => [props.ventasDiarias, props.comprasDiarias], () => {
+  console.log('📊 Actualizando gráficos con nuevos datos:', props.ventasDiarias, props.comprasDiarias)
+  if (ventasChartInstance) {
+    ventasChartInstance.data.datasets[0].data = props.ventasDiarias
+    ventasChartInstance.update()
+  }
+  if (comprasChartInstance) {
+    comprasChartInstance.data.datasets[0].data = props.comprasDiarias
+    comprasChartInstance.update()
+  }
+}, { deep: true })
 </script>
-
-<style scoped>
-canvas {
-  width: 100% !important;
-  height: 100% !important;
-}
-</style>

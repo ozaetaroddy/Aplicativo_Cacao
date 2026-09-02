@@ -36,34 +36,31 @@ export function useEstadisticas() {
       inicioMes.setDate(1)
       const inicioMesStr = formatearFecha(inicioMes)
 
+      console.log('📊 Cargando estadísticas...')
       const [ventas, compras] = await Promise.all([
         find('ventas'),
         find('compras')
       ])
+      console.log('📊 Ventas recibidas:', ventas.length)
+      console.log('📊 Compras recibidas:', compras.length)
 
       // Ventas de hoy y del mes
-      ventasHoy.value = ventas
-        .filter(v => v.fecha_emision && v.fecha_emision.startsWith(hoy))
-        .reduce((sum, v) => sum + (v.total || 0), 0)
+      const ventasHoyArr = ventas.filter(v => v.fecha_emision && v.fecha_emision.startsWith(hoy))
+      ventasHoy.value = ventasHoyArr.reduce((sum, v) => sum + (v.total || 0), 0)
 
-      ventasMes.value = ventas
-        .filter(v => v.fecha_emision && v.fecha_emision >= inicioMesStr)
-        .reduce((sum, v) => sum + (v.total || 0), 0)
+      const ventasMesArr = ventas.filter(v => v.fecha_emision && v.fecha_emision >= inicioMesStr)
+      ventasMes.value = ventasMesArr.reduce((sum, v) => sum + (v.total || 0), 0)
 
-      comprasHoy.value = compras
-        .filter(c => c.fecha_emision && c.fecha_emision.startsWith(hoy))
-        .reduce((sum, c) => sum + (c.total || 0), 0)
+      // Compras de hoy y del mes
+      const comprasHoyArr = compras.filter(c => c.fecha_emision && c.fecha_emision.startsWith(hoy))
+      comprasHoy.value = comprasHoyArr.reduce((sum, c) => sum + (c.total || 0), 0)
 
-      comprasMes.value = compras
-        .filter(c => c.fecha_emision && c.fecha_emision >= inicioMesStr)
-        .reduce((sum, c) => sum + (c.total || 0), 0)
+      const comprasMesArr = compras.filter(c => c.fecha_emision && c.fecha_emision >= inicioMesStr)
+      comprasMes.value = comprasMesArr.reduce((sum, c) => sum + (c.total || 0), 0)
 
       // Ventas diarias de los últimos 7 días
       const ultimos7 = obtenerUltimos7Dias()
-      dias.value = ultimos7.map(d => {
-        const fecha = new Date(d)
-        return fecha.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' })
-      })
+      dias.value = ultimos7.map(d => new Date(d).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' }))
 
       ventasDiarias.value = ultimos7.map(d => {
         return ventas
@@ -76,6 +73,9 @@ export function useEstadisticas() {
           .filter(c => c.fecha_emision && c.fecha_emision.startsWith(d))
           .reduce((sum, c) => sum + (c.total || 0), 0)
       })
+
+      console.log('📊 Ventas diarias:', ventasDiarias.value)
+      console.log('📊 Compras diarias:', comprasDiarias.value)
 
       // Top 5 productos más vendidos
       const productosVendidos = {}
