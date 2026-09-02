@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import Toast from 'vue-toastification'
-import 'vue-toastification/dist/index.css'
+import Vue3Toastify from 'vue3-toastify'
+import 'vue3-toastify/dist/index.css'
 import App from './App.vue'
 import router from './router'
 import 'bootstrap/dist/css/bootstrap.min.css'
@@ -14,19 +14,9 @@ const pinia = createPinia()
 
 app.use(pinia)
 app.use(router)
-app.use(Toast, {
+app.use(Vue3Toastify, {
+  autoClose: 5000,
   position: 'top-right',
-  timeout: 5000,
-  closeOnClick: true,
-  pauseOnFocusLoss: true,
-  pauseOnHover: true,
-  draggable: true,
-  draggablePercent: 0.6,
-  showCloseButtonOnHover: false,
-  hideProgressBar: false,
-  closeButton: 'button',
-  icon: true,
-  rtl: false
 })
 
 app.mount('#app')
