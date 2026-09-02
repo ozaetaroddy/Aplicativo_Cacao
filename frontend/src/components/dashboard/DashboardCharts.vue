@@ -6,7 +6,7 @@
         <div class="card-header">
           <i class="fas fa-chart-line me-2" style="color: #3498db;"></i> Ventas (últimos 7 días)
         </div>
-        <div class="card-body">
+        <div class="card-body" style="position: relative; height: 200px;">
           <canvas id="ventasChart" ref="ventasChartRef"></canvas>
         </div>
       </div>
@@ -17,7 +17,7 @@
         <div class="card-header">
           <i class="fas fa-chart-bar me-2" style="color: #2ecc71;"></i> Compras (últimos 7 días)
         </div>
-        <div class="card-body">
+        <div class="card-body" style="position: relative; height: 200px;">
           <canvas id="comprasChart" ref="comprasChartRef"></canvas>
         </div>
       </div>
@@ -31,9 +31,9 @@ import { Chart, registerables } from 'chart.js'
 Chart.register(...registerables)
 
 const props = defineProps({
-  ventasDiarias: { type: Array, default: () => [] },
-  comprasDiarias: { type: Array, default: () => [] },
-  dias: { type: Array, default: () => [] }
+  ventasDiarias: { type: Array, default: () => Array(7).fill(0) },
+  comprasDiarias: { type: Array, default: () => Array(7).fill(0) },
+  dias: { type: Array, default: () => ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'] }
 })
 
 const ventasChartRef = ref(null)
@@ -47,16 +47,16 @@ const crearGrafico = (canvas, datos, etiqueta, color, borderColor) => {
   return new Chart(ctx, {
     type: 'line',
     data: {
-      labels: props.dias.length ? props.dias : ['Sin datos'],
+      labels: props.dias,
       datasets: [{
         label: etiqueta,
-        data: datos.length ? datos : [0],
+        data: datos.length === 7 ? datos : Array(7).fill(0),
         backgroundColor: color,
-        borderColor: borderColor || color,
+        borderColor: borderColor,
         borderWidth: 2,
         tension: 0.3,
         fill: true,
-        pointBackgroundColor: borderColor || color,
+        pointBackgroundColor: borderColor,
         pointRadius: 4
       }]
     },
@@ -64,14 +64,7 @@ const crearGrafico = (canvas, datos, etiqueta, color, borderColor) => {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (context) => {
-              return '$' + context.parsed.y.toFixed(2)
-            }
-          }
-        }
+        legend: { display: false }
       },
       scales: {
         y: {
@@ -80,16 +73,18 @@ const crearGrafico = (canvas, datos, etiqueta, color, borderColor) => {
             callback: (value) => '$' + value.toFixed(2)
           }
         }
+      },
+      layout: {
+        padding: { top: 10, bottom: 10 }
       }
     }
   })
 }
 
-const actualizarGrafico = (chartInstance, nuevosDatos) => {
-  if (chartInstance) {
-    chartInstance.data.datasets[0].data = nuevosDatos.length ? nuevosDatos : [0]
-    chartInstance.update()
-  }
+const actualizarGrafico = (chart, datos) => {
+  if (!chart) return
+  chart.data.datasets[0].data = datos.length === 7 ? datos : Array(7).fill(0)
+  chart.update()
 }
 
 onMounted(() => {
@@ -100,7 +95,7 @@ onMounted(() => {
         props.ventasDiarias,
         'Ventas',
         'rgba(52, 152, 219, 0.2)',
-        'rgb(52, 152, 219)'
+        '#3498db'
       )
     }
     if (comprasChartRef.value) {
@@ -109,25 +104,26 @@ onMounted(() => {
         props.comprasDiarias,
         'Compras',
         'rgba(46, 204, 113, 0.2)',
-        'rgb(46, 204, 113)'
+        '#2ecc71'
       )
     }
   })
 })
 
-watch(() => [props.ventasDiarias, props.comprasDiarias], () => {
-  if (ventasChartInstance) {
-    actualizarGrafico(ventasChartInstance, props.ventasDiarias)
-  }
-  if (comprasChartInstance) {
-    actualizarGrafico(comprasChartInstance, props.comprasDiarias)
-  }
-}, { deep: true })
+// Observar cambios en los datos
+watch(
+  () => [props.ventasDiarias, props.comprasDiarias],
+  ([nuevasVentas, nuevasCompras]) => {
+    actualizarGrafico(ventasChartInstance, nuevasVentas)
+    actualizarGrafico(comprasChartInstance, nuevasCompras)
+  },
+  { deep: true }
+)
 </script>
 
 <style scoped>
 canvas {
-  max-height: 200px;
   width: 100% !important;
+  height: 100% !important;
 }
 </style>

@@ -11,7 +11,6 @@ export function useEstadisticas() {
   const comprasDiarias = ref([])
   const dias = ref([])
   const topProductos = ref([])
-  const actividadReciente = ref([])
   const loading = ref(false)
 
   const formatearFecha = (fecha) => {
@@ -51,7 +50,6 @@ export function useEstadisticas() {
         .filter(v => v.fecha_emision && v.fecha_emision >= inicioMesStr)
         .reduce((sum, v) => sum + (v.total || 0), 0)
 
-      // Compras de hoy y del mes
       comprasHoy.value = compras
         .filter(c => c.fecha_emision && c.fecha_emision.startsWith(hoy))
         .reduce((sum, c) => sum + (c.total || 0), 0)
@@ -60,9 +58,12 @@ export function useEstadisticas() {
         .filter(c => c.fecha_emision && c.fecha_emision >= inicioMesStr)
         .reduce((sum, c) => sum + (c.total || 0), 0)
 
-      // Datos diarios últimos 7 días
+      // Ventas diarias de los últimos 7 días
       const ultimos7 = obtenerUltimos7Dias()
-      dias.value = ultimos7.map(d => new Date(d).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' }))
+      dias.value = ultimos7.map(d => {
+        const fecha = new Date(d)
+        return fecha.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' })
+      })
 
       ventasDiarias.value = ultimos7.map(d => {
         return ventas
@@ -92,14 +93,6 @@ export function useEstadisticas() {
         .slice(0, 5)
       topProductos.value = sorted
 
-      // Actividad Reciente (últimas 5 transacciones combinadas)
-      const transacciones = [
-        ...ventas.map(v => ({ ...v, tipo: 'Venta' })),
-        ...compras.map(c => ({ ...c, tipo: 'Compra' }))
-      ]
-      transacciones.sort((a, b) => new Date(b.fecha_emision) - new Date(a.fecha_emision))
-      actividadReciente.value = transacciones.slice(0, 5)
-
     } catch (e) {
       console.error('Error cargando estadísticas:', e)
     } finally {
@@ -116,7 +109,6 @@ export function useEstadisticas() {
     comprasDiarias,
     dias,
     topProductos,
-    actividadReciente,
     loading,
     cargarEstadisticas
   }
