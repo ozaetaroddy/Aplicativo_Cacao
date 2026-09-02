@@ -97,9 +97,12 @@
             </ul>
           </li>
         </ul>
-        <span class="navbar-text">
-          <i class="fas fa-database me-1"></i> MongoDB
-        </span>
+        <div class="d-flex align-items-center">
+          <DarkModeToggle />
+          <span class="navbar-text ms-2">
+            <i class="fas fa-database me-1"></i> MongoDB
+          </span>
+        </div>
       </div>
     </div>
   </nav>
@@ -107,6 +110,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import DarkModeToggle from './DarkModeToggle.vue'
 
 const navbarAbierto = ref(false)
 const dropdowns = ref({
