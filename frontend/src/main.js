@@ -6,7 +6,7 @@ import 'bootstrap/dist/js/bootstrap.bundle.min.js'
 import '@fortawesome/fontawesome-free/css/all.min.css'
 import './styles.css'
 
-// Componentes existentes
+// Componentes principales
 import Dashboard from './components/Dashboard.vue'
 import ProductosList from './components/productos/ProductosList.vue'
 import ProductoForm from './components/productos/ProductoForm.vue'
@@ -25,12 +25,19 @@ import ReporteVentas from './components/reportes/ReporteVentas.vue'
 import ReporteCompras from './components/reportes/ReporteCompras.vue'
 import ConsultarDocumentos from './components/ConsultarDocumentos.vue'
 
-// Componentes de inventario
+// Componentes de inventario - **VERIFICA QUE LAS RUTAS SEAN CORRECTAS**
 import StockActual from './components/inventario/StockActual.vue'
 import ConteoFisico from './components/inventario/ConteoFisico.vue'
 import InventarioValorizado from './components/inventario/InventarioValorizado.vue'
 import PlanificacionInventarios from './components/inventario/PlanificacionInventarios.vue'
 import AjustesInventario from './components/inventario/AjustesInventario.vue'
+
+console.log('✅ Componentes de inventario cargados:')
+console.log('StockActual:', StockActual)
+console.log('ConteoFisico:', ConteoFisico)
+console.log('InventarioValorizado:', InventarioValorizado)
+console.log('PlanificacionInventarios:', PlanificacionInventarios)
+console.log('AjustesInventario:', AjustesInventario)
 
 const routes = [
   { path: '/', component: Dashboard },
@@ -52,14 +59,17 @@ const routes = [
   { path: '/ventas/nuevo', component: VentaForm },
   { path: '/ventas/editar/:id', component: VentaForm, props: true },
   { path: '/kardex', component: KardexView },
+  // Inventario
   { path: '/inventario/stock', component: StockActual },
   { path: '/inventario/conteo', component: ConteoFisico },
   { path: '/inventario/valorizado', component: InventarioValorizado },
   { path: '/inventario/planificacion', component: PlanificacionInventarios },
   { path: '/inventario/ajustes', component: AjustesInventario },
+  // Reportes
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
   { path: '/reportes', redirect: '/reportes/ventas' },
+  // Consulta
   { path: '/consultar-documentos', component: ConsultarDocumentos },
 ]
 

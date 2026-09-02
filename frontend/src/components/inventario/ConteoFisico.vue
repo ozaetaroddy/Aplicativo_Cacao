@@ -2,6 +2,7 @@
   <div>
     <h4 class="section-title"><i class="fas fa-clipboard-check"></i> Conteo Físico</h4>
 
+    <!-- Mensajes de depuración -->
     <div v-if="error" class="alert alert-danger">
       <i class="fas fa-exclamation-circle"></i> Error: {{ error }}
     </div>
@@ -57,6 +58,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
 
+console.log('✅ Componente ConteoFisico cargado')
+
 const { find } = useMongoDB()
 const productos = ref([])
 const conteos = ref({})
@@ -85,10 +88,11 @@ const guardarConteo = () => {
 }
 
 onMounted(async () => {
+  console.log('📌 ConteoFisico montado, iniciando carga...')
   cargando.value = true
   error.value = null
   try {
-    console.log('📡 Cargando productos para conteo físico...')
+    console.log('📡 Llamando a find("productos")...')
     const data = await find('productos')
     console.log('✅ Productos recibidos:', data)
     productos.value = data
@@ -96,11 +100,13 @@ onMounted(async () => {
     data.forEach(p => {
       conteos.value[p._id] = p.stock
     })
+    console.log('📦 Conteos inicializados:', conteos.value)
   } catch (e) {
     console.error('❌ Error al cargar productos:', e)
     error.value = e.message || 'Error al cargar los productos'
   } finally {
     cargando.value = false
+    console.log('🏁 Carga finalizada')
   }
 })
 </script>
