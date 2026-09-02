@@ -1,5 +1,5 @@
 <template>
-  <div class="actividad-container">
+  <div style="max-height: 180px; overflow-y: auto;">
     <div v-if="actividades.length === 0" class="text-muted text-center py-3">
       No hay actividad reciente
     </div>
@@ -9,7 +9,7 @@
       </div>
       <div class="actividad-info">
         <div class="actividad-descripcion">{{ act.descripcion }}</div>
-        <div class="actividad-fecha">{{ act.fecha }}</div>
+        <div class="actividad-fecha"><i class="far fa-clock me-1"></i>{{ act.fecha }}</div>
       </div>
       <div class="actividad-monto" v-if="act.monto">
         ${{ act.monto.toFixed(2) }}
@@ -33,6 +33,7 @@ const cargarActividadReciente = async () => {
     ])
     const items = [
       ...ventas.map(v => ({
+        ...v,
         fechaObj: new Date(v.fecha_emision),
         descripcion: `Factura ${v.numero_factura || 'N/A'} - ${v.cliente?.nombre || 'Sin cliente'}`,
         icono: 'fa-file-invoice',
@@ -40,6 +41,7 @@ const cargarActividadReciente = async () => {
         monto: v.total || 0
       })),
       ...compras.map(c => ({
+        ...c,
         fechaObj: new Date(c.fecha_emision),
         descripcion: `Compra ${c.numero_factura || 'N/A'} - ${c.proveedor?.nombre || 'Sin proveedor'}`,
         icono: 'fa-shopping-cart',
@@ -71,19 +73,21 @@ onMounted(cargarActividadReciente)
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 4px;
+  padding: 8px 0;
   border-bottom: 1px solid #f0f0f0;
 }
-.actividad-item:last-child { border-bottom: none; }
+.actividad-item:last-child {
+  border-bottom: none;
+}
 .actividad-icon {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   flex-shrink: 0;
 }
 .actividad-info {
@@ -104,16 +108,15 @@ onMounted(cargarActividadReciente)
 }
 .actividad-monto {
   font-weight: 700;
+  color: #1a2a3a;
   font-size: 0.85rem;
+  white-space: nowrap;
 }
 body.dark-mode .actividad-item {
   border-bottom-color: var(--border-color);
 }
 body.dark-mode .actividad-descripcion {
   color: #e0e0e0;
-}
-body.dark-mode .actividad-fecha {
-  color: #a0aec0;
 }
 body.dark-mode .actividad-monto {
   color: #e0e0e0;

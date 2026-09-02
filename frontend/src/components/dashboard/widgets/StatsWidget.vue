@@ -1,5 +1,5 @@
 <template>
-  <div class="row g-3">
+  <div class="row g-2">
     <div class="col-6">
       <div class="stat-mini">
         <span class="stat-mini-value">${{ ventasHoy.toFixed(2) }}</span>
@@ -28,20 +28,23 @@
 </template>
 
 <script setup>
-import { useEstadisticas } from '../../../composables/useEstadisticas'
 import { onMounted } from 'vue'
+import { useEstadisticas } from '../../../composables/useEstadisticas'
 
 const { ventasHoy, comprasHoy, ventasMes, comprasMes, cargarEstadisticas } = useEstadisticas()
 
-onMounted(() => cargarEstadisticas())
+onMounted(() => {
+  cargarEstadisticas()
+})
 </script>
 
 <style scoped>
 .stat-mini {
   background: #f8f9fa;
   border-radius: 8px;
-  padding: 12px;
+  padding: 12px 8px;
   text-align: center;
+  height: 100%;
 }
 .stat-mini-value {
   font-size: 1.2rem;
