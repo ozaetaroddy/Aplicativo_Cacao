@@ -563,3 +563,216 @@ html.dark-mode .dropdown-item {
 html.dark-mode .dropdown-item:hover {
   background: #2c3e50;
 }
+/* ===== MODO OSCURO ===== */
+:root {
+  --bg-body: #f4f6f9;
+  --bg-card: #ffffff;
+  --text-primary: #2d2d2d;
+  --text-muted: #7f8c8d;
+  --border-color: #d5dbe0;
+  --shadow-color: rgba(0,0,0,0.06);
+  --shadow-hover: rgba(0,0,0,0.12);
+  --input-bg: #fcfcfd;
+  --table-stripe: #f8f9fa;
+}
+
+[data-theme="dark"] {
+  --bg-body: #1a1a2e;
+  --bg-card: #16213e;
+  --text-primary: #e0e0e0;
+  --text-muted: #a0aec0;
+  --border-color: #2d3748;
+  --shadow-color: rgba(0,0,0,0.3);
+  --shadow-hover: rgba(0,0,0,0.5);
+  --input-bg: #1e2a4a;
+  --table-stripe: #1a2744;
+}
+
+body.dark-mode {
+  background: var(--bg-body);
+  color: var(--text-primary);
+}
+
+/* Ajustes para tarjetas */
+body.dark-mode .card-cacao {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+}
+
+body.dark-mode .card-cacao .card-header {
+  background: #1e2a4a;
+  border-bottom: 2px solid #3498db;
+  color: #e0e0e0;
+}
+
+body.dark-mode .card-cacao .card-footer {
+  border-top: 1px solid var(--border-color);
+}
+
+/* Ajustes para total-box */
+body.dark-mode .total-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+}
+
+body.dark-mode .total-box .number {
+  color: #e0e0e0;
+}
+
+body.dark-mode .total-box h5 {
+  color: #a0aec0;
+}
+
+/* Ajustes para tablas */
+body.dark-mode .table-cacao {
+  color: var(--text-primary);
+}
+
+body.dark-mode .table-cacao thead {
+  background: #1e2a4a;
+  color: #e0e0e0;
+}
+
+body.dark-mode .table-cacao tbody tr:hover {
+  background: rgba(52, 152, 219, 0.1);
+}
+
+body.dark-mode .table-cacao td,
+body.dark-mode .table-cacao th {
+  border-color: var(--border-color);
+}
+
+body.dark-mode .table-cacao tbody tr {
+  background: var(--bg-card);
+}
+
+/* Ajustes para formularios */
+body.dark-mode .form-control,
+body.dark-mode .form-select {
+  background: var(--input-bg);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+body.dark-mode .form-control:focus,
+body.dark-mode .form-select:focus {
+  background: #1e2a4a;
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 0.25rem rgba(52,152,219,0.15);
+}
+
+body.dark-mode .form-label {
+  color: #e0e0e0;
+}
+
+/* Ajustes para alertas */
+body.dark-mode .alert-info {
+  background: #1a2744;
+  border-color: #3498db;
+  color: #e0e0e0;
+}
+
+body.dark-mode .alert-info .btn-close {
+  filter: invert(1);
+}
+
+/* Ajustes para stat-card */
+body.dark-mode .stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+}
+
+body.dark-mode .stat-card .stat-number {
+  color: #e0e0e0;
+}
+
+body.dark-mode .stat-card .stat-label {
+  color: #a0aec0;
+}
+
+/* Ajustes para quick-access */
+body.dark-mode .quick-access {
+  background: var(--bg-card);
+  color: #e0e0e0;
+}
+
+body.dark-mode .quick-access:hover {
+  background: #1e2a4a;
+  color: #fff;
+}
+
+/* Ajustes para actividad reciente */
+body.dark-mode .actividad-item {
+  border-bottom-color: var(--border-color);
+}
+
+body.dark-mode .actividad-descripcion {
+  color: #e0e0e0;
+}
+
+body.dark-mode .actividad-fecha {
+  color: #a0aec0;
+}
+
+body.dark-mode .actividad-monto {
+  color: #e0e0e0;
+}
+
+/* Ajustes para el footer */
+body.dark-mode .footer-cacao {
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
+  border-top: 4px solid #f1c40f;
+}
+
+/* Ajustes para el modal */
+body.dark-mode .modal-content {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+body.dark-mode .modal-header {
+  border-bottom-color: var(--border-color);
+}
+
+body.dark-mode .modal-footer {
+  border-top-color: var(--border-color);
+}
+
+body.dark-mode .modal-header .btn-close {
+  filter: invert(1);
+}
+
+/* Ajustes para dropdowns */
+body.dark-mode .navbar-cacao .dropdown-menu {
+  background: #1e2a4a;
+  border: 1px solid var(--border-color);
+}
+
+body.dark-mode .navbar-cacao .dropdown-item {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .navbar-cacao .dropdown-item:hover {
+  background: #2d3748;
+}
+
+/* Ajustes para selects en modo oscuro */
+body.dark-mode .form-select option {
+  background: #1e2a4a;
+  color: #e0e0e0;
+}
+
+/* Ajustes para badges */
+body.dark-mode .badge.bg-primary {
+  background: #3498db !important;
+}
+body.dark-mode .badge.bg-success {
+  background: #27ae60 !important;
+}
+body.dark-mode .badge.bg-danger {
+  background: #e74c3c !important;
+}
+body.dark-mode .badge.bg-warning {
+  background: #f39c12 !important;
+  color: #1a1a2e !important;
+}

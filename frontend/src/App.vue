@@ -1,5 +1,5 @@
 <template>
-  <div id="app">
+  <div id="app" :class="{ 'dark-mode': isDark }">
     <Navbar />
     <div class="container main-container">
       <div class="alert alert-info alert-dismissible fade show config-alert" role="alert">
@@ -15,9 +15,18 @@
 </template>
 
 <script setup>
+import { computed, onMounted } from 'vue'
+import { useThemeStore } from './stores/themeStore'
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
 import NotificationStock from './components/NotificationStock.vue'
+
+const themeStore = useThemeStore()
+const isDark = computed(() => themeStore.isDark)
+
+onMounted(() => {
+  themeStore.aplicarTema()
+})
 </script>
 
 <style>

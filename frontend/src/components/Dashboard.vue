@@ -139,15 +139,15 @@
                 <tr><th>#</th><th>Producto</th><th>Cantidad</th></tr>
               </thead>
               <tbody>
-                <tr v-for="(item, idx) in topProductos" :key="idx">
-                  <td>{{ idx + 1 }}</td>
-                  <td>{{ obtenerNombreProducto(item[0]) }}</td>
-                  <td>{{ item[1] }}</td>
-                </tr>
-                <tr v-if="topProductos.length === 0">
-                  <td colspan="3" class="text-muted text-center">Sin datos de ventas</td>
-                </tr>
-              </tbody>
+  <tr v-for="(item, idx) in topProductos" :key="idx">
+    <td>{{ idx + 1 }}</td>
+    <td>{{ obtenerNombreProducto(item[0]) }}</td>
+    <td>{{ item[1] }}</td>
+  </tr>
+  <tr v-if="topProductos.length === 0">
+    <td colspan="3" class="text-muted text-center">Sin datos de ventas</td>
+  </tr>
+</tbody>
             </table>
           </div>
         </div>
@@ -203,6 +203,7 @@ const productos = ref([])
 const actividades = ref([])
 
 const obtenerNombreProducto = (id) => {
+  if (!id) return 'Producto eliminado'
   const prod = productos.value.find(p => p._id === id)
   return prod ? prod.nombre : 'Producto eliminado'
 }
@@ -265,6 +266,8 @@ onMounted(async () => {
   await cargarEstadisticas()
   await cargarActividadReciente()
 })
+
+
 </script>
 
 <style scoped>
