@@ -41,9 +41,9 @@
             </div>
           </div>
 
-          <!-- ===== GUÍA DE REMISIÓN (COMPLETO Y REORDENADO) ===== -->
+          <!-- ===== GUÍA DE REMISIÓN (COMPLETO) ===== -->
           <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
-            <!-- 1. Datos Generales -->
+            <!-- Datos Generales -->
             <div class="col-12"><h6>Datos Generales</h6></div>
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Establecimiento</label>
@@ -58,7 +58,7 @@
               <input type="text" class="form-control" v-model="venta.punto_emision" required>
             </div>
 
-            <!-- 2. Destinatario / Cliente -->
+            <!-- Destinatario / Cliente -->
             <div class="col-12 mt-3"><h6>Destinatario / Cliente</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Identificación</label>
@@ -94,7 +94,7 @@
               <input type="text" class="form-control" v-model="venta.documento_aduana">
             </div>
 
-            <!-- 3. Comprobante Sustento -->
+            <!-- Comprobante Sustento -->
             <div class="col-12 mt-3"><h6>Comprobante Sustento</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
@@ -129,7 +129,7 @@
               <input type="text" class="form-control" v-model="venta.comprobante_numero" required>
             </div>
 
-            <!-- 4. Transportista -->
+            <!-- Transportista -->
             <div class="col-12 mt-3"><h6>Transportista</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Identificación</label>
@@ -153,7 +153,7 @@
               <input type="email" class="form-control" v-model="venta.transportista_correo" required>
             </div>
 
-            <!-- 5. Traslado -->
+            <!-- Traslado -->
             <div class="col-12 mt-3"><h6>Traslado</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Dirección Partida</label>
@@ -197,8 +197,8 @@
 
           <hr />
 
-          <!-- ===== CLIENTE ===== -->
-          <div class="row g-3">
+          <!-- ===== CLIENTE (SOLO PARA NO GUIAS) ===== -->
+          <div class="row g-3" v-if="venta.tipo_documento !== 'guia_remision'">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Cliente</label>
               <select class="form-select" v-model="venta.clienteId" required>
@@ -376,6 +376,7 @@ const asignarCodigos = () => {
 }
 
 const cambiarTipo = () => {
+  // Resetear todos los campos
   venta.value.numero_guia = ''
   venta.value.transportista = ''
   venta.value.placa = ''
@@ -408,7 +409,12 @@ const cambiarTipo = () => {
   venta.value.comprobante_numero_autorizacion = ''
   venta.value.comprobante_numero = ''
   venta.value.comprobante_fecha_emision = ''
-  if (venta.value.detalles.length === 0) agregarDetalle()
+  // Si es guía, no agregar detalles automáticamente (pero si no tiene, agregar)
+  if (venta.value.tipo_documento === 'guia_remision') {
+    if (venta.value.detalles.length === 0) agregarDetalle()
+  } else {
+    if (venta.value.detalles.length === 0) agregarDetalle()
+  }
   asignarCodigos()
 }
 
@@ -464,9 +470,12 @@ onMounted(async () => {
 })
 
 const guardar = async () => {
-  if (!venta.value.clienteId) {
-    alert('Seleccione un cliente')
-    return
+  // Validar cliente solo si NO es guía
+  if (venta.value.tipo_documento !== 'guia_remision') {
+    if (!venta.value.clienteId) {
+      alert('Seleccione un cliente')
+      return
+    }
   }
   if (venta.value.detalles.length === 0 || !venta.value.detalles[0].productoId) {
     alert('Agregue al menos un producto')
@@ -475,7 +484,7 @@ const guardar = async () => {
 
   try {
     const payload = {
-      clienteId: venta.value.clienteId,
+      clienteId: venta.value.clienteId || '',
       numero_factura: venta.value.numero_factura,
       fecha_emision: venta.value.fecha_emision,
       tipo_documento: venta.value.tipo_documento,
