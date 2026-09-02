@@ -5,7 +5,7 @@
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
-          <!-- ===== PROVEEDOR ===== -->
+          <!-- PROVEEDOR -->
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Proveedor</label>
@@ -35,9 +35,9 @@
           <hr />
           <h5>Detalles de compra</h5>
 
-          <!-- ===== DETALLES ===== -->
+          <!-- DETALLES -->
           <div v-for="(item, index) in compra.detalles" :key="index" class="row g-2 align-items-end mb-2">
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Producto</label>
               <select class="form-select" v-model="item.productoId" @change="cargarPrecio(item)">
                 <option value="">Seleccionar</option>
@@ -57,13 +57,19 @@
               <input type="text" class="form-control" :value="(item.cantidad * item.costo_unitario).toFixed(2)" readonly>
             </div>
             <div class="col-md-2">
+              <label class="form-label">¿Aplica IVA?</label>
+              <select class="form-select" v-model="item.aplica_iva">
+                <option :value="true">Sí</option>
+                <option :value="false">No</option>
+              </select>
+            </div>
+            <div class="col-md-1">
               <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
                 <i class="fas fa-trash"></i>
               </button>
             </div>
           </div>
 
-          <!-- ===== BOTONES: Agregar producto y Crear producto ===== -->
           <div class="d-flex gap-2">
             <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
               <i class="fas fa-plus"></i> Agregar producto
@@ -115,20 +121,21 @@ const compra = ref({
   proveedorId: '',
   numero_factura: '',
   fecha_emision: new Date().toISOString().split('T')[0],
-  detalles: [],
-  subtotal: 0,
-  iva: 0,
-  total: 0
+  detalles: []
 })
 
-// Generar código local (fallback)
 const generarCodigoCompra = () => {
   const numero = String(Date.now()).slice(-6)
   return `COM-${numero}`
 }
 
 const agregarDetalle = () => {
-  compra.value.detalles.push({ productoId: '', cantidad: 1, costo_unitario: 0 })
+  compra.value.detalles.push({
+    productoId: '',
+    cantidad: 1,
+    costo_unitario: 0,
+    aplica_iva: true   // por defecto, sí aplica
+  })
 }
 
 const eliminarDetalle = (index) => {
@@ -137,14 +144,29 @@ const eliminarDetalle = (index) => {
 
 const cargarPrecio = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
-  if (prod) item.costo_unitario = prod.precio_compra || 0
+  if (prod) {
+    item.costo_unitario = prod.precio_compra || 0
+    // cargar el flag de IVA desde el producto (si existe)
+    item.aplica_iva = prod.aplica_iva !== undefined ? prod.aplica_iva : true
+  }
 }
 
+// Cálculo de subtotal, IVA y total
 const subtotal = computed(() => {
   return compra.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.costo_unitario || 0), 0)
 })
 
-const iva = computed(() => subtotal.value * 0.15)
+const iva = computed(() => {
+  let baseImponible = 0
+  compra.value.detalles.forEach(d => {
+    const subtotalItem = d.cantidad * d.costo_unitario || 0
+    if (d.aplica_iva !== false) {
+      baseImponible += subtotalItem
+    }
+  })
+  return baseImponible * 0.15
+})
+
 const total = computed(() => subtotal.value + iva.value)
 
 onMounted(async () => {
@@ -180,7 +202,8 @@ const guardar = async () => {
       detalles: compra.value.detalles.map(d => ({
         productoId: d.productoId,
         cantidad: d.cantidad,
-        costo_unitario: d.costo_unitario
+        costo_unitario: d.costo_unitario,
+        aplica_iva: d.aplica_iva
       })),
       subtotal: subtotal.value,
       iva: iva.value,
