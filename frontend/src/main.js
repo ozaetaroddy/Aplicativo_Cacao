@@ -1,19 +1,12 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
-// Bootstrap CSS
 import 'bootstrap/dist/css/bootstrap.min.css'
-
-// Bootstrap JS (IMPORTANTE: esto activa los dropdowns)
 import 'bootstrap/dist/js/bootstrap.bundle.min.js'
-
-// Font Awesome
 import '@fortawesome/fontawesome-free/css/all.min.css'
-
-// Estilos propios
 import './styles.css'
 
-// Importar componentes
+// Importar componentes existentes
 import Dashboard from './components/Dashboard.vue'
 import ProductosList from './components/productos/ProductosList.vue'
 import ProductoForm from './components/productos/ProductoForm.vue'
@@ -32,31 +25,50 @@ import ReporteVentas from './components/reportes/ReporteVentas.vue'
 import ReporteCompras from './components/reportes/ReporteCompras.vue'
 import ConsultarDocumentos from './components/ConsultarDocumentos.vue'
 
+// Importar nuevos componentes de inventario
+import StockActual from './components/inventario/StockActual.vue'
+import PlanificacionInventario from './components/inventario/PlanificacionInventario.vue'
+import AjustesInventario from './components/inventario/AjustesInventario.vue'
+import ReporteInventario from './components/inventario/ReporteInventario.vue'
+
 const routes = [
   { path: '/', component: Dashboard },
+  // Productos
   { path: '/productos', component: ProductosList },
   { path: '/productos/nuevo', component: ProductoForm },
   { path: '/productos/editar/:id', component: ProductoForm, props: true },
+  // Categorías
   { path: '/categorias', component: CategoriasList },
   { path: '/categorias/nuevo', component: CategoriaForm },
   { path: '/categorias/editar/:id', component: CategoriaForm, props: true },
+  // Clientes
   { path: '/clientes', component: ClientesList },
   { path: '/clientes/nuevo', component: ClienteForm },
   { path: '/clientes/editar/:id', component: ClienteForm, props: true },
+  // Proveedores
   { path: '/proveedores', component: ProveedoresList },
   { path: '/proveedores/nuevo', component: ProveedorForm },
   { path: '/proveedores/editar/:id', component: ProveedorForm, props: true },
+  // Compras
   { path: '/compras', component: ComprasList },
   { path: '/compras/nuevo', component: CompraForm },
+  // Ventas
   { path: '/ventas', component: VentasList },
   { path: '/ventas/nuevo', component: VentaForm },
-  { path: '/ventas/editar/:id', component: VentaForm, props: true },
-{ path: '/compras/editar/:id', component: CompraForm, props: true },
-  { path: '/kardex', component: KardexView },
+  // Documentos
+  { path: '/consultar-documentos', component: ConsultarDocumentos },
+  // Kardex (mantenemos ruta antigua y redirigimos a la nueva)
+  { path: '/kardex', redirect: '/inventario/movimientos' },
+  // Reportes
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
   { path: '/reportes', redirect: '/reportes/ventas' },
-  { path: '/consultar-documentos', component: ConsultarDocumentos }
+  // Inventario
+  { path: '/inventario/stock-actual', component: StockActual },
+  { path: '/inventario/movimientos', component: KardexView },
+  { path: '/inventario/planificacion', component: PlanificacionInventario },
+  { path: '/inventario/ajustes', component: AjustesInventario },
+  { path: '/inventario/reporte', component: ReporteInventario },
 ]
 
 const router = createRouter({
@@ -67,5 +79,4 @@ const router = createRouter({
 const app = createApp(App)
 app.use(router)
 app.mount('#app')
-
 document.title = 'Sistema Contable'

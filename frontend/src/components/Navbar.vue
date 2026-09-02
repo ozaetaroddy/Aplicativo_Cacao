@@ -4,30 +4,21 @@
       <router-link class="navbar-brand" to="/">
         <i class="fas fa-calculator"></i> Sistema Contable
       </router-link>
-      <button
-        class="navbar-toggler"
-        type="button"
-        @click="toggleNavbar"
-      >
+      <button class="navbar-toggler" type="button" @click="toggleNavbar">
         <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
       </button>
       <div class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
         <ul class="navbar-nav me-auto">
-          <!-- ===== INICIO ===== -->
+          <!-- INICIO -->
           <li class="nav-item">
             <router-link class="nav-link" to="/" exact-active-class="active" @click="cerrarTodo">
               <i class="fas fa-home"></i> Inicio
             </router-link>
           </li>
 
-          <!-- ===== DOCUMENTOS (dropdown con toggle) ===== -->
+          <!-- DOCUMENTOS -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('documentos')"
-            >
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('documentos')">
               <i class="fas fa-file-invoice"></i> Documentos
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
@@ -43,14 +34,9 @@
             </ul>
           </li>
 
-          <!-- ===== BASE DE DATOS (antes Maestros) ===== -->
+          <!-- BASE DE DATOS -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('maestros')"
-            >
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('maestros')">
               <i class="fas fa-database"></i> Base de datos
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.maestros }">
@@ -61,14 +47,23 @@
             </ul>
           </li>
 
-          <!-- ===== REPORTES (dropdown con toggle) ===== -->
+          <!-- INVENTARIO -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.inventario }">
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('inventario')">
+              <i class="fas fa-warehouse"></i> Inventario
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.inventario }">
+              <li><router-link class="dropdown-item" to="/inventario/stock-actual" @click="cerrarTodo"><i class="fas fa-list"></i> Stock Actual</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/movimientos" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Movimientos (Kardex)</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo"><i class="fas fa-chart-line"></i> Planificación</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/ajustes" @click="cerrarTodo"><i class="fas fa-edit"></i> Ajustes de Inventario</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/reporte" @click="cerrarTodo"><i class="fas fa-file-pdf"></i> Reporte de Inventario</router-link></li>
+            </ul>
+          </li>
+
+          <!-- REPORTES -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('reportes')"
-            >
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('reportes')">
               <i class="fas fa-chart-bar"></i> Reportes
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.reportes }">
@@ -89,28 +84,22 @@
 <script setup>
 import { ref } from 'vue'
 
-// Estado del navbar móvil
 const navbarAbierto = ref(false)
-
-// Estado de cada dropdown (cerrados por defecto)
 const dropdowns = ref({
   documentos: false,
   maestros: false,
+  inventario: false,
   reportes: false
 })
 
-// Alternar el navbar en móvil
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
 }
 
-// ===== TOGGLE PARA DROPDOWNS (abre/cierra al hacer clic en el título) =====
 const toggleDropdown = (nombre) => {
-  // Si el dropdown ya está abierto, lo cerramos
   if (dropdowns.value[nombre]) {
     dropdowns.value[nombre] = false
   } else {
-    // Cerrar todos los demás y abrir el seleccionado
     Object.keys(dropdowns.value).forEach(key => {
       dropdowns.value[key] = false
     })
@@ -118,7 +107,6 @@ const toggleDropdown = (nombre) => {
   }
 }
 
-// Cerrar todo (navbar y dropdowns)
 const cerrarTodo = () => {
   navbarAbierto.value = false
   Object.keys(dropdowns.value).forEach(key => {
@@ -128,7 +116,6 @@ const cerrarTodo = () => {
 </script>
 
 <style scoped>
-/* ===== ESTILOS PARA DROPDOWNS CONTROLADOS POR VUE ===== */
 .navbar-cacao .dropdown-menu {
   display: none;
   position: absolute;
@@ -147,12 +134,9 @@ const cerrarTodo = () => {
   border: 1px solid rgba(0,0,0,0.15);
   border-radius: 0.375rem;
 }
-
 .navbar-cacao .dropdown-menu.show {
   display: block;
 }
-
-/* En móvil, los dropdowns se muestran como lista */
 @media (max-width: 992px) {
   .navbar-cacao .dropdown-menu {
     position: static;
@@ -174,8 +158,6 @@ const cerrarTodo = () => {
     display: block;
   }
 }
-
-/* Estilo de los items del dropdown en desktop */
 .navbar-cacao .dropdown-item {
   color: #212529 !important;
 }
