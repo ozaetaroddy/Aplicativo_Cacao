@@ -2,7 +2,7 @@
   <div>
     <h4 class="section-title"><i class="fas fa-home"></i> Panel de Control</h4>
 
-    <!-- ===== TARJETAS DE ESTADÍSTICAS ===== -->
+    <!-- Estadísticas -->
     <div class="row g-4 mb-4">
       <div class="col-lg-3 col-md-6">
         <div class="stat-card" style="border-left: 4px solid #3498db;">
@@ -42,7 +42,7 @@
       </div>
     </div>
 
-    <!-- ===== ACCESOS RÁPIDOS (NUEVO CON MÁS OPCIONES) ===== -->
+    <!-- Accesos Rápidos -->
     <div class="row g-3 mb-4">
       <div class="col-12">
         <h5 class="section-subtitle"><i class="fas fa-bolt me-2"></i>Accesos Rápidos</h5>
@@ -121,14 +121,14 @@
       </div>
     </div>
 
-    <!-- ===== GRÁFICOS ===== -->
+    <!-- Gráficos -->
     <DashboardCharts
       :ventas-diarias="ventasDiarias"
       :compras-diarias="comprasDiarias"
       :dias="dias"
     />
 
-    <!-- ===== TOP PRODUCTOS ===== -->
+    <!-- Top Productos y Actividad Reciente -->
     <div class="row g-4 mt-2">
       <div class="col-md-6">
         <div class="card card-cacao">
@@ -155,8 +155,27 @@
       <div class="col-md-6">
         <div class="card card-cacao">
           <div class="card-header"><i class="fas fa-clock me-2"></i> Actividad Reciente</div>
-          <div class="card-body">
-            <p class="text-muted">Próximamente: Últimas transacciones</p>
+          <div class="card-body table-responsive">
+            <table class="table table-cacao">
+              <thead>
+                <tr><th>Fecha</th><th>Tipo</th><th>Cliente/Proveedor</th><th>Total</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in actividadReciente" :key="item._id">
+                  <td>{{ new Date(item.fecha_emision).toLocaleDateString() }}</td>
+                  <td>
+                    <span class="badge" :class="item.tipo === 'Venta' ? 'bg-primary' : 'bg-success'">
+                      {{ item.tipo }}
+                    </span>
+                  </td>
+                  <td>{{ item.cliente?.nombre || item.proveedor?.nombre || 'N/A' }}</td>
+                  <td>${{ item.total?.toFixed(2) || '0.00' }}</td>
+                </tr>
+                <tr v-if="actividadReciente.length === 0">
+                  <td colspan="4" class="text-muted text-center">Sin actividad reciente</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -181,6 +200,7 @@ const {
   comprasDiarias,
   dias,
   topProductos,
+  actividadReciente,
   loading,
   cargarEstadisticas
 } = useEstadisticas()
@@ -203,6 +223,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* Estilos iguales que antes */
 .stat-card {
   background: #fff;
   border-radius: 12px;

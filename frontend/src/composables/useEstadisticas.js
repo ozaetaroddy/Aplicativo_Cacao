@@ -11,6 +11,7 @@ export function useEstadisticas() {
   const comprasDiarias = ref([])
   const dias = ref([])
   const topProductos = ref([])
+  const actividadReciente = ref([])
   const loading = ref(false)
 
   const formatearFecha = (fecha) => {
@@ -36,7 +37,6 @@ export function useEstadisticas() {
       inicioMes.setDate(1)
       const inicioMesStr = formatearFecha(inicioMes)
 
-      // Obtener todos los datos en paralelo
       const [ventas, compras] = await Promise.all([
         find('ventas'),
         find('compras')
@@ -60,7 +60,7 @@ export function useEstadisticas() {
         .filter(c => c.fecha_emision && c.fecha_emision >= inicioMesStr)
         .reduce((sum, c) => sum + (c.total || 0), 0)
 
-      // Ventas diarias de los últimos 7 días
+      // Datos diarios últimos 7 días
       const ultimos7 = obtenerUltimos7Dias()
       dias.value = ultimos7.map(d => new Date(d).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' }))
 
@@ -92,6 +92,14 @@ export function useEstadisticas() {
         .slice(0, 5)
       topProductos.value = sorted
 
+      // Actividad Reciente (últimas 5 transacciones combinadas)
+      const transacciones = [
+        ...ventas.map(v => ({ ...v, tipo: 'Venta' })),
+        ...compras.map(c => ({ ...c, tipo: 'Compra' }))
+      ]
+      transacciones.sort((a, b) => new Date(b.fecha_emision) - new Date(a.fecha_emision))
+      actividadReciente.value = transacciones.slice(0, 5)
+
     } catch (e) {
       console.error('Error cargando estadísticas:', e)
     } finally {
@@ -108,6 +116,7 @@ export function useEstadisticas() {
     comprasDiarias,
     dias,
     topProductos,
+    actividadReciente,
     loading,
     cargarEstadisticas
   }
