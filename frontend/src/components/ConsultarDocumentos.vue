@@ -224,7 +224,7 @@ import { ref, onMounted } from 'vue'
 import { Modal } from 'bootstrap'
 import { useMongoDB } from '../composables/useMongoDB'
 import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
+import 'jspdf-autotable'
 
 const { find } = useMongoDB()
 const tipoDocumento = ref('factura')
@@ -425,59 +425,114 @@ const imprimirModal = (formato) => {
   ventana.document.close()
 }
 
-const guardarPDF = async () => {
-  const contenido = document.getElementById('documentoContenido')
-  if (!contenido) return
+// ===== GENERAR PDF DIRECTO CON JSPDF (sin html2canvas) =====
+const guardarPDF = () => {
+  const doc = documentoActual.value
+  if (!doc) {
+    alert('No hay documento para generar PDF')
+    return
+  }
 
   try {
-    const btn = event.target.closest('button')
-    const textoOriginal = btn.innerHTML
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...'
-    btn.disabled = true
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    let y = 20
 
-    // Configuración para capturar todo el contenido
-    const scale = 2
-    const canvas = await html2canvas(contenido, {
-      scale: scale,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-      logging: false,
-      // Capturar el contenido completo aunque esté en scroll
-      height: contenido.scrollHeight,
-      width: contenido.scrollWidth,
-      windowHeight: contenido.scrollHeight,
-      windowWidth: contenido.scrollWidth,
-      // Para evitar que se recorte
-      onclone: function (document) {
-        // Asegurar que el contenido sea visible
-        const clonedElement = document.getElementById('documentoContenido')
-        if (clonedElement) {
-          clonedElement.style.overflow = 'visible'
-          clonedElement.style.maxHeight = 'none'
-        }
-      }
-    })
+    // === Título ===
+    pdf.setFontSize(18)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('System Ozaet\'s Electronics', pageWidth / 2, y, { align: 'center' })
+    y += 8
 
-    const imgData = canvas.toDataURL('image/png')
-    const imgWidth = canvas.width
-    const imgHeight = canvas.height
-    
-    // Crear PDF con tamaño personalizado
-    const pdf = new jsPDF({
-      orientation: imgWidth > imgHeight ? 'landscape' : 'portrait',
-      unit: 'px',
-      format: [imgWidth, imgHeight]
-    })
-    
-    pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight)
-    const nombreArchivo = `documento_${documentoActual.value?.numero_factura || documentoActual.value?.numero_guia || 'sin_numero'}.pdf`
+    pdf.setFontSize(10)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text('Sistema Contable - Documento Electrónico', pageWidth / 2, y, { align: 'center' })
+    y += 10
+
+    pdf.setFontSize(14)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text((doc.tipo_documento || 'DOCUMENTO').toUpperCase(), pageWidth / 2, y, { align: 'center' })
+    y += 8
+
+    pdf.setFontSize(10)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text(`Nº: ${doc.numero_factura || doc.numero_guia || 'N/A'}`, pageWidth / 2, y, { align: 'center' })
+    y += 6
+    pdf.text(`Fecha Emisión: ${doc.fecha_emision ? new Date(doc.fecha_emision).toLocaleDateString() : 'N/A'}`, pageWidth / 2, y, { align: 'center' })
+    y += 12
+
+    // === Datos del cliente/proveedor ===
+    pdf.setFontSize(10)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('Datos del Cliente/Proveedor:', 14, y)
+    y += 6
+    pdf.setFont('helvetica', 'normal')
+    const cliente = doc.cliente || doc.proveedor || {}
+    pdf.text(`Nombre: ${cliente.nombre || 'N/A'}`, 14, y)
+    y += 5
+    pdf.text(`RUC/Cédula: ${cliente.ruc || 'N/A'}`, 14, y)
+    y += 5
+    pdf.text(`Dirección: ${cliente.direccion || 'N/A'}`, 14, y)
+    y += 5
+    pdf.text(`Teléfono: ${cliente.telefono || 'N/A'}`, 14, y)
+    y += 10
+
+    // === Tabla de productos ===
+    if (doc.tipo_documento !== 'guia_remision' && doc.detalles && doc.detalles.length > 0) {
+      const tableData = doc.detalles.map((item, idx) => [
+        idx + 1,
+        obtenerNombreProducto(item.productoId),
+        item.cantidad,
+        `$${(item.precio_unitario || item.costo_unitario || 0).toFixed(2)}`,
+        item.aplica_iva !== false ? 'Sí' : 'No',
+        `$${(item.cantidad * (item.precio_unitario || item.costo_unitario || 0)).toFixed(2)}`
+      ])
+
+      pdf.autoTable({
+        startY: y,
+        head: [['#', 'Producto', 'Cant.', 'P. Unit.', 'IVA', 'Subtotal']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [41, 128, 185] },
+        styles: { fontSize: 9 },
+        columnStyles: {
+          0: { cellWidth: 10 },
+          1: { cellWidth: 50 },
+          2: { cellWidth: 20 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 15 },
+          5: { cellWidth: 25 }
+        },
+        margin: { left: 14, right: 14 }
+      })
+
+      y = pdf.lastAutoTable.finalY + 10
+    }
+
+    // === Totales ===
+    if (doc.tipo_documento !== 'guia_remision') {
+      pdf.setFontSize(10)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(`Subtotal: $${(doc.subtotal || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+      y += 6
+      pdf.text(`IVA (15%): $${(doc.iva || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+      y += 8
+      pdf.setFontSize(12)
+      pdf.text(`Total: $${(doc.total || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+      y += 14
+    }
+
+    // === Pie de página ===
+    pdf.setFontSize(8)
+    pdf.setFont('helvetica', 'italic')
+    pdf.text('Documento generado por Sistema Contable - System Ozaet\'s Electronics', pageWidth / 2, y + 10, { align: 'center' })
+
+    const nombreArchivo = `documento_${doc.numero_factura || doc.numero_guia || 'sin_numero'}.pdf`
     pdf.save(nombreArchivo)
 
-    btn.innerHTML = textoOriginal
-    btn.disabled = false
   } catch (error) {
-    console.error('Error al generar PDF:', error)
-    alert('Error al generar el PDF. Intente nuevamente.')
+    console.error('Error generando PDF:', error)
+    alert('Error al generar el PDF: ' + error.message)
   }
 }
 
@@ -489,7 +544,6 @@ onMounted(() => {
       keyboard: false
     })
   }
-  // No cargar automáticamente
 })
 </script>
 
@@ -512,8 +566,5 @@ onMounted(() => {
 }
 .info-cliente p {
   margin-bottom: 4px;
-}
-.modal-footer .btn-group .dropdown-menu {
-  min-width: 100px;
 }
 </style>
