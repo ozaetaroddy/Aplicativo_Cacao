@@ -72,7 +72,6 @@ const getDiferenciaClass = (prod) => {
 }
 
 const guardarConteo = () => {
-  // Aquí se podría guardar en una colección "conteos" o generar un ajuste
   alert('Conteo guardado temporalmente. Próximamente se implementará ajuste automático.')
   console.log('Conteos:', conteos.value)
 }
@@ -85,7 +84,7 @@ onMounted(async () => {
       conteos.value[p._id] = p.stock
     })
   } catch (e) {
-    console.error(e)
+    console.error('Error cargando productos:', e)
   }
 })
 </script>

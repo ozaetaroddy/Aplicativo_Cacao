@@ -25,7 +25,7 @@ import ReporteVentas from './components/reportes/ReporteVentas.vue'
 import ReporteCompras from './components/reportes/ReporteCompras.vue'
 import ConsultarDocumentos from './components/ConsultarDocumentos.vue'
 
-// Nuevos componentes de inventario
+// Componentes de inventario
 import StockActual from './components/inventario/StockActual.vue'
 import ConteoFisico from './components/inventario/ConteoFisico.vue'
 import InventarioValorizado from './components/inventario/InventarioValorizado.vue'
@@ -52,17 +52,14 @@ const routes = [
   { path: '/ventas/nuevo', component: VentaForm },
   { path: '/ventas/editar/:id', component: VentaForm, props: true },
   { path: '/kardex', component: KardexView },
-  // Nuevas rutas de inventario
   { path: '/inventario/stock', component: StockActual },
   { path: '/inventario/conteo', component: ConteoFisico },
   { path: '/inventario/valorizado', component: InventarioValorizado },
   { path: '/inventario/planificacion', component: PlanificacionInventarios },
   { path: '/inventario/ajustes', component: AjustesInventario },
-  // Reportes
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
   { path: '/reportes', redirect: '/reportes/ventas' },
-  // Consulta
   { path: '/consultar-documentos', component: ConsultarDocumentos },
 ]
 
