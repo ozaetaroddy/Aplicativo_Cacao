@@ -4,41 +4,68 @@
 
     <div class="card card-cacao">
       <div class="card-body">
-        <form @submit.prevent="realizarAjuste">
+        <form @submit.prevent="guardarAjuste">
           <div class="row g-3">
             <div class="col-md-4">
-              <label class="form-label">Producto</label>
+              <label class="form-label"><span class="text-danger">*</span> Producto</label>
               <select class="form-select" v-model="ajuste.productoId" required>
                 <option value="">Seleccionar</option>
-                <option v-for="p in productos" :key="p._id" :value="p._id">{{ p.nombre }}</option>
+                <option v-for="p in productos" :key="p._id" :value="p._id">{{ p.nombre }} (Stock: {{ p.stock }})</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Cantidad Ajuste</label>
-              <input type="number" class="form-control" v-model.number="ajuste.cantidad" step="0.01" required>
+              <label class="form-label"><span class="text-danger">*</span> Cantidad</label>
+              <input type="number" class="form-control" v-model.number="ajuste.cantidad" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Tipo</label>
-              <select class="form-select" v-model="ajuste.tipo">
+              <label class="form-label"><span class="text-danger">*</span> Tipo</label>
+              <select class="form-select" v-model="ajuste.tipo" required>
+                <option value="">Seleccionar</option>
                 <option value="sumar">Sumar (Ingreso)</option>
                 <option value="restar">Restar (Salida)</option>
+                <option value="corregir">Corregir (Asignar valor exacto)</option>
               </select>
             </div>
             <div class="col-md-2 d-flex align-items-end">
-              <button type="submit" class="btn btn-primary w-100">Aplicar Ajuste</button>
+              <button type="submit" class="btn btn-primary w-100"><i class="fas fa-save"></i> Aplicar</button>
             </div>
           </div>
-          <div class="row g-3 mt-2">
-            <div class="col-md-12">
-              <label class="form-label">Motivo</label>
-              <input type="text" class="form-control" v-model="ajuste.motivo" placeholder="Motivo del ajuste (opcional)">
-            </div>
+          <div class="mt-3">
+            <label class="form-label">Motivo del ajuste</label>
+            <textarea class="form-control" v-model="ajuste.motivo" rows="2" placeholder="Describa el motivo del ajuste"></textarea>
           </div>
         </form>
       </div>
     </div>
 
-    <div v-if="mensaje" class="alert alert-success mt-3">{{ mensaje }}</div>
+    <div class="card card-cacao mt-3">
+      <div class="card-header"><i class="fas fa-history"></i> Historial de Ajustes</div>
+      <div class="card-body table-responsive">
+        <table class="table table-cacao">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Producto</th>
+              <th>Tipo</th>
+              <th>Cantidad</th>
+              <th>Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(adj, idx) in historial" :key="idx">
+              <td>{{ adj.fecha || 'N/A' }}</td>
+              <td>{{ adj.productoNombre || 'N/A' }}</td>
+              <td><span class="badge" :class="adj.tipo === 'sumar' ? 'bg-success' : adj.tipo === 'restar' ? 'bg-danger' : 'bg-warning'">{{ adj.tipo }}</span></td>
+              <td>{{ adj.cantidad }}</td>
+              <td>{{ adj.motivo || 'Sin motivo' }}</td>
+            </tr>
+            <tr v-if="historial.length === 0">
+              <td colspan="5" class="text-center text-muted">No hay ajustes registrados</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -48,13 +75,59 @@ import { useMongoDB } from '../../composables/useMongoDB'
 
 const { find, updateOne } = useMongoDB()
 const productos = ref([])
+const historial = ref([])
+
 const ajuste = ref({
   productoId: '',
   cantidad: 0,
-  tipo: 'sumar',
+  tipo: '',
   motivo: ''
 })
-const mensaje = ref('')
+
+const guardarAjuste = async () => {
+  if (!ajuste.value.productoId || !ajuste.value.cantidad || !ajuste.value.tipo) {
+    alert('Complete todos los campos obligatorios')
+    return
+  }
+
+  const producto = productos.value.find(p => p._id === ajuste.value.productoId)
+  if (!producto) {
+    alert('Producto no encontrado')
+    return
+  }
+
+  let nuevaCantidad = producto.stock
+  if (ajuste.value.tipo === 'sumar') {
+    nuevaCantidad += ajuste.value.cantidad
+  } else if (ajuste.value.tipo === 'restar') {
+    nuevaCantidad -= ajuste.value.cantidad
+  } else if (ajuste.value.tipo === 'corregir') {
+    nuevaCantidad = ajuste.value.cantidad
+  }
+
+  if (nuevaCantidad < 0) {
+    alert('La cantidad no puede ser negativa')
+    return
+  }
+
+  try {
+    await updateOne('productos', producto._id, { stock: nuevaCantidad })
+    // Registrar en historial local
+    historial.value.unshift({
+      fecha: new Date().toLocaleString(),
+      productoNombre: producto.nombre,
+      tipo: ajuste.value.tipo,
+      cantidad: ajuste.value.cantidad,
+      motivo: ajuste.value.motivo
+    })
+    // Recargar productos
+    productos.value = await find('productos')
+    ajuste.value = { productoId: '', cantidad: 0, tipo: '', motivo: '' }
+    alert('Ajuste aplicado correctamente')
+  } catch (e) {
+    alert('Error al aplicar ajuste: ' + e.message)
+  }
+}
 
 onMounted(async () => {
   try {
@@ -63,37 +136,4 @@ onMounted(async () => {
     console.error(e)
   }
 })
-
-const realizarAjuste = async () => {
-  if (!ajuste.value.productoId || !ajuste.value.cantidad) {
-    alert('Seleccione un producto y una cantidad')
-    return
-  }
-
-  try {
-    const producto = await find('productos', { _id: ajuste.value.productoId })
-    if (!producto.length) {
-      alert('Producto no encontrado')
-      return
-    }
-
-    let nuevoStock = producto[0].stock
-    if (ajuste.value.tipo === 'sumar') {
-      nuevoStock += ajuste.value.cantidad
-    } else {
-      nuevoStock -= ajuste.value.cantidad
-      if (nuevoStock < 0) nuevoStock = 0
-    }
-
-    await updateOne('productos', ajuste.value.productoId, { stock: nuevoStock })
-    mensaje.value = `Ajuste aplicado correctamente. Nuevo stock: ${nuevoStock}`
-
-    // Actualizar lista de productos para reflejar cambio
-    productos.value = await find('productos')
-    ajuste.value.productoId = ''
-    ajuste.value.cantidad = 0
-  } catch (e) {
-    alert('Error al aplicar ajuste: ' + e.message)
-  }
-}
 </script>

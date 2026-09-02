@@ -41,17 +41,32 @@
             </div>
           </div>
 
-          <!-- ===== CAMPOS PARA GUÍA DE REMISIÓN (COMPLETO) ===== -->
+          <!-- ===== GUÍA DE REMISIÓN (COMPLETO Y REORDENADO) ===== -->
           <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
-            <!-- Datos del destinatario/cliente -->
-            <div class="col-12"><h6>Destinatario / Cliente</h6></div>
+            <!-- 1. Datos Generales -->
+            <div class="col-12"><h6>Datos Generales</h6></div>
+            <div class="col-md-4">
+              <label class="form-label"><span class="text-danger">*</span> Establecimiento</label>
+              <input type="text" class="form-control" v-model="venta.establecimiento" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label"><span class="text-danger">*</span> Nombre Comercial</label>
+              <input type="text" class="form-control" v-model="venta.nombre_comercial" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label"><span class="text-danger">*</span> Punto de Emisión</label>
+              <input type="text" class="form-control" v-model="venta.punto_emision" required>
+            </div>
+
+            <!-- 2. Destinatario / Cliente -->
+            <div class="col-12 mt-3"><h6>Destinatario / Cliente</h6></div>
             <div class="col-md-3">
-              <label class="form-label">Identificación</label>
-              <input type="text" class="form-control" v-model="venta.destinatario_identificacion">
+              <label class="form-label"><span class="text-danger">*</span> Identificación</label>
+              <input type="text" class="form-control" v-model="venta.destinatario_identificacion" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Tipo Identificación</label>
-              <select class="form-select" v-model="venta.destinatario_tipo">
+              <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
+              <select class="form-select" v-model="venta.destinatario_tipo" required>
                 <option value="">Seleccione</option>
                 <option value="RUC">RUC</option>
                 <option value="CI">CI</option>
@@ -59,66 +74,70 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Razón Social</label>
-              <input type="text" class="form-control" v-model="venta.destinatario_razon_social">
+              <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
+              <input type="text" class="form-control" v-model="venta.destinatario_razon_social" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Dirección Destino</label>
-              <input type="text" class="form-control" v-model="venta.destinatario_direccion">
+              <label class="form-label"><span class="text-danger">*</span> Dirección Destino</label>
+              <input type="text" class="form-control" v-model="venta.destinatario_direccion" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Ruta</label>
-              <input type="text" class="form-control" v-model="venta.ruta">
+              <label class="form-label"><span class="text-danger">*</span> Ruta</label>
+              <input type="text" class="form-control" v-model="venta.ruta" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Motivo</label>
-              <input type="text" class="form-control" v-model="venta.motivo">
+              <label class="form-label"><span class="text-danger">*</span> Motivo</label>
+              <input type="text" class="form-control" v-model="venta.motivo" required>
             </div>
             <div class="col-md-3">
               <label class="form-label">Documento Aduanero</label>
               <input type="text" class="form-control" v-model="venta.documento_aduana">
             </div>
 
-            <!-- Comprobante sustento -->
+            <!-- 3. Comprobante Sustento -->
             <div class="col-12 mt-3"><h6>Comprobante Sustento</h6></div>
             <div class="col-md-3">
-              <label class="form-label">Tipo Emisión</label>
-              <select class="form-select" v-model="venta.comprobante_tipo_emision">
+              <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
+              <select class="form-select" v-model="venta.comprobante_tipo_emision" required>
                 <option value="">Seleccione</option>
                 <option value="Física">Física</option>
                 <option value="Electrónica">Electrónica</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Documento</label>
-              <input type="text" class="form-control" v-model="venta.comprobante_documento">
+              <label class="form-label"><span class="text-danger">*</span> Documento</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_documento" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Clave de Acceso</label>
-              <input type="text" class="form-control" v-model="venta.comprobante_clave_acceso">
+              <label class="form-label">Buscar por:</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_buscar" placeholder="Clave de acceso">
             </div>
             <div class="col-md-3">
-              <label class="form-label">Número Autorización</label>
-              <input type="text" class="form-control" v-model="venta.comprobante_numero_autorizacion">
+              <label class="form-label"><span class="text-danger">*</span> Clave de Acceso</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_clave_acceso" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Número Comprobante</label>
-              <input type="text" class="form-control" v-model="venta.comprobante_numero">
+              <label class="form-label"><span class="text-danger">*</span> Número Autorización</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_numero_autorizacion" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Fecha Emisión Comprobante</label>
-              <input type="date" class="form-control" v-model="venta.comprobante_fecha_emision">
+              <label class="form-label"><span class="text-danger">*</span> Fecha Emisión Comprobante</label>
+              <input type="date" class="form-control" v-model="venta.comprobante_fecha_emision" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label"><span class="text-danger">*</span> Número Comprobante</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_numero" required>
             </div>
 
-            <!-- Transportista -->
+            <!-- 4. Transportista -->
             <div class="col-12 mt-3"><h6>Transportista</h6></div>
             <div class="col-md-3">
-              <label class="form-label">Identificación</label>
-              <input type="text" class="form-control" v-model="venta.transportista_identificacion">
+              <label class="form-label"><span class="text-danger">*</span> Identificación</label>
+              <input type="text" class="form-control" v-model="venta.transportista_identificacion" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Tipo Identificación</label>
-              <select class="form-select" v-model="venta.transportista_tipo">
+              <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
+              <select class="form-select" v-model="venta.transportista_tipo" required>
                 <option value="">Seleccione</option>
                 <option value="RUC">RUC</option>
                 <option value="CI">CI</option>
@@ -126,43 +145,31 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Razón Social</label>
-              <input type="text" class="form-control" v-model="venta.transportista_razon_social">
+              <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
+              <input type="text" class="form-control" v-model="venta.transportista_razon_social" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Correo Electrónico</label>
-              <input type="email" class="form-control" v-model="venta.transportista_correo">
+              <label class="form-label"><span class="text-danger">*</span> Correo Electrónico</label>
+              <input type="email" class="form-control" v-model="venta.transportista_correo" required>
             </div>
 
-            <!-- Traslado -->
+            <!-- 5. Traslado -->
             <div class="col-12 mt-3"><h6>Traslado</h6></div>
             <div class="col-md-3">
-              <label class="form-label">Dirección Partida</label>
-              <input type="text" class="form-control" v-model="venta.direccion_partida">
+              <label class="form-label"><span class="text-danger">*</span> Dirección Partida</label>
+              <input type="text" class="form-control" v-model="venta.direccion_partida" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Inicio Transporte</label>
-              <input type="datetime-local" class="form-control" v-model="venta.inicio_transporte">
+              <label class="form-label"><span class="text-danger">*</span> Inicio Transporte</label>
+              <input type="datetime-local" class="form-control" v-model="venta.inicio_transporte" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Fin Transporte</label>
-              <input type="datetime-local" class="form-control" v-model="venta.fin_transporte">
+              <label class="form-label"><span class="text-danger">*</span> Fin Transporte</label>
+              <input type="datetime-local" class="form-control" v-model="venta.fin_transporte" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Placa</label>
-              <input type="text" class="form-control" v-model="venta.placa_transporte">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Establecimiento</label>
-              <input type="text" class="form-control" v-model="venta.establecimiento">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Nombre Comercial</label>
-              <input type="text" class="form-control" v-model="venta.nombre_comercial">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Punto de Emisión</label>
-              <input type="text" class="form-control" v-model="venta.punto_emision">
+              <label class="form-label"><span class="text-danger">*</span> Placa</label>
+              <input type="text" class="form-control" v-model="venta.placa_transporte" required>
             </div>
           </div>
 
@@ -208,11 +215,14 @@
 
           <!-- ===== DETALLES DE PRODUCTOS ===== -->
           <hr />
-          <h5>Detalles de Productos</h5>
+          <h5>Detalle de Productos</h5>
+          <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> Escriba una letra o palabra, después seleccione el producto
+          </div>
 
           <div v-for="(item, index) in venta.detalles" :key="index" class="row g-2 align-items-end mb-2">
             <div class="col-md-3">
-              <label class="form-label">Producto</label>
+              <label class="form-label">Buscar en listado de productos</label>
               <select class="form-select" v-model="item.productoId" @change="cargarPrecioVenta(item)">
                 <option value="">Seleccionar</option>
                 <option v-for="prod in productos" :key="prod._id" :value="prod._id">{{ prod.nombre }}</option>
@@ -301,6 +311,7 @@ const venta = ref({
   fecha_emision: new Date().toISOString().split('T')[0],
   tipo_documento: tipoInicial,
   detalles: [],
+  // Campos comunes
   numero_guia: '',
   transportista: '',
   placa: '',
@@ -308,6 +319,7 @@ const venta = ref({
   pais_destino: '',
   numero_retencion: '',
   porcentaje_retencion: 0,
+  // Campos guía de remisión
   establecimiento: '',
   nombre_comercial: '',
   punto_emision: '',
@@ -319,7 +331,7 @@ const venta = ref({
   inicio_transporte: '',
   fin_transporte: '',
   placa_transporte: '',
-  // Nuevos campos para guía
+  // Nuevos campos
   destinatario_identificacion: '',
   destinatario_tipo: '',
   destinatario_razon_social: '',
@@ -329,6 +341,7 @@ const venta = ref({
   documento_aduana: '',
   comprobante_tipo_emision: '',
   comprobante_documento: '',
+  comprobante_buscar: '',
   comprobante_clave_acceso: '',
   comprobante_numero_autorizacion: '',
   comprobante_numero: '',
@@ -390,6 +403,7 @@ const cambiarTipo = () => {
   venta.value.documento_aduana = ''
   venta.value.comprobante_tipo_emision = ''
   venta.value.comprobante_documento = ''
+  venta.value.comprobante_buscar = ''
   venta.value.comprobante_clave_acceso = ''
   venta.value.comprobante_numero_autorizacion = ''
   venta.value.comprobante_numero = ''
@@ -501,6 +515,7 @@ const guardar = async () => {
       documento_aduana: venta.value.documento_aduana,
       comprobante_tipo_emision: venta.value.comprobante_tipo_emision,
       comprobante_documento: venta.value.comprobante_documento,
+      comprobante_buscar: venta.value.comprobante_buscar,
       comprobante_clave_acceso: venta.value.comprobante_clave_acceso,
       comprobante_numero_autorizacion: venta.value.comprobante_numero_autorizacion,
       comprobante_numero: venta.value.comprobante_numero,

@@ -1,62 +1,83 @@
 <template>
   <div>
-    <h4 class="section-title"><i class="fas fa-chart-line"></i> Planificación de Inventarios</h4>
-
-    <div class="card card-cacao mb-3">
-      <div class="card-body">
-        <p>Esta sección permite visualizar productos con stock bajo y generar sugerencias de compra.</p>
-        <button class="btn btn-primary" @click="generarSugerencias">
-          <i class="fas fa-sync"></i> Generar Sugerencias de Compra
-        </button>
-      </div>
-    </div>
+    <h4 class="section-title"><i class="fas fa-calendar-alt"></i> Planificación de Inventarios</h4>
 
     <div class="card card-cacao">
-      <div class="card-header">Productos con Stock Bajo</div>
-      <div class="card-body table-responsive">
-        <table class="table table-cacao">
-          <thead>
-            <tr>
-              <th>Producto</th>
-              <th>Stock Actual</th>
-              <th>Stock Mínimo</th>
-              <th>Cantidad Sugerida</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in productosBajos" :key="p._id">
-              <td>{{ p.nombre }}</td>
-              <td>{{ p.stock }}</td>
-              <td>{{ p.stock_minimo }}</td>
-              <td>{{ p.stock_minimo - p.stock }}</td>
-            </tr>
-            <tr v-if="productosBajos.length === 0">
-              <td colspan="4" class="text-muted text-center">Todos los productos tienen stock suficiente</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="card-body">
+        <div class="alert alert-info">
+          <i class="fas fa-info-circle"></i> Esta sección permite planificar pedidos basados en el stock mínimo y las ventas proyectadas.
+        </div>
+        <p class="text-muted">Próximamente: módulo de planificación de compras con sugerencias de pedido.</p>
+
+        <div class="row g-3 mt-3">
+          <div class="col-md-4">
+            <label class="form-label">Producto</label>
+            <select class="form-select" v-model="productoSeleccionado">
+              <option value="">Seleccionar</option>
+              <option v-for="p in productos" :key="p._id" :value="p._id">{{ p.nombre }}</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Stock Actual</label>
+            <input type="text" class="form-control" :value="stockActual" readonly>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Stock Mínimo</label>
+            <input type="text" class="form-control" :value="stockMinimo" readonly>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Cantidad a Pedir</label>
+            <input type="number" class="form-control" v-model="cantidadPedir">
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <button class="btn btn-primary w-100" @click="sugerirPedido"><i class="fas fa-lightbulb"></i> Sugerir</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
 
 const { find } = useMongoDB()
-const productosBajos = ref([])
+const productos = ref([])
+const productoSeleccionado = ref('')
+const cantidadPedir = ref(0)
 
-const generarSugerencias = async () => {
-  try {
-    const productos = await find('productos')
-    productosBajos.value = productos.filter(p => p.stock <= p.stock_minimo)
-  } catch (e) {
-    console.error(e)
+const productoActual = computed(() => {
+  return productos.value.find(p => p._id === productoSeleccionado.value)
+})
+
+const stockActual = computed(() => {
+  return productoActual.value?.stock || 0
+})
+
+const stockMinimo = computed(() => {
+  return productoActual.value?.stock_minimo || 0
+})
+
+const sugerirPedido = () => {
+  if (!productoActual.value) {
+    alert('Seleccione un producto')
+    return
+  }
+  const sugerencia = Math.max(0, productoActual.value.stock_minimo - productoActual.value.stock)
+  cantidadPedir.value = sugerencia > 0 ? sugerencia : 0
+  if (sugerencia === 0) {
+    alert('El stock actual es suficiente. No es necesario pedir.')
+  } else {
+    alert(`Se sugiere pedir ${sugerencia} unidades de ${productoActual.value.nombre}`)
   }
 }
 
-onMounted(() => {
-  generarSugerencias()
+onMounted(async () => {
+  try {
+    productos.value = await find('productos')
+  } catch (e) {
+    console.error(e)
+  }
 })
 </script>
