@@ -21,20 +21,20 @@ const toggleTheme = () => {
 .theme-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
-  padding: 6px 14px;
+  padding: 4px 12px;
   border-radius: 30px;
   background: rgba(255,255,255,0.1);
   transition: all 0.3s ease;
   color: rgba(255,255,255,0.85);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 500;
 }
 .theme-toggle:hover {
   background: rgba(255,255,255,0.2);
 }
 .theme-toggle i {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 </style>
