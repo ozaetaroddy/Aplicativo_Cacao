@@ -42,6 +42,85 @@
       </div>
     </div>
 
+    <!-- ===== ACCESOS RÁPIDOS (NUEVO CON MÁS OPCIONES) ===== -->
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        <h5 class="section-subtitle"><i class="fas fa-bolt me-2"></i>Accesos Rápidos</h5>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/ventas/nuevo?tipo=factura" class="quick-access">
+          <div class="icon-circle" style="background: #3498db;"><i class="fas fa-file-invoice"></i></div>
+          <span>Factura</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/ventas/nuevo?tipo=guia_remision" class="quick-access">
+          <div class="icon-circle" style="background: #2ecc71;"><i class="fas fa-truck"></i></div>
+          <span>Guía Remisión</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/ventas/nuevo?tipo=nota_credito" class="quick-access">
+          <div class="icon-circle" style="background: #e67e22;"><i class="fas fa-undo-alt"></i></div>
+          <span>Nota Crédito</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/compras/nuevo" class="quick-access">
+          <div class="icon-circle" style="background: #27ae60;"><i class="fas fa-shopping-cart"></i></div>
+          <span>Compra</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/clientes/nuevo" class="quick-access">
+          <div class="icon-circle" style="background: #8e44ad;"><i class="fas fa-user-plus"></i></div>
+          <span>Cliente</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/proveedores/nuevo" class="quick-access">
+          <div class="icon-circle" style="background: #2c3e50;"><i class="fas fa-truck-loading"></i></div>
+          <span>Proveedor</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/productos/nuevo" class="quick-access">
+          <div class="icon-circle" style="background: #f1c40f;"><i class="fas fa-box"></i></div>
+          <span>Producto</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/consultar-documentos" class="quick-access">
+          <div class="icon-circle" style="background: #2980b9;"><i class="fas fa-search"></i></div>
+          <span>Consultar Docs</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/kardex" class="quick-access">
+          <div class="icon-circle" style="background: #1abc9c;"><i class="fas fa-clipboard-list"></i></div>
+          <span>Kardex</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/inventario/stock" class="quick-access">
+          <div class="icon-circle" style="background: #16a085;"><i class="fas fa-boxes"></i></div>
+          <span>Stock Actual</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/reportes/ventas" class="quick-access">
+          <div class="icon-circle" style="background: #e74c3c;"><i class="fas fa-chart-line"></i></div>
+          <span>Reporte Ventas</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/reportes/compras" class="quick-access">
+          <div class="icon-circle" style="background: #d35400;"><i class="fas fa-chart-bar"></i></div>
+          <span>Reporte Compras</span>
+        </router-link>
+      </div>
+    </div>
+
     <!-- ===== GRÁFICOS ===== -->
     <DashboardCharts
       :ventas-diarias="ventasDiarias"
@@ -49,7 +128,7 @@
       :dias="dias"
     />
 
-    <!-- ===== TOP PRODUCTOS Y ACCESOS RÁPIDOS ===== -->
+    <!-- ===== TOP PRODUCTOS ===== -->
     <div class="row g-4 mt-2">
       <div class="col-md-6">
         <div class="card card-cacao">
@@ -75,43 +154,14 @@
       </div>
       <div class="col-md-6">
         <div class="card card-cacao">
-          <div class="card-header"><i class="fas fa-clock me-2"></i> Accesos Rápidos</div>
+          <div class="card-header"><i class="fas fa-clock me-2"></i> Actividad Reciente</div>
           <div class="card-body">
-            <div class="row g-2">
-              <div class="col-6">
-                <router-link to="/ventas/nuevo?tipo=factura" class="btn btn-primary w-100">
-                  <i class="fas fa-file-invoice"></i> Nueva Factura
-                </router-link>
-              </div>
-              <div class="col-6">
-                <router-link to="/compras/nuevo" class="btn btn-success w-100">
-                  <i class="fas fa-shopping-cart"></i> Nueva Compra
-                </router-link>
-              </div>
-              <div class="col-6">
-                <router-link to="/clientes/nuevo" class="btn btn-info w-100">
-                  <i class="fas fa-user-plus"></i> Nuevo Cliente
-                </router-link>
-              </div>
-              <div class="col-6">
-                <router-link to="/productos/nuevo" class="btn btn-warning w-100">
-                  <i class="fas fa-box"></i> Nuevo Producto
-                </router-link>
-              </div>
-              <div class="col-12">
-                <router-link to="/consultar-documentos" class="btn btn-secondary w-100">
-                  <i class="fas fa-search"></i> Consultar Documentos
-                </router-link>
-              </div>
-            </div>
+            <p class="text-muted">Próximamente: Últimas transacciones</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ===== ACCESOS RÁPIDOS ANTERIORES (se mantienen pero en un estilo más compacto) ===== -->
-    <!-- Los accesos rápidos por categorías ya no son necesarios porque ya tenemos los botones de arriba -->
-    <!-- pero si quieres mantenerlos, puedes dejarlos -->
   </div>
 </template>
 
@@ -143,13 +193,11 @@ const obtenerNombreProducto = (id) => {
 }
 
 onMounted(async () => {
-  // Cargar lista de productos para resolver nombres
   try {
     productos.value = await find('productos')
   } catch (e) {
     console.error('Error cargando productos:', e)
   }
-  // Cargar estadísticas
   await cargarEstadisticas()
 })
 </script>
@@ -190,5 +238,54 @@ onMounted(async () => {
   color: #7f8c8d;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.quick-access {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-decoration: none;
+  color: #2d2d2d;
+  padding: 8px 4px;
+  border-radius: 12px;
+  transition: all 0.2s;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.quick-access:hover {
+  background: #f8f9fa;
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+  text-decoration: none;
+  color: #1a2a3a;
+}
+.quick-access .icon-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.4rem;
+  margin-bottom: 6px;
+}
+.quick-access span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.section-subtitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #2c3e50;
+  margin-bottom: 12px;
+  border-bottom: 2px solid #ecf0f1;
+  padding-bottom: 6px;
+}
+.section-subtitle i {
+  color: #3498db;
 }
 </style>
