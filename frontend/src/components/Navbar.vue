@@ -4,7 +4,11 @@
       <router-link class="navbar-brand" to="/">
         <i class="fas fa-calculator"></i> Sistema Contable
       </router-link>
-      <button class="navbar-toggler" type="button" @click="toggleNavbar">
+      <button
+        class="navbar-toggler"
+        type="button"
+        @click="toggleNavbar"
+      >
         <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
       </button>
       <div class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
@@ -93,6 +97,8 @@
             </ul>
           </li>
         </ul>
+
+        <!-- ===== TOGGLE DE TEMA Y MONGODB ===== -->
         <div class="d-flex align-items-center gap-2">
           <ThemeToggle />
           <span class="navbar-text">
@@ -190,5 +196,17 @@ const cerrarTodo = () => {
 }
 .navbar-cacao .dropdown-item:hover {
   background: #f8f9fa;
+}
+
+/* Ajustes para modo oscuro en navbar */
+body.dark-mode .navbar-cacao .dropdown-menu {
+  background: #1e2a4a;
+  border-color: #2d3748;
+}
+body.dark-mode .navbar-cacao .dropdown-item {
+  color: #e0e0e0 !important;
+}
+body.dark-mode .navbar-cacao .dropdown-item:hover {
+  background: #2d3748;
 }
 </style>
