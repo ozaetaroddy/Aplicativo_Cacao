@@ -1,6 +1,7 @@
 <template>
   <div>
     <h4 class="section-title"><i class="fas fa-clipboard-list"></i> Kardex</h4>
+
     <div class="row g-3 mb-3">
       <div class="col-md-3">
         <label class="form-label">Tipo de Filtro</label>
@@ -34,7 +35,9 @@
         <input type="date" class="form-control" v-model="fechaHasta">
       </div>
       <div class="col-md-2 d-flex align-items-end">
-        <button class="btn btn-primary" @click="consultar" :disabled="!entidadSeleccionada"><i class="fas fa-search"></i> Consultar</button>
+        <button class="btn btn-primary" @click="consultar" :disabled="!entidadSeleccionada">
+          <i class="fas fa-search"></i> Consultar
+        </button>
       </div>
     </div>
 
@@ -43,22 +46,24 @@
     <div class="card card-cacao">
       <div class="card-body table-responsive">
         <table class="table table-cacao">
-          <thead><tr>
-            <th>Fecha</th>
-            <th>Producto</th>
-            <th>Tipo</th>
-            <th>Cantidad</th>
-            <th>Costo Unit.</th>
-            <th>Saldo</th>
-            <th>Ref.</th>
-          </tr></thead>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Producto</th>
+              <th>Tipo</th>
+              <th>Cantidad</th>
+              <th>Costo Unit.</th>
+              <th>Saldo</th>
+              <th>Ref.</th>
+            </tr>
+          </thead>
           <tbody>
             <tr v-for="mov in movimientos" :key="mov._id">
               <td>{{ new Date(mov.fecha).toLocaleDateString() }}</td>
               <td>{{ obtenerNombreProducto(mov.productoId) }}</td>
               <td><span class="badge" :class="mov.tipo_movimiento === 'compra' ? 'bg-success' : 'bg-primary'">{{ mov.tipo_movimiento }}</span></td>
               <td>{{ mov.cantidad }}</td>
-              <td>${{ mov.costo_unitario?.toFixed(2) || '0.00' }}</td>
+              <td>{{ formatCurrency(mov.costo_unitario) }}</td>
               <td>{{ mov.saldo }}</td>
               <td>{{ mov.referencia_tipo }}</td>
             </tr>
@@ -78,6 +83,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { formatCurrency } from '../../utils/formatters'
 
 const { find, getKardexByProducto, getKardexByCliente, getKardexByProveedor } = useMongoDB()
 const productos = ref([])
@@ -110,7 +116,6 @@ onMounted(async () => {
     productos.value = prods
     clientes.value = clis
     proveedores.value = provs
-    // Crear mapa de productos
     prods.forEach(p => productosMap.value[p._id] = p)
   } catch (e) {
     console.error(e)

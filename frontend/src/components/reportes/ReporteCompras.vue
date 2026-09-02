@@ -25,7 +25,7 @@
       </div>
     </div>
 
-    <div v-if="fechaGeneracion" class="text-muted small mb-2 text-start">
+    <div v-if="fechaGeneracion" class="text-muted small mb-2">
       <i class="far fa-clock"></i> Reporte generado el {{ fechaGeneracion }}
     </div>
 
@@ -39,7 +39,7 @@
             <th>Proveedor</th>
             <th>Nº Factura</th>
             <th>Subtotal</th>
-            <th>IVA (15%)</th>
+            <th>IVA</th>
             <th>Total</th>
           </tr></thead>
           <tbody>
@@ -47,9 +47,9 @@
               <td>{{ new Date(c.fecha_emision).toLocaleDateString() }}</td>
               <td>{{ c.proveedor?.nombre || 'N/A' }}</td>
               <td>{{ c.numero_factura || 'N/A' }}</td>
-              <td>${{ c.subtotal?.toFixed(2) || '0.00' }}</td>
-              <td>${{ c.iva?.toFixed(2) || '0.00' }}</td>
-              <td><strong>${{ c.total?.toFixed(2) || '0.00' }}</strong></td>
+              <td>{{ formatCurrency(c.subtotal) }}</td>
+              <td>{{ formatCurrency(c.iva) }}</td>
+              <td><strong>{{ formatCurrency(c.total) }}</strong></td>
             </tr>
             <tr v-if="compras.length === 0 && !loading && !error">
               <td colspan="6" class="text-muted text-center">Seleccione fechas y genere el reporte</td>
@@ -61,9 +61,9 @@
           <tfoot v-if="compras.length > 0">
             <tr>
               <td colspan="3" class="text-end"><strong>Totales</strong></td>
-              <td><strong>${{ totalSubtotal.toFixed(2) }}</strong></td>
-              <td><strong>${{ totalIva.toFixed(2) }}</strong></td>
-              <td><strong>${{ totalTotal.toFixed(2) }}</strong></td>
+              <td><strong>{{ formatCurrency(totalSubtotal) }}</strong></td>
+              <td><strong>{{ formatCurrency(totalIva) }}</strong></td>
+              <td><strong>{{ formatCurrency(totalTotal) }}</strong></td>
             </tr>
           </tfoot>
         </table>
@@ -75,6 +75,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { roundTo2, formatCurrency } from '../../utils/formatters'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -87,9 +88,9 @@ const loading = ref(false)
 const error = ref(null)
 const fechaGeneracion = ref('')
 
-const totalSubtotal = computed(() => compras.value.reduce((acc, c) => acc + (c.subtotal || 0), 0))
-const totalIva = computed(() => compras.value.reduce((acc, c) => acc + (c.iva || 0), 0))
-const totalTotal = computed(() => compras.value.reduce((acc, c) => acc + (c.total || 0), 0))
+const totalSubtotal = computed(() => roundTo2(compras.value.reduce((acc, c) => acc + (c.subtotal || 0), 0)))
+const totalIva = computed(() => roundTo2(compras.value.reduce((acc, c) => acc + (c.iva || 0), 0)))
+const totalTotal = computed(() => roundTo2(compras.value.reduce((acc, c) => acc + (c.total || 0), 0)))
 
 const generar = async () => {
   if (!desde.value || !hasta.value) {
@@ -120,9 +121,9 @@ const exportExcel = () => {
     Fecha: new Date(c.fecha_emision).toLocaleDateString(),
     Proveedor: c.proveedor?.nombre || 'N/A',
     'Nº Factura': c.numero_factura || 'N/A',
-    Subtotal: c.subtotal || 0,
-    'IVA (15%)': c.iva || 0,
-    Total: c.total || 0
+    Subtotal: roundTo2(c.subtotal || 0),
+    IVA: roundTo2(c.iva || 0),
+    Total: roundTo2(c.total || 0)
   }))
   const ws = XLSX.utils.json_to_sheet(data)
   const wb = XLSX.utils.book_new()
@@ -133,29 +134,22 @@ const exportExcel = () => {
 const exportPDF = () => {
   if (compras.value.length === 0) return alert('No hay datos para exportar')
   const doc = new jsPDF()
-  doc.setFontSize(16)
-  doc.text('System Ozaet\'s Electronics', 14, 22)
-  doc.setFontSize(12)
-  doc.text('Reporte de Compras', 14, 32)
-  doc.setFontSize(9)
-  doc.text(`Generado el: ${new Date().toLocaleString('es-EC')}`, 14, 40)
-  
+  doc.text('Reporte de Compras', 14, 22)
+  doc.setFontSize(10)
+  doc.text(`Generado el: ${new Date().toLocaleString('es-EC')}`, 14, 30)
   const tableData = compras.value.map(c => [
     new Date(c.fecha_emision).toLocaleDateString(),
     c.proveedor?.nombre || 'N/A',
     c.numero_factura || 'N/A',
-    (c.subtotal || 0).toFixed(2),
-    (c.iva || 0).toFixed(2),
-    (c.total || 0).toFixed(2)
+    roundTo2(c.subtotal || 0).toFixed(2),
+    roundTo2(c.iva || 0).toFixed(2),
+    roundTo2(c.total || 0).toFixed(2)
   ])
   autoTable(doc, {
-    head: [['Fecha', 'Proveedor', 'Nº Factura', 'Subtotal', 'IVA (15%)', 'Total']],
+    head: [['Fecha', 'Proveedor', 'Nº Factura', 'Subtotal', 'IVA', 'Total']],
     body: tableData,
-    startY: 45,
-    foot: [['', '', '', totalSubtotal.value.toFixed(2), totalIva.value.toFixed(2), totalTotal.value.toFixed(2)]],
-    theme: 'striped',
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [44, 62, 80] }
+    startY: 35,
+    foot: [['', '', '', totalSubtotal.value.toFixed(2), totalIva.value.toFixed(2), totalTotal.value.toFixed(2)]]
   })
   doc.save('reporte_compras.pdf')
 }

@@ -5,7 +5,6 @@
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
-          <!-- PROVEEDOR -->
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Proveedor</label>
@@ -60,7 +59,7 @@
             </div>
             <div class="col-md-2">
               <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="(item.cantidad * item.costo_unitario).toFixed(2)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency((item.cantidad || 0) * (item.costo_unitario || 0))" readonly>
             </div>
             <div class="col-md-1">
               <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
@@ -82,17 +81,17 @@
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="subtotal.toFixed(2)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency(subtotal)" readonly>
             </div>
             <div class="col-md-3">
               <label class="form-label">IVA (15%)</label>
-              <input type="text" class="form-control" :value="iva.toFixed(2)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency(iva)" readonly>
             </div>
           </div>
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Total</label>
-              <input type="text" class="form-control" :value="total.toFixed(2)" readonly style="font-weight:700;">
+              <input type="text" class="form-control" :value="formatCurrency(total)" readonly style="font-weight:700;">
             </div>
           </div>
 
@@ -110,6 +109,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { roundTo2, formatCurrency } from '../../utils/formatters'
 
 const router = useRouter()
 const { find, insertOne } = useMongoDB()
@@ -142,14 +142,14 @@ const eliminarDetalle = (index) => {
 const cargarPrecio = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
   if (prod) {
-    item.costo_unitario = prod.precio_compra || 0
+    item.costo_unitario = roundTo2(prod.precio_compra || 0)
     item.aplica_iva = prod.aplica_iva !== undefined ? prod.aplica_iva : true
   }
 }
 
 const subtotal = computed(() => {
-  const total = compra.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.costo_unitario || 0), 0)
-  return Math.round(total * 100) / 100
+  const total = compra.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.costo_unitario || 0)), 0)
+  return roundTo2(total)
 })
 
 const iva = computed(() => {
@@ -157,14 +157,14 @@ const iva = computed(() => {
   compra.value.detalles.forEach(d => {
     const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
     if (aplicaIVA) {
-      baseImponible += d.cantidad * d.costo_unitario || 0
+      baseImponible += (d.cantidad || 0) * (d.costo_unitario || 0)
     }
   })
-  return Math.round((baseImponible * 0.15) * 100) / 100
+  return roundTo2(baseImponible * 0.15)
 })
 
 const total = computed(() => {
-  return Math.round((subtotal.value + iva.value) * 100) / 100
+  return roundTo2(subtotal.value + iva.value)
 })
 
 onMounted(async () => {
@@ -199,13 +199,13 @@ const guardar = async () => {
       fecha_emision: compra.value.fecha_emision,
       detalles: compra.value.detalles.map(d => ({
         productoId: d.productoId,
-        cantidad: Math.round(d.cantidad * 100) / 100,
-        costo_unitario: Math.round((d.costo_unitario || 0) * 100) / 100,
+        cantidad: roundTo2(d.cantidad),
+        costo_unitario: roundTo2(d.costo_unitario),
         aplica_iva: d.aplica_iva
       })),
-      subtotal: Math.round(subtotal.value * 100) / 100,
-      iva: Math.round(iva.value * 100) / 100,
-      total: Math.round(total.value * 100) / 100
+      subtotal: roundTo2(subtotal.value),
+      iva: roundTo2(iva.value),
+      total: roundTo2(total.value)
     }
     await insertOne('compras', payload)
     router.push('/compras')

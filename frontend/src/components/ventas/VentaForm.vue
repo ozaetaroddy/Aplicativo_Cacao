@@ -16,7 +16,6 @@
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
-          <!-- ===== SELECCIÓN DE TIPO ===== -->
           <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
@@ -41,9 +40,7 @@
             </div>
           </div>
 
-          <!-- ===== GUÍA DE REMISIÓN (COMPLETO) ===== -->
           <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
-            <!-- Datos Generales -->
             <div class="col-12"><h6>Datos Generales</h6></div>
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Establecimiento</label>
@@ -58,7 +55,6 @@
               <input type="text" class="form-control" v-model="venta.punto_emision" required>
             </div>
 
-            <!-- Destinatario / Cliente -->
             <div class="col-12 mt-3"><h6>Destinatario / Cliente</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Identificación</label>
@@ -94,7 +90,6 @@
               <input type="text" class="form-control" v-model="venta.documento_aduana">
             </div>
 
-            <!-- Comprobante Sustento -->
             <div class="col-12 mt-3"><h6>Comprobante Sustento</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
@@ -129,7 +124,6 @@
               <input type="text" class="form-control" v-model="venta.comprobante_numero" required>
             </div>
 
-            <!-- Transportista -->
             <div class="col-12 mt-3"><h6>Transportista</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Identificación</label>
@@ -153,7 +147,6 @@
               <input type="email" class="form-control" v-model="venta.transportista_correo" required>
             </div>
 
-            <!-- Traslado -->
             <div class="col-12 mt-3"><h6>Traslado</h6></div>
             <div class="col-md-3">
               <label class="form-label"><span class="text-danger">*</span> Dirección Partida</label>
@@ -173,7 +166,6 @@
             </div>
           </div>
 
-          <!-- ===== CAMPOS ESPECIALES (otros tipos) ===== -->
           <div v-if="venta.tipo_documento === 'exportacion'" class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Nº Exportación</label>
@@ -197,7 +189,6 @@
 
           <hr />
 
-          <!-- ===== CLIENTE (SOLO PARA NO GUIAS) ===== -->
           <div class="row g-3" v-if="venta.tipo_documento !== 'guia_remision'">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Cliente</label>
@@ -213,7 +204,6 @@
             </div>
           </div>
 
-          <!-- ===== DETALLES DE PRODUCTOS ===== -->
           <hr />
           <h5>Detalle de Productos</h5>
           <div class="alert alert-info">
@@ -238,7 +228,7 @@
             </div>
             <div class="col-md-2">
               <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="(item.cantidad * item.precio_unitario).toFixed(2)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency((item.cantidad || 0) * (item.precio_unitario || 0))" readonly>
             </div>
             <div class="col-md-2">
               <label class="form-label">¿Aplica IVA?</label>
@@ -263,22 +253,21 @@
             </router-link>
           </div>
 
-          <!-- ===== TOTALES ===== -->
           <hr />
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="subtotal.toFixed(2)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency(subtotal)" readonly>
             </div>
             <div class="col-md-3">
               <label class="form-label">IVA (15%)</label>
-              <input type="text" class="form-control" :value="iva.toFixed(2)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency(iva)" readonly>
             </div>
           </div>
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Total</label>
-              <input type="text" class="form-control" :value="total.toFixed(2)" readonly style="font-weight:700;">
+              <input type="text" class="form-control" :value="formatCurrency(total)" readonly style="font-weight:700;">
             </div>
           </div>
 
@@ -296,6 +285,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { roundTo2, formatCurrency } from '../../utils/formatters'
 
 const route = useRoute()
 const router = useRouter()
@@ -311,7 +301,6 @@ const venta = ref({
   fecha_emision: new Date().toISOString().split('T')[0],
   tipo_documento: tipoInicial,
   detalles: [],
-  // Campos comunes
   numero_guia: '',
   transportista: '',
   placa: '',
@@ -319,7 +308,6 @@ const venta = ref({
   pais_destino: '',
   numero_retencion: '',
   porcentaje_retencion: 0,
-  // Campos guía de remisión
   establecimiento: '',
   nombre_comercial: '',
   punto_emision: '',
@@ -331,7 +319,6 @@ const venta = ref({
   inicio_transporte: '',
   fin_transporte: '',
   placa_transporte: '',
-  // Nuevos campos
   destinatario_identificacion: '',
   destinatario_tipo: '',
   destinatario_razon_social: '',
@@ -376,7 +363,6 @@ const asignarCodigos = () => {
 }
 
 const cambiarTipo = () => {
-  // Resetear todos los campos
   venta.value.numero_guia = ''
   venta.value.transportista = ''
   venta.value.placa = ''
@@ -409,12 +395,7 @@ const cambiarTipo = () => {
   venta.value.comprobante_numero_autorizacion = ''
   venta.value.comprobante_numero = ''
   venta.value.comprobante_fecha_emision = ''
-  // Si es guía, no agregar detalles automáticamente (pero si no tiene, agregar)
-  if (venta.value.tipo_documento === 'guia_remision') {
-    if (venta.value.detalles.length === 0) agregarDetalle()
-  } else {
-    if (venta.value.detalles.length === 0) agregarDetalle()
-  }
+  if (venta.value.detalles.length === 0) agregarDetalle()
   asignarCodigos()
 }
 
@@ -429,14 +410,14 @@ const eliminarDetalle = (index) => {
 const cargarPrecioVenta = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
   if (prod) {
-    item.precio_unitario = prod.precio_venta || 0
+    item.precio_unitario = roundTo2(prod.precio_venta || 0)
     item.aplica_iva = prod.aplica_iva !== undefined ? prod.aplica_iva : true
   }
 }
 
 const subtotal = computed(() => {
-  const total = venta.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.precio_unitario || 0), 0)
-  return Math.round(total * 100) / 100
+  const total = venta.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.precio_unitario || 0)), 0)
+  return roundTo2(total)
 })
 
 const iva = computed(() => {
@@ -444,14 +425,14 @@ const iva = computed(() => {
   venta.value.detalles.forEach(d => {
     const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
     if (aplicaIVA) {
-      baseImponible += d.cantidad * d.precio_unitario || 0
+      baseImponible += (d.cantidad || 0) * (d.precio_unitario || 0)
     }
   })
-  return Math.round((baseImponible * 0.15) * 100) / 100
+  return roundTo2(baseImponible * 0.15)
 })
 
 const total = computed(() => {
-  return Math.round((subtotal.value + iva.value) * 100) / 100
+  return roundTo2(subtotal.value + iva.value)
 })
 
 onMounted(async () => {
@@ -470,12 +451,9 @@ onMounted(async () => {
 })
 
 const guardar = async () => {
-  // Validar cliente solo si NO es guía
-  if (venta.value.tipo_documento !== 'guia_remision') {
-    if (!venta.value.clienteId) {
-      alert('Seleccione un cliente')
-      return
-    }
+  if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) {
+    alert('Seleccione un cliente')
+    return
   }
   if (venta.value.detalles.length === 0 || !venta.value.detalles[0].productoId) {
     alert('Agregue al menos un producto')
@@ -490,13 +468,13 @@ const guardar = async () => {
       tipo_documento: venta.value.tipo_documento,
       detalles: venta.value.detalles.map(d => ({
         productoId: d.productoId,
-        cantidad: Math.round(d.cantidad * 100) / 100,
-        precio_unitario: Math.round((d.precio_unitario || 0) * 100) / 100,
+        cantidad: roundTo2(d.cantidad),
+        precio_unitario: roundTo2(d.precio_unitario),
         aplica_iva: d.aplica_iva
       })),
-      subtotal: Math.round(subtotal.value * 100) / 100,
-      iva: Math.round(iva.value * 100) / 100,
-      total: Math.round(total.value * 100) / 100,
+      subtotal: roundTo2(subtotal.value),
+      iva: roundTo2(iva.value),
+      total: roundTo2(total.value),
       numero_guia: venta.value.numero_guia,
       transportista: venta.value.transportista,
       placa: venta.value.placa,

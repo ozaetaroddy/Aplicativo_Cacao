@@ -60,7 +60,7 @@
                 </a>
               </td>
               <td>{{ doc.numero_factura || doc.numero_guia || 'N/A' }}</td>
-              <td><strong>${{ doc.total?.toFixed(2) || '0.00' }}</strong></td>
+              <td><strong>{{ formatCurrency(doc.total) }}</strong></td>
               <td>
                 <button class="btn btn-sm btn-outline-primary" @click="verDocumento(doc)" title="Ver documento">
                   <i class="fas fa-eye"></i>
@@ -118,48 +118,28 @@
                 </div>
               </div>
 
-             <!-- Datos guía de remisión (completo) -->
-<div v-if="documentoActual?.tipo_documento === 'guia_remision'" class="mb-4">
-  <h6>Destinatario / Cliente</h6>
-  <div class="row">
-    <div class="col-md-4"><strong>Identificación:</strong> {{ documentoActual.destinatario_identificacion || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Tipo:</strong> {{ documentoActual.destinatario_tipo || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Razón Social:</strong> {{ documentoActual.destinatario_razon_social || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Dirección Destino:</strong> {{ documentoActual.destinatario_direccion || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Ruta:</strong> {{ documentoActual.ruta || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Motivo:</strong> {{ documentoActual.motivo || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Documento Aduanero:</strong> {{ documentoActual.documento_aduana || 'N/A' }}</div>
-  </div>
-
-  <h6 class="mt-3">Comprobante Sustento</h6>
-  <div class="row">
-    <div class="col-md-4"><strong>Tipo Emisión:</strong> {{ documentoActual.comprobante_tipo_emision || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Documento:</strong> {{ documentoActual.comprobante_documento || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Clave Acceso:</strong> {{ documentoActual.comprobante_clave_acceso || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Nº Autorización:</strong> {{ documentoActual.comprobante_numero_autorizacion || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Nº Comprobante:</strong> {{ documentoActual.comprobante_numero || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Fecha Emisión:</strong> {{ documentoActual.comprobante_fecha_emision || 'N/A' }}</div>
-  </div>
-
-  <h6 class="mt-3">Transportista</h6>
-  <div class="row">
-    <div class="col-md-4"><strong>Identificación:</strong> {{ documentoActual.transportista_identificacion || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Tipo:</strong> {{ documentoActual.transportista_tipo || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Razón Social:</strong> {{ documentoActual.transportista_razon_social || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Correo:</strong> {{ documentoActual.transportista_correo || 'N/A' }}</div>
-  </div>
-
-  <h6 class="mt-3">Traslado</h6>
-  <div class="row">
-    <div class="col-md-4"><strong>Dirección Partida:</strong> {{ documentoActual.direccion_partida || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Inicio Transporte:</strong> {{ documentoActual.inicio_transporte || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Fin Transporte:</strong> {{ documentoActual.fin_transporte || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Placa:</strong> {{ documentoActual.placa_transporte || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Establecimiento:</strong> {{ documentoActual.establecimiento || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Nombre Comercial:</strong> {{ documentoActual.nombre_comercial || 'N/A' }}</div>
-    <div class="col-md-4"><strong>Punto Emisión:</strong> {{ documentoActual.punto_emision || 'N/A' }}</div>
-  </div>
-</div>
+              <!-- Datos guía de remisión -->
+              <div v-if="documentoActual?.tipo_documento === 'guia_remision'" class="mb-4">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p><strong>Establecimiento:</strong> {{ documentoActual.establecimiento || 'N/A' }}</p>
+                    <p><strong>Nombre Comercial:</strong> {{ documentoActual.nombre_comercial || 'N/A' }}</p>
+                    <p><strong>Punto de Emisión:</strong> {{ documentoActual.punto_emision || 'N/A' }}</p>
+                  </div>
+                  <div class="col-md-6">
+                    <p><strong>Transportista:</strong> {{ documentoActual.transportista_razon_social || 'N/A' }}</p>
+                    <p><strong>Identificación:</strong> {{ documentoActual.transportista_identificacion || 'N/A' }}</p>
+                    <p><strong>Tipo:</strong> {{ documentoActual.transportista_tipo || 'N/A' }}</p>
+                    <p><strong>Correo:</strong> {{ documentoActual.transportista_correo || 'N/A' }}</p>
+                  </div>
+                </div>
+                <div class="row mt-2">
+                  <div class="col-md-4"><strong>Dirección Partida:</strong> {{ documentoActual.direccion_partida || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Inicio Transporte:</strong> {{ documentoActual.inicio_transporte || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Fin Transporte:</strong> {{ documentoActual.fin_transporte || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Placa:</strong> {{ documentoActual.placa_transporte || 'N/A' }}</div>
+                </div>
+              </div>
 
               <!-- Tabla de productos -->
               <div class="table-responsive">
@@ -179,9 +159,9 @@
                       <td>{{ idx + 1 }}</td>
                       <td>{{ obtenerNombreProducto(item.productoId) }}</td>
                       <td>{{ item.cantidad }}</td>
-                      <td>${{ (item.precio_unitario || item.costo_unitario || 0).toFixed(2) }}</td>
+                      <td>{{ formatCurrency(item.precio_unitario || item.costo_unitario) }}</td>
                       <td>{{ item.aplica_iva !== false ? 'Sí' : 'No' }}</td>
-                      <td class="text-end">${{ (item.cantidad * (item.precio_unitario || item.costo_unitario || 0)).toFixed(2) }}</td>
+                      <td class="text-end">{{ formatCurrency((item.cantidad || 0) * (item.precio_unitario || item.costo_unitario || 0)) }}</td>
                     </tr>
                     <tr v-if="!documentoActual?.detalles || documentoActual.detalles.length === 0">
                       <td colspan="6" class="text-center text-muted">Sin detalles</td>
@@ -196,15 +176,15 @@
                   <table class="table table-borderless">
                     <tr>
                       <td><strong>Subtotal:</strong></td>
-                      <td class="text-end">${{ documentoActual?.subtotal?.toFixed(2) || '0.00' }}</td>
+                      <td class="text-end">{{ formatCurrency(documentoActual?.subtotal) }}</td>
                     </tr>
                     <tr>
                       <td><strong>IVA (15%):</strong></td>
-                      <td class="text-end">${{ documentoActual?.iva?.toFixed(2) || '0.00' }}</td>
+                      <td class="text-end">{{ formatCurrency(documentoActual?.iva) }}</td>
                     </tr>
                     <tr>
                       <td><strong class="h5">Total:</strong></td>
-                      <td class="text-end h5">${{ documentoActual?.total?.toFixed(2) || '0.00' }}</td>
+                      <td class="text-end h5">{{ formatCurrency(documentoActual?.total) }}</td>
                     </tr>
                   </table>
                 </div>
@@ -245,6 +225,7 @@ import { Modal } from 'bootstrap'
 import { useMongoDB } from '../composables/useMongoDB'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
+import { formatCurrency } from '../utils/formatters'
 
 const { find } = useMongoDB()
 const tipoDocumento = ref('factura')
@@ -500,9 +481,9 @@ const guardarPDF = () => {
         idx + 1,
         obtenerNombreProducto(item.productoId),
         item.cantidad,
-        `$${(item.precio_unitario || item.costo_unitario || 0).toFixed(2)}`,
+        `${(item.precio_unitario || item.costo_unitario || 0).toFixed(2)}`,
         item.aplica_iva !== false ? 'Sí' : 'No',
-        `$${(item.cantidad * (item.precio_unitario || item.costo_unitario || 0)).toFixed(2)}`
+        `${((item.cantidad || 0) * (item.precio_unitario || item.costo_unitario || 0)).toFixed(2)}`
       ])
 
       pdf.autoTable({
@@ -529,12 +510,12 @@ const guardarPDF = () => {
     // Totales
     pdf.setFontSize(10)
     pdf.setFont('helvetica', 'bold')
-    pdf.text(`Subtotal: $${(doc.subtotal || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+    pdf.text(`Subtotal: ${(doc.subtotal || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
     y += 6
-    pdf.text(`IVA (15%): $${(doc.iva || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+    pdf.text(`IVA (15%): ${(doc.iva || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
     y += 8
     pdf.setFontSize(12)
-    pdf.text(`Total: $${(doc.total || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+    pdf.text(`Total: ${(doc.total || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
     y += 14
 
     pdf.setFontSize(8)
