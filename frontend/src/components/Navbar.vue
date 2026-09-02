@@ -75,13 +75,13 @@
               <li><router-link class="dropdown-item" to="/kardex" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
               <li><router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo"><i class="fas fa-calendar-alt"></i> Planificación de Inventarios</router-link></li>
               <li><router-link class="dropdown-item" to="/inventario/stock" @click="cerrarTodo"><i class="fas fa-boxes"></i> Stock Actual</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/fisico" @click="cerrarTodo"><i class="fas fa-clipboard-check"></i> Conteo Físico</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/conteo" @click="cerrarTodo"><i class="fas fa-clipboard-check"></i> Conteo Físico</router-link></li>
               <li><router-link class="dropdown-item" to="/inventario/ajustes" @click="cerrarTodo"><i class="fas fa-edit"></i> Ajustes de Inventario</router-link></li>
               <li><router-link class="dropdown-item" to="/inventario/valorizado" @click="cerrarTodo"><i class="fas fa-dollar-sign"></i> Inventario Valorizado</router-link></li>
             </ul>
           </li>
 
-          <!-- ===== REPORTES (sin Kardex) ===== -->
+          <!-- ===== REPORTES ===== -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
             <a
               class="nav-link dropdown-toggle"
@@ -94,8 +94,6 @@
             <ul class="dropdown-menu" :class="{ show: dropdowns.reportes }">
               <li><router-link class="dropdown-item" to="/reportes/ventas" @click="cerrarTodo"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
               <li><router-link class="dropdown-item" to="/reportes/compras" @click="cerrarTodo"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
-              <li><router-link class="dropdown-item" to="/reportes/clientes" @click="cerrarTodo"><i class="fas fa-users"></i> Clientes</router-link></li>
-              <li><router-link class="dropdown-item" to="/reportes/proveedores" @click="cerrarTodo"><i class="fas fa-truck"></i> Proveedores</router-link></li>
             </ul>
           </li>
         </ul>
