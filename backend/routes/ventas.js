@@ -51,19 +51,18 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Crear venta (incluye guía de remisión)
+// Crear venta
 router.post('/', async (req, res) => {
   try {
     const {
       clienteId, numero_factura, fecha_emision, tipo_documento,
       detalles, subtotal, iva, total,
-      // Campos específicos
       numero_guia, transportista, placa,
       numero_exportacion, pais_destino,
       numero_retencion, porcentaje_retencion,
-      // Guía de remisión
       establecimiento, nombre_comercial, punto_emision,
-      transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
+      transportista_identificacion, transportista_tipo,
+      transportista_razon_social, transportista_correo,
       direccion_partida, inicio_transporte, fin_transporte, placa_transporte
     } = req.body;
 
@@ -77,7 +76,6 @@ router.post('/', async (req, res) => {
     await session.withTransaction(async () => {
       const tipoDoc = tipo_documento || 'factura';
 
-      // Obtener contador
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: tipoDoc },
         { $inc: { valor: 1 } },
@@ -96,7 +94,6 @@ router.post('/', async (req, res) => {
       const prefijo = prefijos[tipoDoc] || 'DOC';
       const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
 
-      // Generar número de exportación si aplica
       let exportacionCodigo = null;
       if (tipoDoc === 'exportacion') {
         const expContador = await req.db.collection('contadores').findOneAndUpdate(
@@ -116,7 +113,6 @@ router.post('/', async (req, res) => {
         subtotal,
         iva,
         total,
-        // Campos comunes
         numero_guia: numero_guia || '',
         transportista: transportista || '',
         placa: placa || '',
@@ -124,7 +120,6 @@ router.post('/', async (req, res) => {
         pais_destino: pais_destino || '',
         numero_retencion: numero_retencion || '',
         porcentaje_retencion: porcentaje_retencion || 0,
-        // Campos de guía de remisión (si aplica)
         establecimiento: establecimiento || '',
         nombre_comercial: nombre_comercial || '',
         punto_emision: punto_emision || '',
@@ -143,8 +138,8 @@ router.post('/', async (req, res) => {
       const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
       const ventaId = ventaResult.insertedId;
 
-      // Actualizar stock y kardex (solo si no es nota de crédito)
-      if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') { // guía no afecta stock
+      // Actualizar stock y kardex (solo si no es guía ni nota de crédito)
+      if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
           const cantidad = detalle.cantidad;
@@ -152,7 +147,7 @@ router.post('/', async (req, res) => {
 
           await req.db.collection('productos').updateOne(
             { _id: productoId },
-            { 
+            {
               $inc: { stock: -cantidad },
               $set: { updatedAt: new Date() }
             },
@@ -213,7 +208,8 @@ router.put('/:id', async (req, res) => {
       numero_exportacion, pais_destino,
       numero_retencion, porcentaje_retencion,
       establecimiento, nombre_comercial, punto_emision,
-      transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
+      transportista_identificacion, transportista_tipo,
+      transportista_razon_social, transportista_correo,
       direccion_partida, inicio_transporte, fin_transporte, placa_transporte
     } = req.body;
 

@@ -35,7 +35,6 @@
           <hr />
           <h5>Detalles de compra</h5>
 
-          <!-- DETALLES -->
           <div v-for="(item, index) in compra.detalles" :key="index" class="row g-2 align-items-end mb-2">
             <div class="col-md-3">
               <label class="form-label">Producto</label>
@@ -53,15 +52,15 @@
               <input type="number" class="form-control" v-model.number="item.costo_unitario" step="0.01">
             </div>
             <div class="col-md-2">
-              <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="(item.cantidad * item.costo_unitario).toFixed(2)" readonly>
-            </div>
-            <div class="col-md-2">
               <label class="form-label">¿Aplica IVA?</label>
               <select class="form-select" v-model="item.aplica_iva">
                 <option :value="true">Sí</option>
                 <option :value="false">No</option>
               </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Subtotal</label>
+              <input type="text" class="form-control" :value="(item.cantidad * item.costo_unitario).toFixed(2)" readonly>
             </div>
             <div class="col-md-1">
               <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
@@ -121,7 +120,10 @@ const compra = ref({
   proveedorId: '',
   numero_factura: '',
   fecha_emision: new Date().toISOString().split('T')[0],
-  detalles: []
+  detalles: [],
+  subtotal: 0,
+  iva: 0,
+  total: 0
 })
 
 const generarCodigoCompra = () => {
@@ -130,12 +132,7 @@ const generarCodigoCompra = () => {
 }
 
 const agregarDetalle = () => {
-  compra.value.detalles.push({
-    productoId: '',
-    cantidad: 1,
-    costo_unitario: 0,
-    aplica_iva: true   // por defecto, sí aplica
-  })
+  compra.value.detalles.push({ productoId: '', cantidad: 1, costo_unitario: 0, aplica_iva: true })
 }
 
 const eliminarDetalle = (index) => {
@@ -146,28 +143,29 @@ const cargarPrecio = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
   if (prod) {
     item.costo_unitario = prod.precio_compra || 0
-    // cargar el flag de IVA desde el producto (si existe)
     item.aplica_iva = prod.aplica_iva !== undefined ? prod.aplica_iva : true
   }
 }
 
-// Cálculo de subtotal, IVA y total
 const subtotal = computed(() => {
-  return compra.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.costo_unitario || 0), 0)
+  const total = compra.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.costo_unitario || 0), 0)
+  return Math.round(total * 100) / 100
 })
 
 const iva = computed(() => {
   let baseImponible = 0
   compra.value.detalles.forEach(d => {
-    const subtotalItem = d.cantidad * d.costo_unitario || 0
-    if (d.aplica_iva !== false) {
-      baseImponible += subtotalItem
+    const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
+    if (aplicaIVA) {
+      baseImponible += d.cantidad * d.costo_unitario || 0
     }
   })
-  return baseImponible * 0.15
+  return Math.round((baseImponible * 0.15) * 100) / 100
 })
 
-const total = computed(() => subtotal.value + iva.value)
+const total = computed(() => {
+  return Math.round((subtotal.value + iva.value) * 100) / 100
+})
 
 onMounted(async () => {
   try {
@@ -201,13 +199,13 @@ const guardar = async () => {
       fecha_emision: compra.value.fecha_emision,
       detalles: compra.value.detalles.map(d => ({
         productoId: d.productoId,
-        cantidad: d.cantidad,
-        costo_unitario: d.costo_unitario,
+        cantidad: Math.round(d.cantidad * 100) / 100,
+        costo_unitario: Math.round((d.costo_unitario || 0) * 100) / 100,
         aplica_iva: d.aplica_iva
       })),
-      subtotal: subtotal.value,
-      iva: iva.value,
-      total: total.value
+      subtotal: Math.round(subtotal.value * 100) / 100,
+      iva: Math.round(iva.value * 100) / 100,
+      total: Math.round(total.value * 100) / 100
     }
     await insertOne('compras', payload)
     router.push('/compras')

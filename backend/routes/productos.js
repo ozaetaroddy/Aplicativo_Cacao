@@ -47,8 +47,8 @@ router.post('/', async (req, res) => {
       observaciones: observaciones || '',
       stock: 0,
       estado: 'activo',
-      aplica_iva: aplica_iva !== undefined ? aplica_iva : true, // por defecto aplica IVA
-      tipo_medida: tipo_medida || 'unidad', // unidad, peso, volumen, longitud
+      aplica_iva: aplica_iva !== undefined ? aplica_iva : true,
+      tipo_medida: tipo_medida || 'unidad',
       createdAt: new Date(),
       updatedAt: new Date()
     };

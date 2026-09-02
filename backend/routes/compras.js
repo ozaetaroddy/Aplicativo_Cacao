@@ -51,7 +51,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Crear compra (con IVA por producto)
+// Crear compra
 router.post('/', async (req, res) => {
   try {
     const { proveedorId, numero_factura, fecha_emision, detalles, subtotal, iva, total } = req.body;
@@ -60,17 +60,10 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'ID de proveedor inválido' });
     }
 
-    // Verificar que cada detalle tenga aplica_iva, si no, poner true por defecto
-    const detallesConIVA = detalles.map(d => ({
-      ...d,
-      aplica_iva: d.aplica_iva !== undefined ? d.aplica_iva : true
-    }));
-
     const session = req.db.client.startSession();
     let result;
 
     await session.withTransaction(async () => {
-      // Obtener contador
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: 'compra' },
         { $inc: { valor: 1 } },
@@ -82,7 +75,7 @@ router.post('/', async (req, res) => {
         proveedorId: new ObjectId(proveedorId),
         numero_factura: numero_factura || codigo,
         fecha_emision: new Date(fecha_emision),
-        detalles: detallesConIVA,
+        detalles,
         subtotal,
         iva,
         total,
@@ -92,15 +85,14 @@ router.post('/', async (req, res) => {
       const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
       const compraId = compraResult.insertedId;
 
-      // Actualizar stock y kardex
-      for (const detalle of detallesConIVA) {
+      for (const detalle of detalles) {
         const productoId = new ObjectId(detalle.productoId);
         const cantidad = detalle.cantidad;
         const costoUnitario = detalle.costo_unitario;
 
         await req.db.collection('productos').updateOne(
           { _id: productoId },
-          { 
+          {
             $inc: { stock: cantidad },
             $set: { precio_compra: costoUnitario, updatedAt: new Date() }
           },

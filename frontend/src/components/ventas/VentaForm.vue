@@ -99,10 +99,7 @@
           </div>
 
           <!-- ===== CAMPOS ESPECIALES (otros tipos) ===== -->
-          <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
-            <!-- Los campos de guía ya están arriba, no repetir -->
-          </div>
-          <div v-else-if="venta.tipo_documento === 'exportacion'" class="row g-3">
+          <div v-if="venta.tipo_documento === 'exportacion'" class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Nº Exportación</label>
               <input type="text" class="form-control" v-model="venta.numero_exportacion" placeholder="Automático">
@@ -112,7 +109,7 @@
               <input type="text" class="form-control" v-model="venta.pais_destino">
             </div>
           </div>
-          <div v-else-if="venta.tipo_documento === 'retencion'" class="row g-3">
+          <div v-if="venta.tipo_documento === 'retencion'" class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Nº Retención</label>
               <input type="text" class="form-control" v-model="venta.numero_retencion" placeholder="Automático">
@@ -123,10 +120,10 @@
             </div>
           </div>
 
-          <hr v-if="venta.tipo_documento !== 'guia_remision'" />
+          <hr />
 
-          <!-- ===== CLIENTE (si no es guía, se muestra normal) ===== -->
-          <div class="row g-3" v-if="venta.tipo_documento !== 'guia_remision'">
+          <!-- ===== CLIENTE ===== -->
+          <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Cliente</label>
               <select class="form-select" v-model="venta.clienteId" required>
@@ -141,72 +138,71 @@
             </div>
           </div>
 
-          <!-- ===== DETALLES (solo si no es guía) ===== -->
-          <template v-if="venta.tipo_documento !== 'guia_remision'">
-            <hr />
-            <h5>Detalles</h5>
+          <!-- ===== DETALLES DE PRODUCTOS ===== -->
+          <hr />
+          <h5>Detalles de Productos</h5>
 
-            <div v-for="(item, index) in venta.detalles" :key="index" class="row g-2 align-items-end mb-2">
-              <div class="col-md-3">
-                <label class="form-label">Producto</label>
-                <select class="form-select" v-model="item.productoId" @change="cargarPrecioVenta(item)">
-                  <option value="">Seleccionar</option>
-                  <option v-for="prod in productos" :key="prod._id" :value="prod._id">{{ prod.nombre }}</option>
-                </select>
-              </div>
-              <div class="col-md-2">
-                <label class="form-label">Cantidad</label>
-                <input type="number" class="form-control" v-model.number="item.cantidad" min="0.01" step="0.01">
-              </div>
-              <div class="col-md-2">
-                <label class="form-label">Precio Unit.</label>
-                <input type="number" class="form-control" v-model.number="item.precio_unitario" step="0.01">
-              </div>
-              <div class="col-md-2">
-                <label class="form-label">Subtotal</label>
-                <input type="text" class="form-control" :value="(item.cantidad * item.precio_unitario).toFixed(2)" readonly>
-              </div>
-              <div class="col-md-2">
-                <label class="form-label">¿Aplica IVA?</label>
-                <select class="form-select" v-model="item.aplica_iva">
-                  <option :value="true">Sí</option>
-                  <option :value="false">No</option>
-                </select>
-              </div>
-              <div class="col-md-1">
-                <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
-                  <i class="fas fa-trash"></i>
-                </button>
-              </div>
+          <div v-for="(item, index) in venta.detalles" :key="index" class="row g-2 align-items-end mb-2">
+            <div class="col-md-3">
+              <label class="form-label">Producto</label>
+              <select class="form-select" v-model="item.productoId" @change="cargarPrecioVenta(item)">
+                <option value="">Seleccionar</option>
+                <option v-for="prod in productos" :key="prod._id" :value="prod._id">{{ prod.nombre }}</option>
+              </select>
             </div>
-
-            <div class="d-flex gap-2">
-              <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
-                <i class="fas fa-plus"></i> Agregar producto
+            <div class="col-md-2">
+              <label class="form-label">Cantidad</label>
+              <input type="number" class="form-control" v-model.number="item.cantidad" min="0.01" step="0.01">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Precio Unit.</label>
+              <input type="number" class="form-control" v-model.number="item.precio_unitario" step="0.01">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Subtotal</label>
+              <input type="text" class="form-control" :value="(item.cantidad * item.precio_unitario).toFixed(2)" readonly>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">¿Aplica IVA?</label>
+              <select class="form-select" v-model="item.aplica_iva">
+                <option :value="true">Sí</option>
+                <option :value="false">No</option>
+              </select>
+            </div>
+            <div class="col-md-1">
+              <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
+                <i class="fas fa-trash"></i>
               </button>
-              <router-link to="/productos/nuevo" class="btn btn-outline-success btn-sm">
-                <i class="fas fa-box"></i> Crear Producto
-              </router-link>
             </div>
+          </div>
 
-            <hr />
-            <div class="row g-3">
-              <div class="col-md-3 offset-md-6">
-                <label class="form-label">Subtotal</label>
-                <input type="text" class="form-control" :value="subtotal.toFixed(2)" readonly>
-              </div>
-              <div class="col-md-3">
-                <label class="form-label">IVA (15%)</label>
-                <input type="text" class="form-control" :value="iva.toFixed(2)" readonly>
-              </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
+              <i class="fas fa-plus"></i> Agregar producto
+            </button>
+            <router-link to="/productos/nuevo" class="btn btn-outline-success btn-sm">
+              <i class="fas fa-box"></i> Crear Producto
+            </router-link>
+          </div>
+
+          <!-- ===== TOTALES ===== -->
+          <hr />
+          <div class="row g-3">
+            <div class="col-md-3 offset-md-6">
+              <label class="form-label">Subtotal</label>
+              <input type="text" class="form-control" :value="subtotal.toFixed(2)" readonly>
             </div>
-            <div class="row g-3">
-              <div class="col-md-3 offset-md-6">
-                <label class="form-label">Total</label>
-                <input type="text" class="form-control" :value="total.toFixed(2)" readonly style="font-weight:700;">
-              </div>
+            <div class="col-md-3">
+              <label class="form-label">IVA (15%)</label>
+              <input type="text" class="form-control" :value="iva.toFixed(2)" readonly>
             </div>
-          </template>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-3 offset-md-6">
+              <label class="form-label">Total</label>
+              <input type="text" class="form-control" :value="total.toFixed(2)" readonly style="font-weight:700;">
+            </div>
+          </div>
 
           <div class="mt-4">
             <button type="submit" class="btn btn-success me-2"><i class="fas fa-save"></i> Guardar</button>
@@ -237,7 +233,6 @@ const venta = ref({
   fecha_emision: new Date().toISOString().split('T')[0],
   tipo_documento: tipoInicial,
   detalles: [],
-  // Campos comunes
   numero_guia: '',
   transportista: '',
   placa: '',
@@ -245,7 +240,6 @@ const venta = ref({
   pais_destino: '',
   numero_retencion: '',
   porcentaje_retencion: 0,
-  // Campos guía de remisión
   establecimiento: '',
   nombre_comercial: '',
   punto_emision: '',
@@ -287,7 +281,6 @@ const asignarCodigos = () => {
 }
 
 const cambiarTipo = () => {
-  // Resetear todos los campos especiales
   venta.value.numero_guia = ''
   venta.value.transportista = ''
   venta.value.placa = ''
@@ -306,12 +299,7 @@ const cambiarTipo = () => {
   venta.value.inicio_transporte = ''
   venta.value.fin_transporte = ''
   venta.value.placa_transporte = ''
-  // Si es guía, no cargar detalles
-  if (venta.value.tipo_documento === 'guia_remision') {
-    venta.value.detalles = []
-  } else {
-    if (venta.value.detalles.length === 0) agregarDetalle()
-  }
+  if (venta.value.detalles.length === 0) agregarDetalle()
   asignarCodigos()
 }
 
@@ -331,23 +319,25 @@ const cargarPrecioVenta = (item) => {
   }
 }
 
-// Cálculo de subtotal, IVA y total considerando si cada producto aplica IVA
 const subtotal = computed(() => {
-  return venta.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.precio_unitario || 0), 0)
+  const total = venta.value.detalles.reduce((acc, d) => acc + (d.cantidad * d.precio_unitario || 0), 0)
+  return Math.round(total * 100) / 100
 })
 
 const iva = computed(() => {
   let baseImponible = 0
   venta.value.detalles.forEach(d => {
-    const subtotalItem = d.cantidad * d.precio_unitario || 0
-    if (d.aplica_iva !== false) { // si no está marcado como "no aplica"
-      baseImponible += subtotalItem
+    const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
+    if (aplicaIVA) {
+      baseImponible += d.cantidad * d.precio_unitario || 0
     }
   })
-  return baseImponible * 0.15
+  return Math.round((baseImponible * 0.15) * 100) / 100
 })
 
-const total = computed(() => subtotal.value + iva.value)
+const total = computed(() => {
+  return Math.round((subtotal.value + iva.value) * 100) / 100
+})
 
 onMounted(async () => {
   try {
@@ -357,9 +347,7 @@ onMounted(async () => {
     ])
     clientes.value = clis
     productos.value = prods
-    if (venta.value.tipo_documento !== 'guia_remision') {
-      agregarDetalle()
-    }
+    if (venta.value.detalles.length === 0) agregarDetalle()
     if (!route.params.id) asignarCodigos()
   } catch (e) {
     console.error(e)
@@ -367,34 +355,30 @@ onMounted(async () => {
 })
 
 const guardar = async () => {
-  // Validaciones
-  if (venta.value.tipo_documento !== 'guia_remision') {
-    if (!venta.value.clienteId) {
-      alert('Seleccione un cliente')
-      return
-    }
-    if (venta.value.detalles.length === 0 || !venta.value.detalles[0].productoId) {
-      alert('Agregue al menos un producto')
-      return
-    }
+  if (!venta.value.clienteId) {
+    alert('Seleccione un cliente')
+    return
+  }
+  if (venta.value.detalles.length === 0 || !venta.value.detalles[0].productoId) {
+    alert('Agregue al menos un producto')
+    return
   }
 
   try {
     const payload = {
-      clienteId: venta.value.clienteId || '',
+      clienteId: venta.value.clienteId,
       numero_factura: venta.value.numero_factura,
       fecha_emision: venta.value.fecha_emision,
       tipo_documento: venta.value.tipo_documento,
       detalles: venta.value.detalles.map(d => ({
         productoId: d.productoId,
-        cantidad: d.cantidad,
-        precio_unitario: d.precio_unitario,
+        cantidad: Math.round(d.cantidad * 100) / 100,
+        precio_unitario: Math.round((d.precio_unitario || 0) * 100) / 100,
         aplica_iva: d.aplica_iva
       })),
-      subtotal: subtotal.value,
-      iva: iva.value,
-      total: total.value,
-      // Campos comunes
+      subtotal: Math.round(subtotal.value * 100) / 100,
+      iva: Math.round(iva.value * 100) / 100,
+      total: Math.round(total.value * 100) / 100,
       numero_guia: venta.value.numero_guia,
       transportista: venta.value.transportista,
       placa: venta.value.placa,
@@ -402,7 +386,6 @@ const guardar = async () => {
       pais_destino: venta.value.pais_destino,
       numero_retencion: venta.value.numero_retencion,
       porcentaje_retencion: venta.value.porcentaje_retencion,
-      // Campos guía
       establecimiento: venta.value.establecimiento,
       nombre_comercial: venta.value.nombre_comercial,
       punto_emision: venta.value.punto_emision,

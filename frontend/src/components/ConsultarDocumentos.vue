@@ -81,7 +81,7 @@
       </div>
     </div>
 
-    <!-- ===== MODAL DE VISTA PREVIA ===== -->
+    <!-- MODAL DE VISTA PREVIA -->
     <div class="modal fade" id="modalDocumento" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
@@ -118,7 +118,7 @@
                 </div>
               </div>
 
-              <!-- Datos específicos para guía de remisión -->
+              <!-- Datos guía de remisión -->
               <div v-if="documentoActual?.tipo_documento === 'guia_remision'" class="mb-4">
                 <div class="row">
                   <div class="col-md-6">
@@ -141,8 +141,8 @@
                 </div>
               </div>
 
-              <!-- Tabla de productos (solo si no es guía) -->
-              <div v-if="documentoActual?.tipo_documento !== 'guia_remision'" class="table-responsive">
+              <!-- Tabla de productos -->
+              <div class="table-responsive">
                 <table class="table table-bordered table-striped" id="tablaDetalles">
                   <thead class="table-light">
                     <tr>
@@ -170,8 +170,8 @@
                 </table>
               </div>
 
-              <!-- Totales (solo si no es guía) -->
-              <div v-if="documentoActual?.tipo_documento !== 'guia_remision'" class="row mt-3">
+              <!-- Totales -->
+              <div class="row mt-3">
                 <div class="col-md-6 offset-md-6">
                   <table class="table table-borderless">
                     <tr>
@@ -425,7 +425,6 @@ const imprimirModal = (formato) => {
   ventana.document.close()
 }
 
-// ===== GENERAR PDF DIRECTO CON JSPDF (sin html2canvas) =====
 const guardarPDF = () => {
   const doc = documentoActual.value
   if (!doc) {
@@ -438,7 +437,6 @@ const guardarPDF = () => {
     const pageWidth = pdf.internal.pageSize.getWidth()
     let y = 20
 
-    // === Título ===
     pdf.setFontSize(18)
     pdf.setFont('helvetica', 'bold')
     pdf.text('System Ozaet\'s Electronics', pageWidth / 2, y, { align: 'center' })
@@ -461,7 +459,6 @@ const guardarPDF = () => {
     pdf.text(`Fecha Emisión: ${doc.fecha_emision ? new Date(doc.fecha_emision).toLocaleDateString() : 'N/A'}`, pageWidth / 2, y, { align: 'center' })
     y += 12
 
-    // === Datos del cliente/proveedor ===
     pdf.setFontSize(10)
     pdf.setFont('helvetica', 'bold')
     pdf.text('Datos del Cliente/Proveedor:', 14, y)
@@ -477,8 +474,8 @@ const guardarPDF = () => {
     pdf.text(`Teléfono: ${cliente.telefono || 'N/A'}`, 14, y)
     y += 10
 
-    // === Tabla de productos ===
-    if (doc.tipo_documento !== 'guia_remision' && doc.detalles && doc.detalles.length > 0) {
+    // Tabla de productos
+    if (doc.detalles && doc.detalles.length > 0) {
       const tableData = doc.detalles.map((item, idx) => [
         idx + 1,
         obtenerNombreProducto(item.productoId),
@@ -509,20 +506,17 @@ const guardarPDF = () => {
       y = pdf.lastAutoTable.finalY + 10
     }
 
-    // === Totales ===
-    if (doc.tipo_documento !== 'guia_remision') {
-      pdf.setFontSize(10)
-      pdf.setFont('helvetica', 'bold')
-      pdf.text(`Subtotal: $${(doc.subtotal || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
-      y += 6
-      pdf.text(`IVA (15%): $${(doc.iva || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
-      y += 8
-      pdf.setFontSize(12)
-      pdf.text(`Total: $${(doc.total || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
-      y += 14
-    }
+    // Totales
+    pdf.setFontSize(10)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(`Subtotal: $${(doc.subtotal || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+    y += 6
+    pdf.text(`IVA (15%): $${(doc.iva || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+    y += 8
+    pdf.setFontSize(12)
+    pdf.text(`Total: $${(doc.total || 0).toFixed(2)}`, pageWidth - 14 - 60, y, { align: 'right' })
+    y += 14
 
-    // === Pie de página ===
     pdf.setFontSize(8)
     pdf.setFont('helvetica', 'italic')
     pdf.text('Documento generado por Sistema Contable - System Ozaet\'s Electronics', pageWidth / 2, y + 10, { align: 'center' })

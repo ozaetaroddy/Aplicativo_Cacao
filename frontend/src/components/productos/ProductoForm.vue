@@ -8,19 +8,16 @@
       <div class="card-body">
         <form @submit.prevent="guardar">
           <div class="row g-3">
-            <!-- Código -->
             <div class="col-md-4">
               <label class="form-label">Código</label>
               <input type="text" class="form-control" v-model="form.codigo" placeholder="Automático" readonly>
             </div>
 
-            <!-- Nombre -->
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Nombre</label>
               <input type="text" class="form-control" v-model="form.nombre" required>
             </div>
 
-            <!-- Categoría con botón Nueva -->
             <div class="col-md-4">
               <label class="form-label">Categoría</label>
               <div class="d-flex gap-1">
@@ -34,7 +31,6 @@
               </div>
             </div>
 
-            <!-- Precios -->
             <div class="col-md-3">
               <label class="form-label">Precio Compra</label>
               <input type="number" step="0.01" class="form-control" v-model.number="form.precio_compra">
@@ -43,14 +39,11 @@
               <label class="form-label">Precio Venta</label>
               <input type="number" step="0.01" class="form-control" v-model.number="form.precio_venta">
             </div>
-
-            <!-- Stock mínimo -->
             <div class="col-md-3">
               <label class="form-label">Stock Mínimo</label>
               <input type="number" class="form-control" v-model.number="form.stock_minimo">
             </div>
 
-            <!-- Unidad de medida -->
             <div class="col-md-3">
               <label class="form-label">Unidad de Medida</label>
               <select class="form-select" v-model="form.unidad_medida">
@@ -66,7 +59,6 @@
               </select>
             </div>
 
-            <!-- Tipo de medida (nuevo) -->
             <div class="col-md-3">
               <label class="form-label">Tipo de Medida</label>
               <select class="form-select" v-model="form.tipo_medida">
@@ -77,7 +69,6 @@
               </select>
             </div>
 
-            <!-- Aplica IVA -->
             <div class="col-md-3 d-flex align-items-center">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" v-model="form.aplica_iva" id="aplicaIVA">
@@ -87,19 +78,14 @@
               </div>
             </div>
 
-            <!-- Código de barras -->
             <div class="col-md-4">
               <label class="form-label">Código de Barras</label>
               <input type="text" class="form-control" v-model="form.codigo_barras">
             </div>
-
-            <!-- Foto -->
             <div class="col-md-4">
               <label class="form-label">URL de la Foto</label>
               <input type="text" class="form-control" v-model="form.foto" placeholder="https://ejemplo.com/foto.jpg">
             </div>
-
-            <!-- Observaciones -->
             <div class="col-md-12">
               <label class="form-label">Observaciones</label>
               <textarea class="form-control" v-model="form.observaciones" rows="2"></textarea>
@@ -176,7 +162,6 @@ const form = ref({
   tipo_medida: 'unidad'
 })
 
-// Modal
 const nuevaCategoria = ref({ nombre: '', descripcion: '' })
 let modalInstance = null
 
