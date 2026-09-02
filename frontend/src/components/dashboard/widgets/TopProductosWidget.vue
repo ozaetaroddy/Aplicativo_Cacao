@@ -1,6 +1,6 @@
 <template>
-  <div style="max-height: 180px; overflow-y: auto;">
-    <table class="table table-sm table-cacao mb-0">
+  <div class="table-responsive">
+    <table class="table table-sm table-cacao">
       <thead>
         <tr>
           <th style="width:40px;">#</th>
@@ -11,7 +11,7 @@
       <tbody>
         <tr v-for="(item, idx) in topProductos" :key="idx">
           <td>
-            <span class="badge-ranking" :class="idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : 'default'">
+            <span class="badge-ranking" :class="getRankClass(idx)">
               {{ idx + 1 }}
             </span>
           </td>
@@ -41,6 +41,13 @@ const obtenerNombreProducto = (id) => {
   return prod ? prod.nombre : 'Producto eliminado'
 }
 
+const getRankClass = (idx) => {
+  if (idx === 0) return 'gold'
+  if (idx === 1) return 'silver'
+  if (idx === 2) return 'bronze'
+  return 'default'
+}
+
 onMounted(async () => {
   try {
     productos.value = await find('productos')
@@ -51,21 +58,17 @@ onMounted(async () => {
 
 <style scoped>
 .badge-ranking {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   font-weight: 700;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
 }
 .badge-ranking.gold { background: #f1c40f; color: #1a2a3a; }
 .badge-ranking.silver { background: #bdc3c7; color: #1a2a3a; }
 .badge-ranking.bronze { background: #cd7f32; color: #fff; }
 .badge-ranking.default { background: #3498db; color: #fff; }
-body.dark-mode .badge-ranking.gold,
-body.dark-mode .badge-ranking.silver {
-  color: #1a2a3a;
-}
 </style>

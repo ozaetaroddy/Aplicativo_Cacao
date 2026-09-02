@@ -1,5 +1,5 @@
 <template>
-  <div style="max-height: 180px; overflow-y: auto;">
+  <div style="max-height:220px; overflow-y:auto;">
     <div v-if="actividades.length === 0" class="text-muted text-center py-3">
       No hay actividad reciente
     </div>
@@ -9,7 +9,7 @@
       </div>
       <div class="actividad-info">
         <div class="actividad-descripcion">{{ act.descripcion }}</div>
-        <div class="actividad-fecha"><i class="far fa-clock me-1"></i>{{ act.fecha }}</div>
+        <div class="actividad-fecha">{{ act.fecha }}</div>
       </div>
       <div class="actividad-monto" v-if="act.monto">
         ${{ act.monto.toFixed(2) }}
@@ -25,7 +25,7 @@ import { useMongoDB } from '../../../composables/useMongoDB'
 const { find } = useMongoDB()
 const actividades = ref([])
 
-const cargarActividadReciente = async () => {
+const cargarActividad = async () => {
   try {
     const [ventas, compras] = await Promise.all([
       find('ventas'),
@@ -33,39 +33,34 @@ const cargarActividadReciente = async () => {
     ])
     const items = [
       ...ventas.map(v => ({
-        ...v,
         fechaObj: new Date(v.fecha_emision),
         descripcion: `Factura ${v.numero_factura || 'N/A'} - ${v.cliente?.nombre || 'Sin cliente'}`,
         icono: 'fa-file-invoice',
         color: '#3498db',
-        monto: v.total || 0
+        monto: v.total || 0,
+        fecha: new Date(v.fecha_emision).toLocaleDateString('es-EC', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit'
+        })
       })),
       ...compras.map(c => ({
-        ...c,
         fechaObj: new Date(c.fecha_emision),
         descripcion: `Compra ${c.numero_factura || 'N/A'} - ${c.proveedor?.nombre || 'Sin proveedor'}`,
         icono: 'fa-shopping-cart',
         color: '#27ae60',
-        monto: c.total || 0
+        monto: c.total || 0,
+        fecha: new Date(c.fecha_emision).toLocaleDateString('es-EC', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit'
+        })
       }))
     ]
     items.sort((a, b) => b.fechaObj - a.fechaObj)
-    actividades.value = items.slice(0, 10).map(item => ({
-      descripcion: item.descripcion,
-      fecha: item.fechaObj.toLocaleDateString('es-EC', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-      }),
-      icono: item.icono,
-      color: item.color,
-      monto: item.monto
-    }))
-  } catch (e) {
-    console.error('Error cargando actividad reciente:', e)
-  }
+    actividades.value = items.slice(0, 10)
+  } catch (e) { console.error(e) }
 }
 
-onMounted(cargarActividadReciente)
+onMounted(cargarActividad)
 </script>
 
 <style scoped>
@@ -76,9 +71,7 @@ onMounted(cargarActividadReciente)
   padding: 8px 0;
   border-bottom: 1px solid #f0f0f0;
 }
-.actividad-item:last-child {
-  border-bottom: none;
-}
+.actividad-item:last-child { border-bottom: none; }
 .actividad-icon {
   width: 32px;
   height: 32px;
@@ -95,7 +88,7 @@ onMounted(cargarActividadReciente)
   min-width: 0;
 }
 .actividad-descripcion {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   color: #2d2d2d;
   white-space: nowrap;
@@ -103,22 +96,16 @@ onMounted(cargarActividadReciente)
   text-overflow: ellipsis;
 }
 .actividad-fecha {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #7f8c8d;
 }
 .actividad-monto {
-  font-weight: 700;
+  font-weight: 600;
   color: #1a2a3a;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   white-space: nowrap;
 }
-body.dark-mode .actividad-item {
-  border-bottom-color: var(--border-color);
-}
-body.dark-mode .actividad-descripcion {
-  color: #e0e0e0;
-}
-body.dark-mode .actividad-monto {
-  color: #e0e0e0;
-}
+body.dark-mode .actividad-item { border-bottom-color: var(--border-color); }
+body.dark-mode .actividad-descripcion { color: #e0e0e0; }
+body.dark-mode .actividad-monto { color: #e0e0e0; }
 </style>

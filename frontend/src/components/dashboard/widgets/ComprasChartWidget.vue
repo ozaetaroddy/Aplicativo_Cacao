@@ -1,6 +1,9 @@
 <template>
-  <div style="height: 180px; position: relative;">
-    <canvas ref="chartCanvas"></canvas>
+  <div>
+    <canvas ref="chartCanvas" style="height:180px;"></canvas>
+    <div v-if="comprasDiarias.every(c => c === 0)" class="text-muted text-center small">
+      No hay datos de compras en los últimos 7 días
+    </div>
   </div>
 </template>
 
@@ -27,18 +30,20 @@ const renderChart = () => {
           label: 'Compras',
           data: comprasDiarias.value.length ? comprasDiarias.value : [0,0,0,0,0,0,0],
           borderColor: '#2ecc71',
-          backgroundColor: 'rgba(46,204,113,0.1)',
+          backgroundColor: 'rgba(46,204,113,0.15)',
           fill: true,
-          tension: 0.3
+          tension: 0.3,
+          pointBackgroundColor: '#2ecc71',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 4
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: v => '$' + v } }
-        }
+        scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v } } }
       }
     })
   })
@@ -49,7 +54,5 @@ onMounted(async () => {
   renderChart()
 })
 
-watch([comprasDiarias, dias], () => {
-  renderChart()
-}, { deep: true })
+watch([comprasDiarias, dias], renderChart, { deep: true })
 </script>

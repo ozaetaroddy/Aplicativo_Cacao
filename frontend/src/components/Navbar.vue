@@ -98,31 +98,22 @@
           </li>
         </ul>
 
-
-  <!-- ... dentro del navbar ... -->
-  < class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
-    <ul class="navbar-nav me-auto">
-      <!-- ... menús ... -->
-    </ul>
-    <div class="d-flex align-items-center gap-3">
-      <SearchBar class="search-bar-nav" />
-      <ThemeToggle />
-      <span class="navbar-text">
-        <i class="fas fa-database me-1"></i> MongoDB
-      </span>
+        <div class="d-flex align-items-center gap-3">
+          <SearchBar class="search-bar-nav" />
+          <ThemeToggle />
+          <span class="navbar-text">
+            <i class="fas fa-database me-1"></i> MongoDB
+          </span>
+        </div>
+      </div>
     </div>
-   </div>
-   </div>
-  
-
-   
   </nav>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-import ThemeToggle from './ThemeToggle.vue'
 import SearchBar from './SearchBar.vue'
+import ThemeToggle from './ThemeToggle.vue'
 
 const navbarAbierto = ref(false)
 const dropdowns = ref({
@@ -156,29 +147,41 @@ const cerrarTodo = () => {
 </script>
 
 <style scoped>
+.search-bar-nav {
+  max-width: 280px;
+}
+@media (max-width: 992px) {
+  .search-bar-nav {
+    max-width: 100%;
+    margin: 10px 0;
+  }
+}
 .navbar-cacao .dropdown-menu {
-  display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 1000;
-  min-width: 10rem;
-  padding: 0.5rem 0;
-  margin: 0.125rem 0 0;
-  font-size: 1rem;
-  color: #212529;
-  text-align: left;
-  list-style: none;
-  background-color: #fff;
-  background-clip: padding-box;
-  border: 1px solid rgba(0,0,0,0.15);
-  border-radius: 0.375rem;
-}
-
-.navbar-cacao .dropdown-menu.show {
   display: block;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s;
+  background: #2c3e50;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
 }
-
+.navbar-cacao .dropdown-menu.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.navbar-cacao .dropdown-item {
+  color: #fff !important;
+  padding: 8px 20px;
+  transition: var(--transition);
+}
+.navbar-cacao .dropdown-item:hover {
+  background: #3498db;
+  color: #fff !important;
+  border-radius: 8px;
+}
 @media (max-width: 992px) {
   .navbar-cacao .dropdown-menu {
     position: static;
@@ -197,26 +200,11 @@ const cerrarTodo = () => {
     background: rgba(255,255,255,0.1);
   }
   .navbar-cacao .dropdown-menu.show {
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
   }
 }
-.search-bar-nav {
-  max-width: 280px;
-}
-@media (max-width: 992px) {
-  .search-bar-nav {
-    max-width: 100%;
-    margin: 10px 0;
-  }
-}
-.navbar-cacao .dropdown-item {
-  color: #212529 !important;
-}
-.navbar-cacao .dropdown-item:hover {
-  background: #f8f9fa;
-}
-
-/* Ajustes para modo oscuro en navbar */
 body.dark-mode .navbar-cacao .dropdown-menu {
   background: #1e2a4a;
   border-color: #2d3748;

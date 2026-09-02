@@ -18,7 +18,7 @@
     </div>
 
     <div v-if="showResults && results.length > 0" class="search-results">
-      <div v-for="result in results" :key="result.id" class="result-item" @click="navigateTo(result)">
+      <div v-for="result in results" :key="result.id" class="result-item" @mousedown.prevent="navigateTo(result)">
         <div class="result-icon">
           <i :class="result.icon"></i>
         </div>
@@ -45,7 +45,6 @@ const { find } = useMongoDB()
 const query = ref('')
 const showResults = ref(false)
 const results = ref([])
-const searchData = ref({ clientes: [], productos: [], ventas: [], compras: [] })
 const fuseInstances = ref({})
 
 const loadData = async () => {
@@ -56,7 +55,6 @@ const loadData = async () => {
       find('ventas'),
       find('compras')
     ])
-    searchData.value = { clientes, productos, ventas, compras }
 
     // Configurar Fuse para cada tipo
     fuseInstances.value = {
@@ -87,7 +85,6 @@ const onSearch = () => {
   const allResults = []
   const q = query.value.trim()
   
-  // Buscar en cada fuse
   Object.keys(fuseInstances.value).forEach(key => {
     const fuse = fuseInstances.value[key]
     const items = fuse.search(q).map(r => r.item)
@@ -103,7 +100,6 @@ const onSearch = () => {
         case 'productos':
           icon = 'fas fa-box'
           title = item.nombre
-          // CORRECCIÓN: mostrar código correctamente
           const codigo = typeof item.codigo === 'object' ? Object.values(item.codigo).join('') : (item.codigo || 'N/A')
           subtitle = `Código: ${codigo} | Stock: ${item.stock}`
           routePath = `/productos/editar/${item._id}`
@@ -125,7 +121,6 @@ const onSearch = () => {
     })
   })
 
-  // Limitar a 10 resultados
   results.value = allResults.slice(0, 10)
 }
 
