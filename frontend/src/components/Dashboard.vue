@@ -1,4 +1,17 @@
 <template>
+
+  <div class="row g-4 mt-2">
+    <div class="col-12">
+      <div class="card card-cacao">
+        <div class="card-header">
+          <i class="fas fa-file-export me-2"></i> Exportar / Importar Datos
+        </div>
+        <div class="card-body">
+          <ExportImport />
+        </div>
+      </div>
+    </div>
+  </div>
   <div>
     <h4 class="section-title"><i class="fas fa-home"></i> Panel de Control</h4>
 
@@ -147,7 +160,7 @@ import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../composables/useMongoDB'
 import { useEstadisticas } from '../composables/useEstadisticas'
 import DashboardCharts from './dashboard/DashboardCharts.vue'
-
+import ExportImport from '../components/ExportImport.vue'
 
 const { find } = useMongoDB()
 const {

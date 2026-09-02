@@ -7,86 +7,83 @@
       </router-link>
     </div>
 
-    <div class="card card-cacao">
-      <div class="card-body table-responsive">
-        <table class="table table-cacao">
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Nombre</th>
-              <th>Categoría</th>
-              <th>Precio Compra</th>
-              <th>Precio Venta</th>
-              <th>Stock</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in productos" :key="p._id" :class="{ 'table-warning': p.stock <= p.stock_minimo }">
-              <td>{{ p.codigo }}</td>
-              <td>{{ p.nombre }}</td>
-              <td>{{ getCategoriaNombre(p.categoriaId) }}</td>
-              <td>${{ p.precio_compra?.toFixed(2) }}</td>
-              <td>${{ p.precio_venta?.toFixed(2) }}</td>
-              <td>{{ p.stock }}</td>
-              <td>
-                <router-link :to="`/productos/editar/${p._id}`" class="btn btn-sm btn-outline-primary me-1">
-                  <i class="fas fa-edit"></i>
-                </router-link>
-                <button class="btn btn-sm btn-outline-danger" @click="eliminar(p._id)">
-                  <i class="fas fa-trash"></i>
-                </button>
-              </td>
-            </tr>
-            <tr v-if="productos.length === 0">
-              <td colspan="7" class="text-muted text-center">No hay productos registrados</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <TableEnhanced
+      :data="productos"
+      :columns="columnas"
+      :actions="acciones"
+      filterKey="categoriaId"
+      :filterOptions="categoriaOptions"
+    >
+      <template #nombre="{ row }">
+        <span class="fw-bold">{{ row.nombre }}</span>
+      </template>
+      <template #precio_venta="{ value }">
+        ${{ value?.toFixed(2) }}
+      </template>
+      <template #stock="{ row }">
+        <span :class="row.stock <= row.stock_minimo ? 'text-danger fw-bold' : ''">
+          {{ row.stock }}
+        </span>
+      </template>
+    </TableEnhanced>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import TableEnhanced from '../shared/TableEnhanced.vue'
 import { useToast } from 'vue-toastification'
 
-const toast = useToast()
 const { find, deleteOne } = useMongoDB()
+const toast = useToast()
 const productos = ref([])
 const categorias = ref([])
 
-const getCategoriaNombre = (id) => {
-  const cat = categorias.value.find(c => c._id === id)
-  return cat ? cat.nombre : 'Sin categoría'
-}
+const columnas = [
+  { key: 'codigo', label: 'Código' },
+  { key: 'nombre', label: 'Nombre' },
+  { key: 'categoriaId', label: 'Categoría' },
+  { key: 'precio_compra', label: 'P. Compra' },
+  { key: 'precio_venta', label: 'P. Venta' },
+  { key: 'stock', label: 'Stock' }
+]
+
+const categoriaOptions = computed(() => {
+  return categorias.value.map(c => ({ value: c._id, label: c.nombre }))
+})
+
+const acciones = [
+  {
+    key: 'edit',
+    icon: 'fas fa-edit',
+    class: 'btn-outline-primary',
+    handler: (row) => router.push(`/productos/editar/${row._id}`)
+  },
+  {
+    key: 'delete',
+    icon: 'fas fa-trash',
+    class: 'btn-outline-danger',
+    handler: async (row) => {
+      if (confirm('¿Eliminar este producto?')) {
+        try {
+          await deleteOne('productos', row._id)
+          toast.success('Producto eliminado')
+          await cargarDatos()
+        } catch (e) {
+          toast.error('Error: ' + e.message)
+        }
+      }
+    }
+  }
+]
 
 const cargarDatos = async () => {
   try {
-    const [prods, cats] = await Promise.all([
-      find('productos'),
-      find('categorias')
-    ])
+    const [prods, cats] = await Promise.all([find('productos'), find('categorias')])
     productos.value = prods
     categorias.value = cats
-  } catch (e) {
-    console.error(e)
-    toast.error('Error al cargar productos: ' + e.message)
-  }
-}
-
-const eliminar = async (id) => {
-  if (confirm('¿Eliminar este producto?')) {
-    try {
-      await deleteOne('productos', id)
-      await cargarDatos()
-      toast.success('Producto eliminado correctamente')
-    } catch (e) {
-      toast.error('Error al eliminar: ' + e.message)
-    }
-  }
+  } catch (e) { console.error(e) }
 }
 
 onMounted(cargarDatos)

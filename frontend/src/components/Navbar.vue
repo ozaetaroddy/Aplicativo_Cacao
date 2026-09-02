@@ -98,21 +98,31 @@
           </li>
         </ul>
 
-        <!-- ===== TOGGLE DE TEMA Y MONGODB ===== -->
-        <div class="d-flex align-items-center gap-2">
-          <ThemeToggle />
-          <span class="navbar-text">
-            <i class="fas fa-database me-1"></i> MongoDB
-          </span>
-        </div>
-      </div>
+
+  <!-- ... dentro del navbar ... -->
+  < class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
+    <ul class="navbar-nav me-auto">
+      <!-- ... menús ... -->
+    </ul>
+    <div class="d-flex align-items-center gap-3">
+      <SearchBar class="search-bar-nav" />
+      <ThemeToggle />
+      <span class="navbar-text">
+        <i class="fas fa-database me-1"></i> MongoDB
+      </span>
     </div>
+   </div>
+   </div>
+  
+
+   
   </nav>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import ThemeToggle from './ThemeToggle.vue'
+import SearchBar from './SearchBar.vue'
 
 const navbarAbierto = ref(false)
 const dropdowns = ref({
@@ -190,7 +200,15 @@ const cerrarTodo = () => {
     display: block;
   }
 }
-
+.search-bar-nav {
+  max-width: 280px;
+}
+@media (max-width: 992px) {
+  .search-bar-nav {
+    max-width: 100%;
+    margin: 10px 0;
+  }
+}
 .navbar-cacao .dropdown-item {
   color: #212529 !important;
 }
