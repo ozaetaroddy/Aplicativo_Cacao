@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMongoDB } from '../composables/useMongoDB'
 import Fuse from 'fuse.js'
@@ -61,7 +61,16 @@ const loadData = async () => {
     // Configurar Fuse para cada tipo
     fuseInstances.value = {
       clientes: new Fuse(clientes, { keys: ['nombre', 'ruc', 'telefono', 'email'], threshold: 0.3 }),
-      productos: new Fuse(productos, { keys: ['nombre', 'codigo', 'categoriaId'], threshold: 0.3 }),
+      productos: new Fuse(productos, { 
+        keys: ['nombre', 'codigo', 'categoriaId'], 
+        threshold: 0.3,
+        getFn: (obj, path) => {
+          if (path === 'codigo' && obj.codigo && typeof obj.codigo === 'object') {
+            return Object.values(obj.codigo).join(' ') || ''
+          }
+          return obj[path]
+        }
+      }),
       ventas: new Fuse(ventas, { keys: ['numero_factura', 'cliente.nombre'], threshold: 0.4 }),
       compras: new Fuse(compras, { keys: ['numero_factura', 'proveedor.nombre'], threshold: 0.4 })
     }
@@ -94,7 +103,9 @@ const onSearch = () => {
         case 'productos':
           icon = 'fas fa-box'
           title = item.nombre
-          subtitle = `Código: ${item.codigo} | Stock: ${item.stock}`
+          // CORRECCIÓN: mostrar código correctamente
+          const codigo = typeof item.codigo === 'object' ? Object.values(item.codigo).join('') : (item.codigo || 'N/A')
+          subtitle = `Código: ${codigo} | Stock: ${item.stock}`
           routePath = `/productos/editar/${item._id}`
           break
         case 'ventas':
@@ -137,9 +148,7 @@ const closeResults = () => {
   setTimeout(() => { showResults.value = false }, 200)
 }
 
-onMounted(() => {
-  loadData()
-})
+onMounted(loadData)
 </script>
 
 <style scoped>

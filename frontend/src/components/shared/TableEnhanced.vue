@@ -132,6 +132,10 @@ const sortBy = (key) => {
 
 const formatValue = (val) => {
   if (val === undefined || val === null) return ''
+  if (typeof val === 'object' && val !== null) {
+    // Si es un objeto, intentar convertirlo a string legible
+    return Object.values(val).join(' ') || '[Object]'
+  }
   if (typeof val === 'number') return val.toFixed(2)
   return val
 }
