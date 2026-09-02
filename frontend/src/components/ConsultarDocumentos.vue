@@ -81,8 +81,141 @@
       </div>
     </div>
 
-    <!-- MODAL DE VISTA PREVIA (se mantiene igual, pero con el mismo contenido que antes) -->
-    <!-- ... (el modal no se modifica) ... -->
+    <!-- MODAL DE VISTA PREVIA -->
+    <div class="modal fade" id="modalDocumento" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="fas fa-file-invoice me-2"></i>
+              {{ documentoActual?.numero_factura || documentoActual?.numero_guia || 'Sin número' }}
+            </h5>
+            <button type="button" class="btn-close" @click="cerrarModal"></button>
+          </div>
+          <div class="modal-body" id="documentoContenido" style="overflow: auto; max-height: 70vh;">
+            <div class="documento-preview" :class="formatoImpresion === 'ticket' ? 'ticket' : ''">
+              <!-- Encabezado -->
+              <div class="text-center mb-4">
+                <h1 class="h3"><i class="fas fa-microchip me-2"></i>System Ozaet's Electronics</h1>
+                <p class="text-muted">Sistema Contable - Documento Electrónico</p>
+                <hr>
+                <h2 class="h4">{{ (documentoActual?.tipo_documento || 'DOCUMENTO').toUpperCase() }}</h2>
+                <p><strong>Nº:</strong> {{ documentoActual?.numero_factura || documentoActual?.numero_guia || 'N/A' }}</p>
+                <p><strong>Fecha Emisión:</strong> {{ documentoActual?.fecha_emision ? new Date(documentoActual.fecha_emision).toLocaleDateString() : 'N/A' }}</p>
+              </div>
+
+              <!-- Datos del cliente/proveedor -->
+              <div class="info-cliente mb-4">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p><strong>Cliente/Proveedor:</strong> {{ documentoActual?.cliente?.nombre || documentoActual?.proveedor?.nombre || 'N/A' }}</p>
+                    <p><strong>RUC/Cédula:</strong> {{ documentoActual?.cliente?.ruc || documentoActual?.proveedor?.ruc || 'N/A' }}</p>
+                  </div>
+                  <div class="col-md-6">
+                    <p><strong>Dirección:</strong> {{ documentoActual?.cliente?.direccion || documentoActual?.proveedor?.direccion || 'N/A' }}</p>
+                    <p><strong>Teléfono:</strong> {{ documentoActual?.cliente?.telefono || documentoActual?.proveedor?.telefono || 'N/A' }}</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Datos guía de remisión -->
+              <div v-if="documentoActual?.tipo_documento === 'guia_remision'" class="mb-4">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p><strong>Establecimiento:</strong> {{ documentoActual.establecimiento || 'N/A' }}</p>
+                    <p><strong>Nombre Comercial:</strong> {{ documentoActual.nombre_comercial || 'N/A' }}</p>
+                    <p><strong>Punto de Emisión:</strong> {{ documentoActual.punto_emision || 'N/A' }}</p>
+                  </div>
+                  <div class="col-md-6">
+                    <p><strong>Transportista:</strong> {{ documentoActual.transportista_razon_social || 'N/A' }}</p>
+                    <p><strong>Identificación:</strong> {{ documentoActual.transportista_identificacion || 'N/A' }}</p>
+                    <p><strong>Tipo:</strong> {{ documentoActual.transportista_tipo || 'N/A' }}</p>
+                    <p><strong>Correo:</strong> {{ documentoActual.transportista_correo || 'N/A' }}</p>
+                  </div>
+                </div>
+                <div class="row mt-2">
+                  <div class="col-md-4"><strong>Dirección Partida:</strong> {{ documentoActual.direccion_partida || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Inicio Transporte:</strong> {{ documentoActual.inicio_transporte || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Fin Transporte:</strong> {{ documentoActual.fin_transporte || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Placa:</strong> {{ documentoActual.placa_transporte || 'N/A' }}</div>
+                </div>
+              </div>
+
+              <!-- Tabla de productos -->
+              <div class="table-responsive">
+                <table class="table table-bordered table-striped" id="tablaDetalles">
+                  <thead class="table-light">
+                    <tr>
+                      <th>#</th>
+                      <th>Producto</th>
+                      <th>Cantidad</th>
+                      <th>Precio Unit.</th>
+                      <th>¿Aplica IVA?</th>
+                      <th>Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, idx) in documentoActual?.detalles || []" :key="idx">
+                      <td>{{ idx + 1 }}</td>
+                      <td>{{ obtenerNombreProducto(item.productoId) }}</td>
+                      <td>{{ item.cantidad }}</td>
+                      <td>{{ formatCurrency(item.precio_unitario || item.costo_unitario) }}</td>
+                      <td>{{ item.aplica_iva !== false ? 'Sí' : 'No' }}</td>
+                      <td class="text-end">{{ formatCurrency((item.cantidad || 0) * (item.precio_unitario || item.costo_unitario || 0)) }}</td>
+                    </tr>
+                    <tr v-if="!documentoActual?.detalles || documentoActual.detalles.length === 0">
+                      <td colspan="6" class="text-center text-muted">Sin detalles</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Totales -->
+              <div class="row mt-3">
+                <div class="col-md-6 offset-md-6">
+                  <table class="table table-borderless">
+                    <tr>
+                      <td><strong>Subtotal:</strong></td>
+                      <td class="text-end">{{ formatCurrency(documentoActual?.subtotal) }}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>IVA (15%):</strong></td>
+                      <td class="text-end">{{ formatCurrency(documentoActual?.iva) }}</td>
+                    </tr>
+                    <tr>
+                      <td><strong class="h5">Total:</strong></td>
+                      <td class="text-end h5">{{ formatCurrency(documentoActual?.total) }}</td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Pie de página -->
+              <div class="text-center mt-4 text-muted small">
+                <hr>
+                <p>Documento generado por Sistema Contable - System Ozaet's Electronics</p>
+                <p>Formato: {{ formatoImpresion }}</p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
+            <button class="btn btn-primary" @click="imprimirModal('A4')">
+              <i class="fas fa-print me-1"></i> Imprimir A4
+            </button>
+            <button class="btn btn-primary" @click="imprimirModal('A2')">
+              <i class="fas fa-print me-1"></i> Imprimir A2
+            </button>
+            <button class="btn btn-primary" @click="imprimirModal('ticket')">
+              <i class="fas fa-receipt me-1"></i> Imprimir Ticket
+            </button>
+            <button class="btn btn-success" @click="guardarPDF">
+              <i class="fas fa-file-pdf me-1"></i> Guardar PDF
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -120,7 +253,6 @@ const cargarDatos = async () => {
   cargando.value = true
   buscado.value = true
   try {
-    // Cargar productos para mapear nombres
     const productos = await find('productos')
     productosMap.value = {}
     productos.forEach(p => productosMap.value[p._id] = p)
@@ -133,7 +265,6 @@ const cargarDatos = async () => {
       datos = todasVentas.filter(d => d.tipo_documento === tipoDocumento.value)
     }
 
-    // Aplicar filtros de fecha (si se seleccionaron)
     if (fechaDesde.value) {
       const desde = new Date(fechaDesde.value)
       datos = datos.filter(d => new Date(d.fecha_emision) >= desde)
@@ -144,7 +275,6 @@ const cargarDatos = async () => {
       datos = datos.filter(d => new Date(d.fecha_emision) <= hasta)
     }
 
-    console.log('📄 Documentos cargados:', datos.length)
     documentos.value = datos
   } catch (e) {
     console.error('Error cargando documentos:', e)
@@ -185,7 +315,7 @@ const cerrarModal = () => {
   }
 }
 
-const imprimirDoc = (formato) => {
+const imprimirModal = (formato) => {
   if (!documentoActual.value) {
     toast.warning('No hay documento para imprimir')
     return
@@ -290,8 +420,7 @@ const guardarPDF = () => {
   }
 }
 
-// Cargar datos iniciales al montar
-onMounted(async () => {
+onMounted(() => {
   const modalEl = document.getElementById('modalDocumento')
   if (modalEl) {
     modalInstance.value = new Modal(modalEl, {
@@ -299,9 +428,28 @@ onMounted(async () => {
       keyboard: false
     })
   }
-  // Carga automática de facturas al entrar
-  await cargarDatos()
+  cargarDatos()
 })
 </script>
 
-<!-- el resto del template es igual, solo se agrega la carga inicial -->
+<style scoped>
+.documento-preview {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+}
+.ticket {
+  max-width: 80mm;
+  margin: 0 auto;
+}
+.ticket .table {
+  font-size: 10px;
+}
+.ticket .table td, .ticket .table th {
+  padding: 4px;
+}
+.info-cliente p {
+  margin-bottom: 4px;
+}
+</style>

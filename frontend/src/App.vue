@@ -10,12 +10,14 @@
       <router-view />
     </div>
     <Footer />
+    <NotificationStock />
   </div>
 </template>
 
 <script setup>
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
+import NotificationStock from './components/NotificationStock.vue'
 </script>
 
 <style>
