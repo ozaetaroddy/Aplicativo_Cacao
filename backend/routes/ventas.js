@@ -60,10 +60,16 @@ router.post('/', async (req, res) => {
       numero_guia, transportista, placa,
       numero_exportacion, pais_destino,
       numero_retencion, porcentaje_retencion,
+      // Nuevos campos para guía de remisión
       establecimiento, nombre_comercial, punto_emision,
       transportista_identificacion, transportista_tipo,
       transportista_razon_social, transportista_correo,
-      direccion_partida, inicio_transporte, fin_transporte, placa_transporte
+      direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
+      // Campos adicionales para guía
+      destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
+      destinatario_direccion, ruta, motivo, documento_aduana,
+      comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
+      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision
     } = req.body;
 
     if (!ObjectId.isValid(clienteId)) {
@@ -131,6 +137,20 @@ router.post('/', async (req, res) => {
         inicio_transporte: inicio_transporte || '',
         fin_transporte: fin_transporte || '',
         placa_transporte: placa_transporte || '',
+        // Nuevos campos
+        destinatario_identificacion: destinatario_identificacion || '',
+        destinatario_tipo: destinatario_tipo || '',
+        destinatario_razon_social: destinatario_razon_social || '',
+        destinatario_direccion: destinatario_direccion || '',
+        ruta: ruta || '',
+        motivo: motivo || '',
+        documento_aduana: documento_aduana || '',
+        comprobante_tipo_emision: comprobante_tipo_emision || '',
+        comprobante_documento: comprobante_documento || '',
+        comprobante_clave_acceso: comprobante_clave_acceso || '',
+        comprobante_numero_autorizacion: comprobante_numero_autorizacion || '',
+        comprobante_numero: comprobante_numero || '',
+        comprobante_fecha_emision: comprobante_fecha_emision || '',
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -210,7 +230,11 @@ router.put('/:id', async (req, res) => {
       establecimiento, nombre_comercial, punto_emision,
       transportista_identificacion, transportista_tipo,
       transportista_razon_social, transportista_correo,
-      direccion_partida, inicio_transporte, fin_transporte, placa_transporte
+      direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
+      destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
+      destinatario_direccion, ruta, motivo, documento_aduana,
+      comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
+      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision
     } = req.body;
 
     const updateData = {
@@ -240,6 +264,19 @@ router.put('/:id', async (req, res) => {
       inicio_transporte,
       fin_transporte,
       placa_transporte,
+      destinatario_identificacion,
+      destinatario_tipo,
+      destinatario_razon_social,
+      destinatario_direccion,
+      ruta,
+      motivo,
+      documento_aduana,
+      comprobante_tipo_emision,
+      comprobante_documento,
+      comprobante_clave_acceso,
+      comprobante_numero_autorizacion,
+      comprobante_numero,
+      comprobante_fecha_emision,
       updatedAt: new Date()
     };
     const result = await req.db.collection('ventas_v2').updateOne(

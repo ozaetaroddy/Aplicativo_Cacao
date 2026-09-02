@@ -4,21 +4,30 @@
       <router-link class="navbar-brand" to="/">
         <i class="fas fa-calculator"></i> Sistema Contable
       </router-link>
-      <button class="navbar-toggler" type="button" @click="toggleNavbar">
+      <button
+        class="navbar-toggler"
+        type="button"
+        @click="toggleNavbar"
+      >
         <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
       </button>
       <div class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
         <ul class="navbar-nav me-auto">
-          <!-- INICIO -->
+          <!-- ===== INICIO ===== -->
           <li class="nav-item">
             <router-link class="nav-link" to="/" exact-active-class="active" @click="cerrarTodo">
               <i class="fas fa-home"></i> Inicio
             </router-link>
           </li>
 
-          <!-- DOCUMENTOS -->
+          <!-- ===== DOCUMENTOS ===== -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('documentos')">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('documentos')"
+            >
               <i class="fas fa-file-invoice"></i> Documentos
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
@@ -34,9 +43,14 @@
             </ul>
           </li>
 
-          <!-- BASE DE DATOS -->
+          <!-- ===== BASE DE DATOS ===== -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('maestros')">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('maestros')"
+            >
               <i class="fas fa-database"></i> Base de datos
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.maestros }">
@@ -47,29 +61,41 @@
             </ul>
           </li>
 
-          <!-- INVENTARIO -->
-          <li class="nav-item dropdown" :class="{ show: dropdowns.inventario }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('inventario')">
-              <i class="fas fa-warehouse"></i> Inventario
+          <!-- ===== INVENTARIOS ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.inventarios }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('inventarios')"
+            >
+              <i class="fas fa-warehouse"></i> Inventarios
             </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.inventario }">
-              <li><router-link class="dropdown-item" to="/inventario/stock-actual" @click="cerrarTodo"><i class="fas fa-list"></i> Stock Actual</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/movimientos" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Movimientos (Kardex)</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo"><i class="fas fa-chart-line"></i> Planificación</router-link></li>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.inventarios }">
+              <li><router-link class="dropdown-item" to="/kardex" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo"><i class="fas fa-calendar-alt"></i> Planificación de Inventarios</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/stock" @click="cerrarTodo"><i class="fas fa-boxes"></i> Stock Actual</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/fisico" @click="cerrarTodo"><i class="fas fa-clipboard-check"></i> Conteo Físico</router-link></li>
               <li><router-link class="dropdown-item" to="/inventario/ajustes" @click="cerrarTodo"><i class="fas fa-edit"></i> Ajustes de Inventario</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/reporte" @click="cerrarTodo"><i class="fas fa-file-pdf"></i> Reporte de Inventario</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/valorizado" @click="cerrarTodo"><i class="fas fa-dollar-sign"></i> Inventario Valorizado</router-link></li>
             </ul>
           </li>
 
-          <!-- REPORTES -->
+          <!-- ===== REPORTES (sin Kardex) ===== -->
           <li class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('reportes')">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('reportes')"
+            >
               <i class="fas fa-chart-bar"></i> Reportes
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.reportes }">
               <li><router-link class="dropdown-item" to="/reportes/ventas" @click="cerrarTodo"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
               <li><router-link class="dropdown-item" to="/reportes/compras" @click="cerrarTodo"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
-              <li><router-link class="dropdown-item" to="/kardex" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/clientes" @click="cerrarTodo"><i class="fas fa-users"></i> Clientes</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/proveedores" @click="cerrarTodo"><i class="fas fa-truck"></i> Proveedores</router-link></li>
             </ul>
           </li>
         </ul>
@@ -88,7 +114,7 @@ const navbarAbierto = ref(false)
 const dropdowns = ref({
   documentos: false,
   maestros: false,
-  inventario: false,
+  inventarios: false,
   reportes: false
 })
 
@@ -134,9 +160,11 @@ const cerrarTodo = () => {
   border: 1px solid rgba(0,0,0,0.15);
   border-radius: 0.375rem;
 }
+
 .navbar-cacao .dropdown-menu.show {
   display: block;
 }
+
 @media (max-width: 992px) {
   .navbar-cacao .dropdown-menu {
     position: static;
@@ -158,6 +186,7 @@ const cerrarTodo = () => {
     display: block;
   }
 }
+
 .navbar-cacao .dropdown-item {
   color: #212529 !important;
 }

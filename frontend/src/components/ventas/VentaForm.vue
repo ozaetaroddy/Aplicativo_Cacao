@@ -41,22 +41,77 @@
             </div>
           </div>
 
-          <!-- ===== CAMPOS PARA GUÍA DE REMISIÓN ===== -->
+          <!-- ===== CAMPOS PARA GUÍA DE REMISIÓN (COMPLETO) ===== -->
           <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label">Establecimiento</label>
-              <input type="text" class="form-control" v-model="venta.establecimiento">
+            <!-- Datos del destinatario/cliente -->
+            <div class="col-12"><h6>Destinatario / Cliente</h6></div>
+            <div class="col-md-3">
+              <label class="form-label">Identificación</label>
+              <input type="text" class="form-control" v-model="venta.destinatario_identificacion">
             </div>
-            <div class="col-md-4">
-              <label class="form-label">Nombre Comercial</label>
-              <input type="text" class="form-control" v-model="venta.nombre_comercial">
+            <div class="col-md-3">
+              <label class="form-label">Tipo Identificación</label>
+              <select class="form-select" v-model="venta.destinatario_tipo">
+                <option value="">Seleccione</option>
+                <option value="RUC">RUC</option>
+                <option value="CI">CI</option>
+                <option value="Pasaporte">Pasaporte</option>
+              </select>
             </div>
-            <div class="col-md-4">
-              <label class="form-label">Punto de Emisión</label>
-              <input type="text" class="form-control" v-model="venta.punto_emision">
+            <div class="col-md-3">
+              <label class="form-label">Razón Social</label>
+              <input type="text" class="form-control" v-model="venta.destinatario_razon_social">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Dirección Destino</label>
+              <input type="text" class="form-control" v-model="venta.destinatario_direccion">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Ruta</label>
+              <input type="text" class="form-control" v-model="venta.ruta">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Motivo</label>
+              <input type="text" class="form-control" v-model="venta.motivo">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Documento Aduanero</label>
+              <input type="text" class="form-control" v-model="venta.documento_aduana">
             </div>
 
-            <div class="col-12"><h6>Transportista</h6></div>
+            <!-- Comprobante sustento -->
+            <div class="col-12 mt-3"><h6>Comprobante Sustento</h6></div>
+            <div class="col-md-3">
+              <label class="form-label">Tipo Emisión</label>
+              <select class="form-select" v-model="venta.comprobante_tipo_emision">
+                <option value="">Seleccione</option>
+                <option value="Física">Física</option>
+                <option value="Electrónica">Electrónica</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Documento</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_documento">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Clave de Acceso</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_clave_acceso">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Número Autorización</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_numero_autorizacion">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Número Comprobante</label>
+              <input type="text" class="form-control" v-model="venta.comprobante_numero">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Fecha Emisión Comprobante</label>
+              <input type="date" class="form-control" v-model="venta.comprobante_fecha_emision">
+            </div>
+
+            <!-- Transportista -->
+            <div class="col-12 mt-3"><h6>Transportista</h6></div>
             <div class="col-md-3">
               <label class="form-label">Identificación</label>
               <input type="text" class="form-control" v-model="venta.transportista_identificacion">
@@ -79,7 +134,8 @@
               <input type="email" class="form-control" v-model="venta.transportista_correo">
             </div>
 
-            <div class="col-12"><h6>Traslado</h6></div>
+            <!-- Traslado -->
+            <div class="col-12 mt-3"><h6>Traslado</h6></div>
             <div class="col-md-3">
               <label class="form-label">Dirección Partida</label>
               <input type="text" class="form-control" v-model="venta.direccion_partida">
@@ -95,6 +151,18 @@
             <div class="col-md-3">
               <label class="form-label">Placa</label>
               <input type="text" class="form-control" v-model="venta.placa_transporte">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Establecimiento</label>
+              <input type="text" class="form-control" v-model="venta.establecimiento">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Nombre Comercial</label>
+              <input type="text" class="form-control" v-model="venta.nombre_comercial">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Punto de Emisión</label>
+              <input type="text" class="form-control" v-model="venta.punto_emision">
             </div>
           </div>
 
@@ -250,7 +318,21 @@ const venta = ref({
   direccion_partida: '',
   inicio_transporte: '',
   fin_transporte: '',
-  placa_transporte: ''
+  placa_transporte: '',
+  // Nuevos campos para guía
+  destinatario_identificacion: '',
+  destinatario_tipo: '',
+  destinatario_razon_social: '',
+  destinatario_direccion: '',
+  ruta: '',
+  motivo: '',
+  documento_aduana: '',
+  comprobante_tipo_emision: '',
+  comprobante_documento: '',
+  comprobante_clave_acceso: '',
+  comprobante_numero_autorizacion: '',
+  comprobante_numero: '',
+  comprobante_fecha_emision: ''
 })
 
 const generarCodigoLocal = (tipo) => {
@@ -299,6 +381,19 @@ const cambiarTipo = () => {
   venta.value.inicio_transporte = ''
   venta.value.fin_transporte = ''
   venta.value.placa_transporte = ''
+  venta.value.destinatario_identificacion = ''
+  venta.value.destinatario_tipo = ''
+  venta.value.destinatario_razon_social = ''
+  venta.value.destinatario_direccion = ''
+  venta.value.ruta = ''
+  venta.value.motivo = ''
+  venta.value.documento_aduana = ''
+  venta.value.comprobante_tipo_emision = ''
+  venta.value.comprobante_documento = ''
+  venta.value.comprobante_clave_acceso = ''
+  venta.value.comprobante_numero_autorizacion = ''
+  venta.value.comprobante_numero = ''
+  venta.value.comprobante_fecha_emision = ''
   if (venta.value.detalles.length === 0) agregarDetalle()
   asignarCodigos()
 }
@@ -396,7 +491,20 @@ const guardar = async () => {
       direccion_partida: venta.value.direccion_partida,
       inicio_transporte: venta.value.inicio_transporte,
       fin_transporte: venta.value.fin_transporte,
-      placa_transporte: venta.value.placa_transporte
+      placa_transporte: venta.value.placa_transporte,
+      destinatario_identificacion: venta.value.destinatario_identificacion,
+      destinatario_tipo: venta.value.destinatario_tipo,
+      destinatario_razon_social: venta.value.destinatario_razon_social,
+      destinatario_direccion: venta.value.destinatario_direccion,
+      ruta: venta.value.ruta,
+      motivo: venta.value.motivo,
+      documento_aduana: venta.value.documento_aduana,
+      comprobante_tipo_emision: venta.value.comprobante_tipo_emision,
+      comprobante_documento: venta.value.comprobante_documento,
+      comprobante_clave_acceso: venta.value.comprobante_clave_acceso,
+      comprobante_numero_autorizacion: venta.value.comprobante_numero_autorizacion,
+      comprobante_numero: venta.value.comprobante_numero,
+      comprobante_fecha_emision: venta.value.comprobante_fecha_emision
     }
     await insertOne('ventas', payload)
     router.push('/ventas')
