@@ -50,7 +50,9 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const { findById, insertOne, updateOne } = useMongoDB()
@@ -66,17 +68,17 @@ const form = ref({
 onMounted(async () => {
   if (id) {
     try {
-      console.log('Cargando categoría con ID:', id)
       const data = await findById('categorias', id)
-      console.log('Datos cargados:', data)
       if (data) {
         form.value = data
       } else {
         errorGeneral.value = 'No se encontró la categoría'
+        toast.warning('No se encontró la categoría')
       }
     } catch (e) {
       console.error('Error al cargar categoría:', e)
       errorGeneral.value = 'Error al cargar los datos: ' + e.message
+      toast.error('Error al cargar los datos: ' + e.message)
     }
   }
 })
@@ -84,6 +86,7 @@ onMounted(async () => {
 const guardar = async () => {
   if (!form.value.nombre?.trim()) {
     errorGeneral.value = 'El nombre es obligatorio'
+    toast.warning('El nombre es obligatorio')
     return
   }
   errorGeneral.value = ''
@@ -96,13 +99,16 @@ const guardar = async () => {
     }
     if (id) {
       await updateOne('categorias', id, datos)
+      toast.success('Categoría actualizada correctamente')
     } else {
       await insertOne('categorias', datos)
+      toast.success('Categoría creada correctamente')
     }
     router.push('/categorias')
   } catch (e) {
     console.error('Error al guardar:', e)
     errorGeneral.value = 'Error al guardar: ' + e.message
+    toast.error('Error al guardar: ' + e.message)
   } finally {
     cargando.value = false
   }

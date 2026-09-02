@@ -102,7 +102,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const { findById, insertOne, updateOne } = useMongoDB()
@@ -207,6 +209,7 @@ onMounted(async () => {
     } catch (e) {
       console.error(e)
       errorGeneral.value = 'Error al cargar los datos'
+      toast.error('Error al cargar los datos: ' + e.message)
     }
   }
 })
@@ -220,7 +223,7 @@ const buscarPorIdentificacion = async () => {
     const data = await response.json()
     if (data.nombre) form.value.nombre = data.nombre
   } catch (e) {
-    alert('Error al consultar: ' + e.message)
+    toast.error('Error al consultar: ' + e.message)
   } finally {
     buscando.value = false
   }
@@ -233,6 +236,7 @@ const guardar = async () => {
     validarTelefono()
     validarEmail()
     errorGeneral.value = 'Corrija los errores marcados en rojo'
+    toast.warning('Corrija los errores marcados en rojo')
     return
   }
   cargando.value = true
@@ -247,12 +251,15 @@ const guardar = async () => {
     }
     if (id) {
       await updateOne('clientes', id, datos)
+      toast.success('Cliente actualizado correctamente')
     } else {
       await insertOne('clientes', datos)
+      toast.success('Cliente creado correctamente')
     }
     router.push('/clientes')
   } catch (e) {
     errorGeneral.value = 'Error al guardar: ' + e.message
+    toast.error('Error al guardar: ' + e.message)
   } finally {
     cargando.value = false
   }

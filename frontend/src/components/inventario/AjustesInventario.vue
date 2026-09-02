@@ -72,7 +72,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const { find, updateOne } = useMongoDB()
 const productos = ref([])
 const historial = ref([])
@@ -86,13 +88,13 @@ const ajuste = ref({
 
 const guardarAjuste = async () => {
   if (!ajuste.value.productoId || !ajuste.value.cantidad || !ajuste.value.tipo) {
-    alert('Complete todos los campos obligatorios')
+    toast.warning('Complete todos los campos obligatorios')
     return
   }
 
   const producto = productos.value.find(p => p._id === ajuste.value.productoId)
   if (!producto) {
-    alert('Producto no encontrado')
+    toast.warning('Producto no encontrado')
     return
   }
 
@@ -106,13 +108,12 @@ const guardarAjuste = async () => {
   }
 
   if (nuevaCantidad < 0) {
-    alert('La cantidad no puede ser negativa')
+    toast.warning('La cantidad no puede ser negativa')
     return
   }
 
   try {
     await updateOne('productos', producto._id, { stock: nuevaCantidad })
-    // Registrar en historial local
     historial.value.unshift({
       fecha: new Date().toLocaleString(),
       productoNombre: producto.nombre,
@@ -120,12 +121,11 @@ const guardarAjuste = async () => {
       cantidad: ajuste.value.cantidad,
       motivo: ajuste.value.motivo
     })
-    // Recargar productos
     productos.value = await find('productos')
     ajuste.value = { productoId: '', cantidad: 0, tipo: '', motivo: '' }
-    alert('Ajuste aplicado correctamente')
+    toast.success('Ajuste aplicado correctamente')
   } catch (e) {
-    alert('Error al aplicar ajuste: ' + e.message)
+    toast.error('Error al aplicar ajuste: ' + e.message)
   }
 }
 
@@ -134,6 +134,7 @@ onMounted(async () => {
     productos.value = await find('productos')
   } catch (e) {
     console.error(e)
+    toast.error('Error al cargar productos: ' + e.message)
   }
 })
 </script>

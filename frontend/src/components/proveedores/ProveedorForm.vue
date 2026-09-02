@@ -95,7 +95,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const { findById, insertOne, updateOne } = useMongoDB()
@@ -119,7 +121,6 @@ const errores = ref({
   email: ''
 })
 
-// ===== VALIDACIÓN RUC / CÉDULA =====
 const validarRuc = () => {
   const ruc = form.value.ruc?.trim() || ''
   if (!ruc) {
@@ -131,11 +132,9 @@ const validarRuc = () => {
     return false
   }
   if (ruc.length === 10) {
-    // Cédula: 10 dígitos
     errores.value.ruc = ''
     return true
   } else if (ruc.length === 13) {
-    // RUC: 13 dígitos, debe terminar en 001
     if (!ruc.endsWith('001')) {
       errores.value.ruc = 'RUC debe terminar en 001'
       return false
@@ -202,6 +201,7 @@ onMounted(async () => {
     } catch (e) {
       console.error(e)
       errorGeneral.value = 'Error al cargar los datos'
+      toast.error('Error al cargar los datos: ' + e.message)
     }
   }
 })
@@ -215,7 +215,7 @@ const buscarPorIdentificacion = async () => {
     const data = await response.json()
     if (data.nombre) form.value.nombre = data.nombre
   } catch (e) {
-    alert('Error al consultar: ' + e.message)
+    toast.error('Error al consultar: ' + e.message)
   } finally {
     buscando.value = false
   }
@@ -228,6 +228,7 @@ const guardar = async () => {
     validarTelefono()
     validarEmail()
     errorGeneral.value = 'Corrija los errores marcados en rojo'
+    toast.warning('Corrija los errores marcados en rojo')
     return
   }
   cargando.value = true
@@ -241,12 +242,15 @@ const guardar = async () => {
     }
     if (id) {
       await updateOne('proveedores', id, datos)
+      toast.success('Proveedor actualizado correctamente')
     } else {
       await insertOne('proveedores', datos)
+      toast.success('Proveedor creado correctamente')
     }
     router.push('/proveedores')
   } catch (e) {
     errorGeneral.value = 'Error al guardar: ' + e.message
+    toast.error('Error al guardar: ' + e.message)
   } finally {
     cargando.value = false
   }

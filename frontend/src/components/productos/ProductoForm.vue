@@ -138,7 +138,9 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { Modal } from 'bootstrap'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const { find, findById, insertOne, updateOne } = useMongoDB()
@@ -176,7 +178,7 @@ const abrirModalCategoria = () => {
 
 const guardarCategoria = async () => {
   if (!nuevaCategoria.value.nombre) {
-    alert('El nombre de la categoría es obligatorio')
+    toast.warning('El nombre de la categoría es obligatorio')
     return
   }
   cargandoCategoria.value = true
@@ -189,9 +191,9 @@ const guardarCategoria = async () => {
     categorias.value = await find('categorias')
     form.value.categoriaId = result._id
     modalInstance.hide()
-    alert('Categoría creada exitosamente')
+    toast.success('Categoría creada exitosamente')
   } catch (e) {
-    alert('Error al crear categoría: ' + e.message)
+    toast.error('Error al crear categoría: ' + e.message)
   } finally {
     cargandoCategoria.value = false
   }
@@ -219,23 +221,26 @@ onMounted(async () => {
     }
   } catch (e) {
     console.error(e)
+    toast.error('Error al cargar datos: ' + e.message)
   }
 })
 
 const guardar = async () => {
   if (!form.value.nombre) {
-    alert('El nombre es obligatorio')
+    toast.warning('El nombre es obligatorio')
     return
   }
   try {
     if (id) {
       await updateOne('productos', id, form.value)
+      toast.success('Producto actualizado correctamente')
     } else {
       await insertOne('productos', form.value)
+      toast.success('Producto creado correctamente')
     }
     router.push('/productos')
   } catch (e) {
-    alert('Error al guardar: ' + e.message)
+    toast.error('Error al guardar: ' + e.message)
   }
 }
 </script>

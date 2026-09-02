@@ -2,7 +2,6 @@
   <div>
     <h4 class="section-title"><i class="fas fa-clipboard-check"></i> Conteo Físico</h4>
 
-    <!-- Mensajes de depuración -->
     <div v-if="error" class="alert alert-danger">
       <i class="fas fa-exclamation-circle"></i> Error: {{ error }}
     </div>
@@ -57,9 +56,9 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useToast } from 'vue-toastification'
 
-console.log('✅ Componente ConteoFisico cargado')
-
+const toast = useToast()
 const { find } = useMongoDB()
 const productos = ref([])
 const conteos = ref({})
@@ -83,30 +82,25 @@ const getDiferenciaClass = (prod) => {
 }
 
 const guardarConteo = () => {
-  alert('Conteo guardado temporalmente. Próximamente se implementará ajuste automático.')
+  toast.info('Conteo guardado temporalmente. Próximamente se implementará ajuste automático.')
   console.log('Conteos:', conteos.value)
 }
 
 onMounted(async () => {
-  console.log('📌 ConteoFisico montado, iniciando carga...')
   cargando.value = true
   error.value = null
   try {
-    console.log('📡 Llamando a find("productos")...')
     const data = await find('productos')
-    console.log('✅ Productos recibidos:', data)
     productos.value = data
-    // Inicializar conteos con stock actual
     data.forEach(p => {
       conteos.value[p._id] = p.stock
     })
-    console.log('📦 Conteos inicializados:', conteos.value)
   } catch (e) {
-    console.error('❌ Error al cargar productos:', e)
+    console.error('Error al cargar productos:', e)
     error.value = e.message || 'Error al cargar los productos'
+    toast.error('Error al cargar productos: ' + e.message)
   } finally {
     cargando.value = false
-    console.log('🏁 Carga finalizada')
   }
 })
 </script>

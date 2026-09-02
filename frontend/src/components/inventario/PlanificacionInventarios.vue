@@ -7,7 +7,6 @@
         <div class="alert alert-info">
           <i class="fas fa-info-circle"></i> Esta sección permite planificar pedidos basados en el stock mínimo y las ventas proyectadas.
         </div>
-        <p class="text-muted">Próximamente: módulo de planificación de compras con sugerencias de pedido.</p>
 
         <div class="row g-3 mt-3">
           <div class="col-md-4">
@@ -41,7 +40,9 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const { find } = useMongoDB()
 const productos = ref([])
 const productoSeleccionado = ref('')
@@ -61,15 +62,15 @@ const stockMinimo = computed(() => {
 
 const sugerirPedido = () => {
   if (!productoActual.value) {
-    alert('Seleccione un producto')
+    toast.warning('Seleccione un producto')
     return
   }
   const sugerencia = Math.max(0, productoActual.value.stock_minimo - productoActual.value.stock)
   cantidadPedir.value = sugerencia > 0 ? sugerencia : 0
   if (sugerencia === 0) {
-    alert('El stock actual es suficiente. No es necesario pedir.')
+    toast.info('El stock actual es suficiente. No es necesario pedir.')
   } else {
-    alert(`Se sugiere pedir ${sugerencia} unidades de ${productoActual.value.nombre}`)
+    toast.success(`Se sugiere pedir ${sugerencia} unidades de ${productoActual.value.nombre}`)
   }
 }
 
@@ -78,6 +79,7 @@ onMounted(async () => {
     productos.value = await find('productos')
   } catch (e) {
     console.error(e)
+    toast.error('Error al cargar productos: ' + e.message)
   }
 })
 </script>

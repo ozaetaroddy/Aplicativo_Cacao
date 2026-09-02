@@ -5,6 +5,7 @@
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar">
+          <!-- PROVEEDOR -->
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Proveedor</label>
@@ -110,7 +111,9 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const router = useRouter()
 const { find, insertOne } = useMongoDB()
 const proveedores = ref([])
@@ -179,16 +182,17 @@ onMounted(async () => {
     compra.value.numero_factura = generarCodigoCompra()
   } catch (e) {
     console.error(e)
+    toast.error('Error al cargar datos: ' + e.message)
   }
 })
 
 const guardar = async () => {
   if (!compra.value.proveedorId) {
-    alert('Seleccione un proveedor')
+    toast.warning('Seleccione un proveedor')
     return
   }
   if (compra.value.detalles.length === 0 || !compra.value.detalles[0].productoId) {
-    alert('Agregue al menos un producto')
+    toast.warning('Agregue al menos un producto')
     return
   }
 
@@ -208,9 +212,10 @@ const guardar = async () => {
       total: roundTo2(total.value)
     }
     await insertOne('compras', payload)
+    toast.success('Compra guardada exitosamente')
     router.push('/compras')
   } catch (e) {
-    alert('Error al guardar compra: ' + e.message)
+    toast.error('Error al guardar compra: ' + e.message)
   }
 }
 </script>

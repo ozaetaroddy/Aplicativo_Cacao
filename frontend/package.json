@@ -16,6 +16,7 @@
     "jspdf-autotable": "^3.5.0",
     "vue": "^3.4.0",
     "vue-router": "^4.0.0",
+    "vue-toastification": "^2.0.0-rc.1",
     "xlsx": "^0.18.0"
   },
   "devDependencies": {

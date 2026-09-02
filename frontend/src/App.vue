@@ -10,12 +10,14 @@
       <router-view />
     </div>
     <Footer />
+    <ToastContainer />
   </div>
 </template>
 
 <script setup>
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
+import { ToastContainer } from 'vue-toastification'
 </script>
 
 <style>

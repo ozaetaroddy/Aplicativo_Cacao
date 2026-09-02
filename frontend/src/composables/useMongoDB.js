@@ -1,6 +1,5 @@
 import { ref } from 'vue'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
+import { api } from '../services/api'
 
 export function useMongoDB() {
   const loading = ref(false)
@@ -10,23 +9,10 @@ export function useMongoDB() {
     loading.value = true
     error.value = null
     try {
-      const url = `${API_BASE_URL}${endpoint}`
-      console.log('📡 Petición a:', url, options)
-      const response = await fetch(url, {
-        headers: { 'Content-Type': 'application/json' },
-        ...options
-      })
-      if (!response.ok) {
-        const err = await response.json()
-        console.error('❌ Error respuesta:', err)
-        throw new Error(err.error || 'Error en la petición')
-      }
-      const data = await response.json()
-      console.log('✅ Datos recibidos:', data)
+      const data = await api.request(endpoint, options)
       return data
     } catch (err) {
       error.value = err.message
-      console.error('❌ Error en request:', err)
       throw err
     } finally {
       loading.value = false
@@ -62,7 +48,7 @@ export function useMongoDB() {
     })
   }
 
-  // Métodos específicos
+  // Métodos específicos (Kardex, Reportes, etc.)
   async function getProductosStockBajo() {
     return request('/productos/stock/bajo')
   }

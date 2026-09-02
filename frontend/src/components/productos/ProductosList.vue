@@ -2,34 +2,45 @@
   <div>
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h4 class="section-title"><i class="fas fa-boxes"></i> Productos</h4>
-      <router-link to="/productos/nuevo" class="btn btn-cacao-primary"><i class="fas fa-plus"></i> Nuevo Producto</router-link>
+      <router-link to="/productos/nuevo" class="btn btn-success">
+        <i class="fas fa-plus"></i> Nuevo Producto
+      </router-link>
     </div>
+
     <div class="card card-cacao">
       <div class="card-body table-responsive">
         <table class="table table-cacao">
-          <thead><tr>
-            <th>Código</th>
-            <th>Nombre</th>
-            <th>Categoría</th>
-            <th>Precio Compra</th>
-            <th>Precio Venta</th>
-            <th>Stock</th>
-            <th>Acciones</th>
-          </tr></thead>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Nombre</th>
+              <th>Categoría</th>
+              <th>Precio Compra</th>
+              <th>Precio Venta</th>
+              <th>Stock</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
           <tbody>
             <tr v-for="p in productos" :key="p._id" :class="{ 'table-warning': p.stock <= p.stock_minimo }">
               <td>{{ p.codigo }}</td>
               <td>{{ p.nombre }}</td>
               <td>{{ getCategoriaNombre(p.categoriaId) }}</td>
-              <td>${{ p.precio_compra }}</td>
-              <td>${{ p.precio_venta }}</td>
+              <td>${{ p.precio_compra?.toFixed(2) }}</td>
+              <td>${{ p.precio_venta?.toFixed(2) }}</td>
               <td>{{ p.stock }}</td>
               <td>
-                <router-link :to="`/productos/editar/${p._id}`" class="btn btn-sm btn-outline-primary me-1"><i class="fas fa-edit"></i></router-link>
-                <button class="btn btn-sm btn-outline-danger" @click="eliminar(p._id)"><i class="fas fa-trash"></i></button>
+                <router-link :to="`/productos/editar/${p._id}`" class="btn btn-sm btn-outline-primary me-1">
+                  <i class="fas fa-edit"></i>
+                </router-link>
+                <button class="btn btn-sm btn-outline-danger" @click="eliminar(p._id)">
+                  <i class="fas fa-trash"></i>
+                </button>
               </td>
             </tr>
-            <tr v-if="productos.length === 0"><td colspan="7" class="text-muted text-center">No hay productos</td></tr>
+            <tr v-if="productos.length === 0">
+              <td colspan="7" class="text-muted text-center">No hay productos registrados</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -40,7 +51,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const { find, deleteOne } = useMongoDB()
 const productos = ref([])
 const categorias = ref([])
@@ -60,6 +73,7 @@ const cargarDatos = async () => {
     categorias.value = cats
   } catch (e) {
     console.error(e)
+    toast.error('Error al cargar productos: ' + e.message)
   }
 }
 
@@ -68,8 +82,9 @@ const eliminar = async (id) => {
     try {
       await deleteOne('productos', id)
       await cargarDatos()
+      toast.success('Producto eliminado correctamente')
     } catch (e) {
-      alert('Error al eliminar: ' + e.message)
+      toast.error('Error al eliminar: ' + e.message)
     }
   }
 }

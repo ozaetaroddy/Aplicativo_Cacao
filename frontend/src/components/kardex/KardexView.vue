@@ -84,7 +84,9 @@
 import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { formatCurrency } from '../../utils/formatters'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const { find, getKardexByProducto, getKardexByCliente, getKardexByProveedor } = useMongoDB()
 const productos = ref([])
 const clientes = ref([])
@@ -97,7 +99,6 @@ const movimientos = ref([])
 const loading = ref(false)
 const error = ref(null)
 
-// Mapa para obtener nombres de productos
 const productosMap = ref({})
 
 const obtenerNombreProducto = (id) => {
@@ -119,12 +120,13 @@ onMounted(async () => {
     prods.forEach(p => productosMap.value[p._id] = p)
   } catch (e) {
     console.error(e)
+    toast.error('Error al cargar datos: ' + e.message)
   }
 })
 
 const consultar = async () => {
   if (!entidadSeleccionada.value) {
-    alert('Seleccione una entidad')
+    toast.warning('Seleccione una entidad')
     return
   }
   loading.value = true
@@ -139,9 +141,13 @@ const consultar = async () => {
       data = await getKardexByProveedor(entidadSeleccionada.value, fechaDesde.value, fechaHasta.value)
     }
     movimientos.value = data
+    if (data.length === 0) {
+      toast.info('No se encontraron movimientos para la entidad seleccionada')
+    }
   } catch (e) {
     error.value = e.message || 'Error al consultar'
     console.error(e)
+    toast.error('Error al consultar: ' + e.message)
   } finally {
     loading.value = false
   }

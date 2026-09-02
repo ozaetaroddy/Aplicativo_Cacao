@@ -79,7 +79,9 @@ import { roundTo2, formatCurrency } from '../../utils/formatters'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { useToast } from 'vue-toastification'
 
+const toast = useToast()
 const { reporteCompras } = useMongoDB()
 const desde = ref('')
 const hasta = ref('')
@@ -94,7 +96,7 @@ const totalTotal = computed(() => roundTo2(compras.value.reduce((acc, c) => acc 
 
 const generar = async () => {
   if (!desde.value || !hasta.value) {
-    alert('Seleccione ambas fechas')
+    toast.warning('Seleccione ambas fechas')
     return
   }
   loading.value = true
@@ -107,16 +109,21 @@ const generar = async () => {
       dateStyle: 'medium',
       timeStyle: 'medium'
     })
+    if (data.length === 0) toast.info('No hay compras en el período seleccionado')
   } catch (e) {
     error.value = e.message || 'Error al cargar el reporte'
     console.error(e)
+    toast.error('Error al cargar el reporte: ' + e.message)
   } finally {
     loading.value = false
   }
 }
 
 const exportExcel = () => {
-  if (compras.value.length === 0) return alert('No hay datos para exportar')
+  if (compras.value.length === 0) {
+    toast.warning('No hay datos para exportar')
+    return
+  }
   const data = compras.value.map(c => ({
     Fecha: new Date(c.fecha_emision).toLocaleDateString(),
     Proveedor: c.proveedor?.nombre || 'N/A',
@@ -129,10 +136,14 @@ const exportExcel = () => {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Compras')
   XLSX.writeFile(wb, 'reporte_compras.xlsx')
+  toast.success('Excel generado correctamente')
 }
 
 const exportPDF = () => {
-  if (compras.value.length === 0) return alert('No hay datos para exportar')
+  if (compras.value.length === 0) {
+    toast.warning('No hay datos para exportar')
+    return
+  }
   const doc = new jsPDF()
   doc.text('Reporte de Compras', 14, 22)
   doc.setFontSize(10)
@@ -152,5 +163,6 @@ const exportPDF = () => {
     foot: [['', '', '', totalSubtotal.value.toFixed(2), totalIva.value.toFixed(2), totalTotal.value.toFixed(2)]]
   })
   doc.save('reporte_compras.pdf')
+  toast.success('PDF generado correctamente')
 }
 </script>
