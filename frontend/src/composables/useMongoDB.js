@@ -70,8 +70,26 @@ export function useMongoDB() {
   async function getKardexByProducto(productoId, desde, hasta) {
     let url = `/kardex/producto/${productoId}`
     const params = []
-    if (desde) params.push(`desde=${desde}`)
-    if (hasta) params.push(`hasta=${hasta}`)
+    if (desde) params.push(`desde=${encodeURIComponent(desde)}`)
+    if (hasta) params.push(`hasta=${encodeURIComponent(hasta)}`)
+    if (params.length) url += '?' + params.join('&')
+    return request(url)
+  }
+
+  async function getKardexByCliente(clienteId, desde, hasta) {
+    let url = `/kardex/cliente/${clienteId}`
+    const params = []
+    if (desde) params.push(`desde=${encodeURIComponent(desde)}`)
+    if (hasta) params.push(`hasta=${encodeURIComponent(hasta)}`)
+    if (params.length) url += '?' + params.join('&')
+    return request(url)
+  }
+
+  async function getKardexByProveedor(proveedorId, desde, hasta) {
+    let url = `/kardex/proveedor/${proveedorId}`
+    const params = []
+    if (desde) params.push(`desde=${encodeURIComponent(desde)}`)
+    if (hasta) params.push(`hasta=${encodeURIComponent(hasta)}`)
     if (params.length) url += '?' + params.join('&')
     return request(url)
   }
@@ -93,29 +111,6 @@ export function useMongoDB() {
     if (params.length) url += '?' + params.join('&')
     return request(url)
   }
-  async function getKardexByCliente(clienteId, desde, hasta) {
-  let url = `/kardex/cliente/${clienteId}`
-  const params = []
-  if (desde) params.push(`desde=${encodeURIComponent(desde)}`)
-  if (hasta) params.push(`hasta=${encodeURIComponent(hasta)}`)
-  if (params.length) url += '?' + params.join('&')
-  return request(url)
-}
-
-async function getKardexByProveedor(proveedorId, desde, hasta) {
-  let url = `/kardex/proveedor/${proveedorId}`
-  const params = []
-  if (desde) params.push(`desde=${encodeURIComponent(desde)}`)
-  if (hasta) params.push(`hasta=${encodeURIComponent(hasta)}`)
-  if (params.length) url += '?' + params.join('&')
-  return request(url)
-}
-async function consultarCedula(cedula) {
-  return request('/registro-civil/cedula', {
-    method: 'POST',
-    body: JSON.stringify({ cedula })
-  });
-}
 
   return {
     loading,
@@ -127,10 +122,9 @@ async function consultarCedula(cedula) {
     deleteOne,
     getProductosStockBajo,
     getKardexByProducto,
-    reporteVentas,
-    reporteCompras,
     getKardexByCliente,
-  getKardexByProveedor,
-  consultarCedula
+    getKardexByProveedor,
+    reporteVentas,
+    reporteCompras
   }
 }
