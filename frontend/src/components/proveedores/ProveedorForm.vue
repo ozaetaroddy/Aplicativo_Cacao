@@ -7,67 +7,85 @@
         <form @submit.prevent="guardar" novalidate>
           <div class="alert alert-info">
             <i class="fas fa-info-circle"></i>
-            Ingrese RUC (13 dígitos) o Cédula (10 dígitos). Si es RUC, debe terminar en 001.
+            Ingrese RUC (13 dígitos, terminado en 001) o Cédula (10 dígitos).
           </div>
 
           <div class="row g-3">
+            <!-- RUC / Cédula -->
             <div class="col-md-8">
               <label class="form-label"><span class="text-danger">*</span> RUC / Cédula</label>
               <input
                 type="text"
                 class="form-control"
+                :class="{ 'is-invalid': errores.ruc }"
                 v-model="form.ruc"
                 placeholder="10 o 13 dígitos"
+                @input="validarRuc"
                 @blur="validarRuc"
                 required
               />
-              <div v-if="errores.ruc" class="text-danger small">{{ errores.ruc }}</div>
+              <div v-if="errores.ruc" class="invalid-feedback">{{ errores.ruc }}</div>
             </div>
             <div class="col-md-4 d-flex align-items-end">
               <button
                 type="button"
                 class="btn btn-primary w-100"
                 @click="buscarPorIdentificacion"
-                :disabled="buscando"
+                :disabled="buscando || !form.ruc || errores.ruc"
               >
                 <i class="fas fa-search" :class="{ 'fa-spin': buscando }"></i>
                 {{ buscando ? 'Buscando...' : 'Buscar Datos' }}
               </button>
             </div>
-          </div>
 
-          <hr />
-
-          <div class="row g-3">
+            <!-- Nombre -->
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Nombre / Razón Social</label>
-              <input type="text" class="form-control" v-model="form.nombre" required @blur="validarNombre" />
-              <div v-if="errores.nombre" class="text-danger small">{{ errores.nombre }}</div>
+              <input
+                type="text"
+                class="form-control"
+                :class="{ 'is-invalid': errores.nombre }"
+                v-model="form.nombre"
+                @input="validarNombre"
+                @blur="validarNombre"
+                required
+              />
+              <div v-if="errores.nombre" class="invalid-feedback">{{ errores.nombre }}</div>
             </div>
+
+            <!-- Teléfono -->
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Teléfono</label>
               <input
                 type="text"
                 class="form-control"
+                :class="{ 'is-invalid': errores.telefono }"
                 v-model="form.telefono"
                 placeholder="09XXXXXXXX"
-                required
+                @input="validarTelefono"
                 @blur="validarTelefono"
+                required
               />
-              <div v-if="errores.telefono" class="text-danger small">{{ errores.telefono }}</div>
+              <div v-if="errores.telefono" class="invalid-feedback">{{ errores.telefono }}</div>
             </div>
+
+            <!-- Email -->
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Email</label>
               <input
                 type="email"
                 class="form-control"
+                :class="{ 'is-invalid': errores.email }"
                 v-model="form.email"
                 placeholder="correo@ejemplo.com"
-                required
+                @input="validarEmail"
                 @blur="validarEmail"
+                required
               />
-              <div v-if="errores.email" class="text-danger small">{{ errores.email }}</div>
+              <div v-if="errores.email" class="invalid-feedback">{{ errores.email }}</div>
             </div>
+
+            <!-- Dirección -->
             <div class="col-md-6">
               <label class="form-label">Dirección</label>
               <input type="text" class="form-control" v-model="form.direccion" />
@@ -79,7 +97,7 @@
           </div>
 
           <div class="mt-4">
-            <button type="submit" class="btn btn-success me-2" :disabled="cargando">
+            <button type="submit" class="btn btn-success me-2" :disabled="cargando || !formularioValido">
               <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
               {{ cargando ? 'Guardando...' : 'Guardar' }}
             </button>
@@ -121,6 +139,7 @@ const errores = ref({
   email: ''
 })
 
+// ===== VALIDACIONES =====
 const validarRuc = () => {
   const ruc = form.value.ruc?.trim() || ''
   if (!ruc) {
@@ -132,9 +151,11 @@ const validarRuc = () => {
     return false
   }
   if (ruc.length === 10) {
+    // Cédula: 10 dígitos (sin validación de dígito verificador por simplicidad)
     errores.value.ruc = ''
     return true
   } else if (ruc.length === 13) {
+    // RUC: 13 dígitos, debe terminar en 001 (para persona jurídica)
     if (!ruc.endsWith('001')) {
       errores.value.ruc = 'RUC debe terminar en 001'
       return false
@@ -151,6 +172,10 @@ const validarNombre = () => {
   const nombre = form.value.nombre?.trim() || ''
   if (!nombre) {
     errores.value.nombre = 'El nombre es obligatorio'
+    return false
+  }
+  if (nombre.length < 3) {
+    errores.value.nombre = 'El nombre debe tener al menos 3 caracteres'
     return false
   }
   if (!/^[A-Za-zÁÉÍÓÚÑáéíóúñ\s.]+$/.test(nombre)) {
@@ -181,23 +206,33 @@ const validarEmail = () => {
     errores.value.email = 'El email es obligatorio'
     return false
   }
-  if (!/^[^\s@]+@[^\s@]+\.(com|es|ec|org|net|edu|info)$/i.test(email)) {
-    errores.value.email = 'Email inválido'
+  // Permitir dominios comunes
+  if (!/^[^\s@]+@[^\s@]+\.(com|es|ec|org|net|edu|info|gob|mil)$/i.test(email)) {
+    errores.value.email = 'Email inválido (ej: usuario@dominio.com)'
     return false
   }
   errores.value.email = ''
   return true
 }
 
+// ===== ESTADO DE VALIDEZ =====
 const formularioValido = computed(() => {
   return validarRuc() && validarNombre() && validarTelefono() && validarEmail()
 })
 
+// ===== CARGAR DATOS SI ES EDICIÓN =====
 onMounted(async () => {
   if (id) {
     try {
       const data = await findById('proveedores', id)
-      if (data) form.value = data
+      if (data) {
+        form.value = data
+        // Forzar validación para mostrar errores si los hay
+        validarRuc()
+        validarNombre()
+        validarTelefono()
+        validarEmail()
+      }
     } catch (e) {
       console.error(e)
       errorGeneral.value = 'Error al cargar los datos'
@@ -206,14 +241,24 @@ onMounted(async () => {
   }
 })
 
+// ===== BUSCAR POR IDENTIFICACIÓN =====
 const buscarPorIdentificacion = async () => {
-  if (!validarRuc()) return
+  if (!validarRuc()) {
+    toast.warning('Corrija el RUC/Cédula antes de buscar')
+    return
+  }
   buscando.value = true
   try {
     const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/consultas/cedula/${form.value.ruc.trim()}`)
     if (!response.ok) throw new Error('No se encontraron datos')
     const data = await response.json()
-    if (data.nombre) form.value.nombre = data.nombre
+    if (data.nombre) {
+      form.value.nombre = data.nombre
+      validarNombre()
+      toast.success('Datos encontrados y cargados')
+    } else {
+      toast.info('No se encontró nombre para esta cédula, ingréselo manualmente')
+    }
   } catch (e) {
     toast.error('Error al consultar: ' + e.message)
   } finally {
@@ -221,17 +266,23 @@ const buscarPorIdentificacion = async () => {
   }
 }
 
+// ===== GUARDAR =====
 const guardar = async () => {
-  if (!formularioValido.value) {
-    validarRuc()
-    validarNombre()
-    validarTelefono()
-    validarEmail()
+  // Forzar validación de todos los campos
+  const rucOk = validarRuc()
+  const nombreOk = validarNombre()
+  const telefonoOk = validarTelefono()
+  const emailOk = validarEmail()
+
+  if (!rucOk || !nombreOk || !telefonoOk || !emailOk) {
     errorGeneral.value = 'Corrija los errores marcados en rojo'
-    toast.warning('Corrija los errores marcados en rojo')
+    toast.warning('Corrija los errores antes de guardar')
     return
   }
+
+  errorGeneral.value = ''
   cargando.value = true
+
   try {
     const datos = {
       ruc: form.value.ruc.trim(),

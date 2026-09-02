@@ -1,50 +1,48 @@
+// services/api.js
 import { useToast } from 'vue-toastification'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 const toast = useToast()
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 
-async function request(endpoint, options = {}) {
-  const url = `${API_BASE_URL}${endpoint}`
-  console.log('📡 Petición a:', url, options)
-
-  try {
-    const response = await fetch(url, {
-      headers: { 'Content-Type': 'application/json' },
-      ...options
-    })
-
-    // Si la respuesta no es ok, intentamos leer el error
-    if (!response.ok) {
-      let errorMsg = `Error ${response.status}`
-      try {
-        const errData = await response.json()
-        errorMsg = errData.error || errData.message || errorMsg
-      } catch (e) {
-        // Si no se puede leer JSON, usamos el texto de estado
-        errorMsg = response.statusText || errorMsg
-      }
-      throw new Error(errorMsg)
-    }
-
-    const data = await response.json()
-    console.log('✅ Datos recibidos:', data)
-    return data
-  } catch (err) {
-    console.error('❌ Error en request:', err)
-    // Mostrar toast de error (excepto si es un error 404 de ruta, que manejamos aparte)
-    if (err.message && !err.message.includes('404')) {
-      toast.error(`Error: ${err.message}`)
-    }
-    throw err
-  }
-}
-
-// En services/api.js, agrega:
-export const request = requestFunction // (la función que definiste)
 export const api = {
-  request,
-  get: (endpoint) => request(endpoint, { method: 'GET' }),
-  post: (endpoint, body) => request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
-  put: (endpoint, body) => request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
+  async request(endpoint, options = {}) {
+    const url = `${API_BASE_URL}${endpoint}`
+    console.log('📡 Petición a:', url, options)
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options
+      })
+
+      const data = await response.json()
+
+      // Si hay errores de validación (400 con errors)
+      if (response.status === 400 && data.errors) {
+        const mensajes = data.errors.map(err => err.msg).join(', ')
+        toast.error(`Validación fallida: ${mensajes}`)
+        throw new Error(mensajes)
+      }
+
+      if (!response.ok) {
+        const errorMsg = data.error || data.message || `Error ${response.status}`
+        toast.error(errorMsg)
+        throw new Error(errorMsg)
+      }
+
+      console.log('✅ Datos recibidos:', data)
+      return data
+    } catch (err) {
+      console.error('❌ Error en request:', err)
+      if (err.message && !err.message.includes('Validación')) {
+        toast.error(`Error: ${err.message}`)
+      }
+      throw err
+    }
+  },
+
+  get: (endpoint) => api.request(endpoint, { method: 'GET' }),
+  post: (endpoint, body) => api.request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
+  put: (endpoint, body) => api.request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
+  delete: (endpoint) => api.request(endpoint, { method: 'DELETE' })
 }

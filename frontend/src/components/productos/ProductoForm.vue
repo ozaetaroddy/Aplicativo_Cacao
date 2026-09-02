@@ -6,18 +6,30 @@
 
     <div class="card card-cacao">
       <div class="card-body">
-        <form @submit.prevent="guardar">
+        <form @submit.prevent="guardar" novalidate>
           <div class="row g-3">
+            <!-- Código -->
             <div class="col-md-4">
               <label class="form-label">Código</label>
-              <input type="text" class="form-control" v-model="form.codigo" placeholder="Automático" readonly>
+              <input type="text" class="form-control" v-model="form.codigo" readonly />
             </div>
 
+            <!-- Nombre -->
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Nombre</label>
-              <input type="text" class="form-control" v-model="form.nombre" required>
+              <input
+                type="text"
+                class="form-control"
+                :class="{ 'is-invalid': errores.nombre }"
+                v-model="form.nombre"
+                @input="validarNombre"
+                @blur="validarNombre"
+                required
+              />
+              <div v-if="errores.nombre" class="invalid-feedback">{{ errores.nombre }}</div>
             </div>
 
+            <!-- Categoría -->
             <div class="col-md-4">
               <label class="form-label">Categoría</label>
               <div class="d-flex gap-1">
@@ -31,19 +43,54 @@
               </div>
             </div>
 
+            <!-- Precio Compra -->
             <div class="col-md-3">
               <label class="form-label">Precio Compra</label>
-              <input type="number" step="0.01" class="form-control" v-model.number="form.precio_compra">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Precio Venta</label>
-              <input type="number" step="0.01" class="form-control" v-model.number="form.precio_venta">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Stock Mínimo</label>
-              <input type="number" class="form-control" v-model.number="form.stock_minimo">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                class="form-control"
+                :class="{ 'is-invalid': errores.precio_compra }"
+                v-model.number="form.precio_compra"
+                @input="validarPrecioCompra"
+                @blur="validarPrecioCompra"
+              />
+              <div v-if="errores.precio_compra" class="invalid-feedback">{{ errores.precio_compra }}</div>
             </div>
 
+            <!-- Precio Venta -->
+            <div class="col-md-3">
+              <label class="form-label">Precio Venta</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                class="form-control"
+                :class="{ 'is-invalid': errores.precio_venta }"
+                v-model.number="form.precio_venta"
+                @input="validarPrecioVenta"
+                @blur="validarPrecioVenta"
+              />
+              <div v-if="errores.precio_venta" class="invalid-feedback">{{ errores.precio_venta }}</div>
+            </div>
+
+            <!-- Stock Mínimo -->
+            <div class="col-md-3">
+              <label class="form-label">Stock Mínimo</label>
+              <input
+                type="number"
+                min="0"
+                class="form-control"
+                :class="{ 'is-invalid': errores.stock_minimo }"
+                v-model.number="form.stock_minimo"
+                @input="validarStockMinimo"
+                @blur="validarStockMinimo"
+              />
+              <div v-if="errores.stock_minimo" class="invalid-feedback">{{ errores.stock_minimo }}</div>
+            </div>
+
+            <!-- Unidad de Medida -->
             <div class="col-md-3">
               <label class="form-label">Unidad de Medida</label>
               <select class="form-select" v-model="form.unidad_medida">
@@ -59,6 +106,7 @@
               </select>
             </div>
 
+            <!-- Tipo de Medida -->
             <div class="col-md-3">
               <label class="form-label">Tipo de Medida</label>
               <select class="form-select" v-model="form.tipo_medida">
@@ -69,31 +117,42 @@
               </select>
             </div>
 
+            <!-- Aplica IVA -->
             <div class="col-md-3 d-flex align-items-center">
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" v-model="form.aplica_iva" id="aplicaIVA">
-                <label class="form-check-label" for="aplicaIVA">
-                  Aplica IVA
-                </label>
+                <input class="form-check-input" type="checkbox" v-model="form.aplica_iva" id="aplicaIVA" />
+                <label class="form-check-label" for="aplicaIVA">Aplica IVA</label>
               </div>
             </div>
 
+            <!-- Código de Barras -->
             <div class="col-md-4">
               <label class="form-label">Código de Barras</label>
-              <input type="text" class="form-control" v-model="form.codigo_barras">
+              <input type="text" class="form-control" v-model="form.codigo_barras" placeholder="Opcional" />
             </div>
+
+            <!-- URL Foto -->
             <div class="col-md-4">
               <label class="form-label">URL de la Foto</label>
-              <input type="text" class="form-control" v-model="form.foto" placeholder="https://ejemplo.com/foto.jpg">
+              <input type="text" class="form-control" v-model="form.foto" placeholder="https://ejemplo.com/foto.jpg" />
             </div>
+
+            <!-- Observaciones -->
             <div class="col-md-12">
               <label class="form-label">Observaciones</label>
               <textarea class="form-control" v-model="form.observaciones" rows="2"></textarea>
             </div>
           </div>
 
+          <div v-if="errorGeneral" class="alert alert-danger mt-3">
+            <i class="fas fa-exclamation-circle"></i> {{ errorGeneral }}
+          </div>
+
           <div class="mt-4">
-            <button type="submit" class="btn btn-success me-2"><i class="fas fa-save"></i> Guardar</button>
+            <button type="submit" class="btn btn-success me-2" :disabled="cargando || !formularioValido">
+              <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
+              {{ cargando ? 'Guardando...' : 'Guardar' }}
+            </button>
             <router-link to="/productos" class="btn btn-secondary">Cancelar</router-link>
           </div>
         </form>
@@ -112,11 +171,11 @@
             <form @submit.prevent="guardarCategoria">
               <div class="mb-3">
                 <label class="form-label"><span class="text-danger">*</span> Nombre</label>
-                <input type="text" class="form-control" v-model="nuevaCategoria.nombre" required>
+                <input type="text" class="form-control" v-model="nuevaCategoria.nombre" required />
               </div>
               <div class="mb-3">
                 <label class="form-label">Descripción</label>
-                <input type="text" class="form-control" v-model="nuevaCategoria.descripcion">
+                <input type="text" class="form-control" v-model="nuevaCategoria.descripcion" />
               </div>
               <div class="d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -134,7 +193,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { Modal } from 'bootstrap'
@@ -147,6 +206,8 @@ const { find, findById, insertOne, updateOne } = useMongoDB()
 const id = route.params.id
 const categorias = ref([])
 const cargandoCategoria = ref(false)
+const cargando = ref(false)
+const errorGeneral = ref('')
 
 const form = ref({
   codigo: '',
@@ -164,6 +225,63 @@ const form = ref({
   tipo_medida: 'unidad'
 })
 
+const errores = ref({
+  nombre: '',
+  precio_compra: '',
+  precio_venta: '',
+  stock_minimo: ''
+})
+
+// ===== VALIDACIONES =====
+const validarNombre = () => {
+  const nombre = form.value.nombre?.trim() || ''
+  if (!nombre) {
+    errores.value.nombre = 'El nombre es obligatorio'
+    return false
+  }
+  if (nombre.length < 3) {
+    errores.value.nombre = 'El nombre debe tener al menos 3 caracteres'
+    return false
+  }
+  errores.value.nombre = ''
+  return true
+}
+
+const validarPrecioCompra = () => {
+  const val = form.value.precio_compra
+  if (val === undefined || val === null || isNaN(val) || val < 0) {
+    errores.value.precio_compra = 'Debe ser un número positivo'
+    return false
+  }
+  errores.value.precio_compra = ''
+  return true
+}
+
+const validarPrecioVenta = () => {
+  const val = form.value.precio_venta
+  if (val === undefined || val === null || isNaN(val) || val < 0) {
+    errores.value.precio_venta = 'Debe ser un número positivo'
+    return false
+  }
+  errores.value.precio_venta = ''
+  return true
+}
+
+const validarStockMinimo = () => {
+  const val = form.value.stock_minimo
+  if (val === undefined || val === null || isNaN(val) || val < 0) {
+    errores.value.stock_minimo = 'Debe ser un número positivo o cero'
+    return false
+  }
+  errores.value.stock_minimo = ''
+  return true
+}
+
+const formularioValido = computed(() => {
+  return validarNombre() && validarPrecioCompra() && validarPrecioVenta() && validarStockMinimo()
+})
+
+// ===== NUEVA CATEGORÍA =====
 const nuevaCategoria = ref({ nombre: '', descripcion: '' })
 let modalInstance = null
 
@@ -199,6 +317,7 @@ const guardarCategoria = async () => {
   }
 }
 
+// ===== GENERAR CÓDIGO =====
 const generarCodigoProducto = () => {
   const ahora = new Date()
   const año = ahora.getFullYear().toString().slice(-2)
@@ -208,6 +327,7 @@ const generarCodigoProducto = () => {
   return `PROD-${año}${mes}${dia}-${aleatorio}`
 }
 
+// ===== CARGAR DATOS =====
 onMounted(async () => {
   try {
     const cats = await find('categorias')
@@ -215,7 +335,13 @@ onMounted(async () => {
 
     if (id) {
       const prod = await findById('productos', id)
-      if (prod) form.value = prod
+      if (prod) {
+        form.value = prod
+        validarNombre()
+        validarPrecioCompra()
+        validarPrecioVenta()
+        validarStockMinimo()
+      }
     } else {
       form.value.codigo = generarCodigoProducto()
     }
@@ -225,11 +351,22 @@ onMounted(async () => {
   }
 })
 
+// ===== GUARDAR =====
 const guardar = async () => {
-  if (!form.value.nombre) {
-    toast.warning('El nombre es obligatorio')
+  const nombreOk = validarNombre()
+  const precioCompraOk = validarPrecioCompra()
+  const precioVentaOk = validarPrecioVenta()
+  const stockOk = validarStockMinimo()
+
+  if (!nombreOk || !precioCompraOk || !precioVentaOk || !stockOk) {
+    errorGeneral.value = 'Corrija los errores marcados en rojo'
+    toast.warning('Corrija los errores antes de guardar')
     return
   }
+
+  errorGeneral.value = ''
+  cargando.value = true
+
   try {
     if (id) {
       await updateOne('productos', id, form.value)
@@ -240,7 +377,10 @@ const guardar = async () => {
     }
     router.push('/productos')
   } catch (e) {
+    errorGeneral.value = 'Error al guardar: ' + e.message
     toast.error('Error al guardar: ' + e.message)
+  } finally {
+    cargando.value = false
   }
 }
 </script>

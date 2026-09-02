@@ -1,8 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
+const { body, validationResult } = require('express-validator');
 
-// Obtener todos los proveedores
+const validarProveedor = [
+  body('nombre')
+    .trim()
+    .notEmpty().withMessage('El nombre es obligatorio')
+    .matches(/^[A-Za-zÁÉÍÓÚÑáéíóúñ\s.]+$/).withMessage('Solo letras, espacios y puntos'),
+  body('ruc')
+    .trim()
+    .notEmpty().withMessage('El RUC/Cédula es obligatorio')
+    .isLength({ min: 10, max: 13 }).withMessage('Debe tener entre 10 y 13 dígitos')
+    .matches(/^\d+$/).withMessage('Solo dígitos numéricos')
+    .custom((value) => {
+      if (value.length === 13 && !value.endsWith('001')) {
+        throw new Error('RUC debe terminar en 001');
+      }
+      return true;
+    }),
+  body('telefono')
+    .trim()
+    .notEmpty().withMessage('El teléfono es obligatorio')
+    .matches(/^09\d{8}$/).withMessage('Debe comenzar con 09 y tener 10 dígitos'),
+  body('email')
+    .trim()
+    .notEmpty().withMessage('El email es obligatorio')
+    .isEmail().withMessage('Email inválido')
+    .normalizeEmail()
+];
+
 router.get('/', async (req, res) => {
   try {
     const proveedores = await req.db.collection('proveedores').find({}).toArray();
@@ -12,7 +39,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Obtener proveedor por ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -29,18 +55,19 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Crear proveedor
-router.post('/', async (req, res) => {
+router.post('/', validarProveedor, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
     const { nombre, ruc, telefono, email, direccion } = req.body;
-    if (!nombre || !ruc) {
-      return res.status(400).json({ error: 'Nombre y RUC son obligatorios' });
-    }
     const nuevo = { 
       nombre, 
       ruc, 
-      telefono: telefono || '', 
-      email: email || '', 
+      telefono, 
+      email, 
       direccion: direccion || '', 
       createdAt: new Date() 
     };
@@ -51,17 +78,18 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Actualizar proveedor
-router.put('/:id', async (req, res) => {
+router.put('/:id', validarProveedor, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: 'ID inválido' });
     }
     const { nombre, ruc, telefono, email, direccion } = req.body;
-    if (!nombre || !ruc) {
-      return res.status(400).json({ error: 'Nombre y RUC son obligatorios' });
-    }
     const result = await req.db.collection('proveedores').updateOne(
       { _id: new ObjectId(id) },
       { $set: { nombre, ruc, telefono, email, direccion, updatedAt: new Date() } }
@@ -75,7 +103,6 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Eliminar proveedor
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;

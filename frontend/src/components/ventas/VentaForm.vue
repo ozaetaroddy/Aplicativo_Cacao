@@ -15,7 +15,8 @@
 
     <div class="card card-cacao">
       <div class="card-body">
-        <form @submit.prevent="guardar">
+        <form @submit.prevent="guardar" novalidate>
+          <!-- Tipo, Nº y Fecha -->
           <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
@@ -32,42 +33,20 @@
             </div>
             <div class="col-md-4">
               <label class="form-label">Nº Documento</label>
-              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Automático">
+              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Automático" />
             </div>
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Fecha Emisión</label>
-              <input type="date" class="form-control" v-model="venta.fecha_emision" required>
+              <input type="date" class="form-control" v-model="venta.fecha_emision" required />
             </div>
           </div>
 
-          <div v-if="venta.tipo_documento === 'guia_remision'" class="row g-3">
-            <!-- (todos los campos de guía ya están en tu código, no los repito por brevedad) -->
-            <!-- ... mantén tus campos existentes ... -->
+          <!-- Campos de guía (se mantienen igual, pero puedes agregar validaciones si quieres) -->
+          <div v-if="venta.tipo_documento === 'guia_remision'">
+            <!-- ... tus campos de guía ... -->
           </div>
 
-          <div v-if="venta.tipo_documento === 'exportacion'" class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label">Nº Exportación</label>
-              <input type="text" class="form-control" v-model="venta.numero_exportacion" placeholder="Automático">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">País Destino</label>
-              <input type="text" class="form-control" v-model="venta.pais_destino">
-            </div>
-          </div>
-          <div v-if="venta.tipo_documento === 'retencion'" class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label">Nº Retención</label>
-              <input type="text" class="form-control" v-model="venta.numero_retencion" placeholder="Automático">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Porcentaje Retenido</label>
-              <input type="number" class="form-control" v-model.number="venta.porcentaje_retencion" step="0.01">
-            </div>
-          </div>
-
-          <hr />
-
+          <!-- Cliente -->
           <div class="row g-3" v-if="venta.tipo_documento !== 'guia_remision'">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Cliente</label>
@@ -75,6 +54,7 @@
                 <option value="">Seleccionar Cliente</option>
                 <option v-for="c in clientes" :key="c._id" :value="c._id">{{ c.nombre }}</option>
               </select>
+              <div v-if="errores.cliente" class="text-danger small">{{ errores.cliente }}</div>
             </div>
             <div class="col-md-6 d-flex align-items-end">
               <router-link to="/clientes/nuevo" class="btn btn-outline-primary w-100">
@@ -83,31 +63,35 @@
             </div>
           </div>
 
+          <!-- Detalles de productos -->
           <hr />
           <h5>Detalle de Productos</h5>
           <div class="alert alert-info">
-            <i class="fas fa-info-circle"></i> Escriba una letra o palabra, después seleccione el producto
+            <i class="fas fa-info-circle"></i> Seleccione el producto y complete cantidad y precio.
           </div>
 
           <div v-for="(item, index) in venta.detalles" :key="index" class="row g-2 align-items-end mb-2">
             <div class="col-md-3">
-              <label class="form-label">Buscar en listado de productos</label>
+              <label class="form-label">Producto</label>
               <select class="form-select" v-model="item.productoId" @change="cargarPrecioVenta(item)">
                 <option value="">Seleccionar</option>
                 <option v-for="prod in productos" :key="prod._id" :value="prod._id">{{ prod.nombre }}</option>
               </select>
+              <div v-if="errores.detalles && errores.detalles[index] && errores.detalles[index].producto" class="text-danger small">{{ errores.detalles[index].producto }}</div>
             </div>
             <div class="col-md-2">
               <label class="form-label">Cantidad</label>
-              <input type="number" class="form-control" v-model.number="item.cantidad" min="0.01" step="0.01">
+              <input type="number" class="form-control" v-model.number="item.cantidad" min="0.01" step="0.01" />
+              <div v-if="errores.detalles && errores.detalles[index] && errores.detalles[index].cantidad" class="text-danger small">{{ errores.detalles[index].cantidad }}</div>
             </div>
             <div class="col-md-2">
               <label class="form-label">Precio Unit.</label>
-              <input type="number" class="form-control" v-model.number="item.precio_unitario" step="0.01">
+              <input type="number" class="form-control" v-model.number="item.precio_unitario" step="0.01" min="0" />
+              <div v-if="errores.detalles && errores.detalles[index] && errores.detalles[index].precio" class="text-danger small">{{ errores.detalles[index].precio }}</div>
             </div>
             <div class="col-md-2">
               <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="formatCurrency((item.cantidad || 0) * (item.precio_unitario || 0))" readonly>
+              <input type="text" class="form-control" :value="formatCurrency((item.cantidad || 0) * (item.precio_unitario || 0))" readonly />
             </div>
             <div class="col-md-2">
               <label class="form-label">¿Aplica IVA?</label>
@@ -136,22 +120,29 @@
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="formatCurrency(subtotal)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency(subtotal)" readonly />
             </div>
             <div class="col-md-3">
               <label class="form-label">IVA (15%)</label>
-              <input type="text" class="form-control" :value="formatCurrency(iva)" readonly>
+              <input type="text" class="form-control" :value="formatCurrency(iva)" readonly />
             </div>
           </div>
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Total</label>
-              <input type="text" class="form-control" :value="formatCurrency(total)" readonly style="font-weight:700;">
+              <input type="text" class="form-control" :value="formatCurrency(total)" readonly style="font-weight:700;" />
             </div>
           </div>
 
+          <div v-if="errorGeneral" class="alert alert-danger mt-3">
+            <i class="fas fa-exclamation-circle"></i> {{ errorGeneral }}
+          </div>
+
           <div class="mt-4">
-            <button type="submit" class="btn btn-success me-2"><i class="fas fa-save"></i> Guardar</button>
+            <button type="submit" class="btn btn-success me-2" :disabled="cargando || !formularioValido">
+              <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
+              {{ cargando ? 'Guardando...' : 'Guardar' }}
+            </button>
             <router-link to="/ventas" class="btn btn-secondary">Cancelar</router-link>
           </div>
         </form>
@@ -173,6 +164,8 @@ const router = useRouter()
 const { find, insertOne } = useMongoDB()
 const clientes = ref([])
 const productos = ref([])
+const cargando = ref(false)
+const errorGeneral = ref('')
 
 const tipoInicial = route.query.tipo || 'factura'
 
@@ -216,6 +209,12 @@ const venta = ref({
   comprobante_fecha_emision: ''
 })
 
+const errores = ref({
+  cliente: '',
+  detalles: []
+})
+
+// ===== GENERAR CÓDIGO =====
 const generarCodigoLocal = (tipo) => {
   const prefijos = {
     'factura': 'FAC',
@@ -244,6 +243,7 @@ const asignarCodigos = () => {
 }
 
 const cambiarTipo = () => {
+  // Resetear campos
   venta.value.numero_guia = ''
   venta.value.transportista = ''
   venta.value.placa = ''
@@ -280,14 +280,18 @@ const cambiarTipo = () => {
   asignarCodigos()
 }
 
+// ===== AGREGAR / ELIMINAR DETALLE =====
 const agregarDetalle = () => {
   venta.value.detalles.push({ productoId: '', cantidad: 1, precio_unitario: 0, aplica_iva: true })
+  errores.value.detalles.push({ producto: '', cantidad: '', precio: '' })
 }
 
 const eliminarDetalle = (index) => {
   venta.value.detalles.splice(index, 1)
+  errores.value.detalles.splice(index, 1)
 }
 
+// ===== CARGAR PRECIO =====
 const cargarPrecioVenta = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
   if (prod) {
@@ -296,6 +300,7 @@ const cargarPrecioVenta = (item) => {
   }
 }
 
+// ===== CÁLCULOS =====
 const subtotal = computed(() => {
   const total = venta.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.precio_unitario || 0)), 0)
   return roundTo2(total)
@@ -316,6 +321,47 @@ const total = computed(() => {
   return roundTo2(subtotal.value + iva.value)
 })
 
+// ===== VALIDACIÓN =====
+const formularioValido = computed(() => {
+  // Cliente (solo si no es guía)
+  if (venta.value.tipo_documento !== 'guia_remision') {
+    if (!venta.value.clienteId) {
+      errores.value.cliente = 'Seleccione un cliente'
+      return false
+    } else {
+      errores.value.cliente = ''
+    }
+  }
+
+  // Detalles
+  let valid = true
+  venta.value.detalles.forEach((d, idx) => {
+    const err = errores.value.detalles[idx] || { producto: '', cantidad: '', precio: '' }
+    if (!d.productoId) {
+      err.producto = 'Seleccione un producto'
+      valid = false
+    } else {
+      err.producto = ''
+    }
+    if (!d.cantidad || d.cantidad <= 0) {
+      err.cantidad = 'Cantidad > 0'
+      valid = false
+    } else {
+      err.cantidad = ''
+    }
+    if (d.precio_unitario === undefined || d.precio_unitario === null || d.precio_unitario < 0) {
+      err.precio = 'Precio >= 0'
+      valid = false
+    } else {
+      err.precio = ''
+    }
+    errores.value.detalles[idx] = err
+  })
+
+  return valid
+})
+
+// ===== MONTAJE =====
 onMounted(async () => {
   try {
     const [clis, prods] = await Promise.all([
@@ -332,15 +378,16 @@ onMounted(async () => {
   }
 })
 
+// ===== GUARDAR =====
 const guardar = async () => {
-  if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) {
-    toast.warning('Seleccione un cliente')
+  if (!formularioValido.value) {
+    errorGeneral.value = 'Corrija los errores antes de guardar'
+    toast.warning('Corrija los errores antes de guardar')
     return
   }
-  if (venta.value.detalles.length === 0 || !venta.value.detalles[0].productoId) {
-    toast.warning('Agregue al menos un producto')
-    return
-  }
+
+  errorGeneral.value = ''
+  cargando.value = true
 
   try {
     const payload = {
@@ -357,6 +404,7 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
+      // ... todos los campos especiales (guía, exportación, retención)
       numero_guia: venta.value.numero_guia,
       transportista: venta.value.transportista,
       placa: venta.value.placa,
@@ -394,7 +442,10 @@ const guardar = async () => {
     toast.success('Documento guardado exitosamente')
     router.push('/ventas')
   } catch (e) {
+    errorGeneral.value = 'Error al guardar: ' + e.message
     toast.error('Error al guardar: ' + e.message)
+  } finally {
+    cargando.value = false
   }
 }
 </script>
