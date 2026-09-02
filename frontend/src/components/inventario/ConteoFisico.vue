@@ -2,11 +2,20 @@
   <div>
     <h4 class="section-title"><i class="fas fa-clipboard-check"></i> Conteo Físico</h4>
 
-    <div class="alert alert-info">
-      <i class="fas fa-info-circle"></i> Realice el conteo físico de los productos y registre las cantidades. El sistema calculará la diferencia con el stock teórico.
+    <div v-if="error" class="alert alert-danger">
+      <i class="fas fa-exclamation-circle"></i> Error: {{ error }}
     </div>
 
-    <div class="card card-cacao">
+    <div v-if="cargando" class="text-center p-4">
+      <i class="fas fa-spinner fa-spin fa-2x"></i>
+      <p>Cargando productos...</p>
+    </div>
+
+    <div v-else-if="productos.length === 0" class="alert alert-warning">
+      <i class="fas fa-info-circle"></i> No hay productos registrados en el sistema.
+    </div>
+
+    <div v-else class="card card-cacao">
       <div class="card-body table-responsive">
         <table class="table table-cacao">
           <thead>
@@ -32,9 +41,6 @@
                 </span>
               </td>
             </tr>
-            <tr v-if="productos.length === 0">
-              <td colspan="5" class="text-center text-muted">No hay productos registrados</td>
-            </tr>
           </tbody>
         </table>
         <div class="mt-3">
@@ -54,6 +60,8 @@ import { useMongoDB } from '../../composables/useMongoDB'
 const { find } = useMongoDB()
 const productos = ref([])
 const conteos = ref({})
+const cargando = ref(false)
+const error = ref(null)
 
 const hayConteos = computed(() => {
   return Object.values(conteos.value).some(v => v !== undefined && v !== null && v !== '')
@@ -77,14 +85,22 @@ const guardarConteo = () => {
 }
 
 onMounted(async () => {
+  cargando.value = true
+  error.value = null
   try {
-    productos.value = await find('productos')
+    console.log('📡 Cargando productos para conteo físico...')
+    const data = await find('productos')
+    console.log('✅ Productos recibidos:', data)
+    productos.value = data
     // Inicializar conteos con stock actual
-    productos.value.forEach(p => {
+    data.forEach(p => {
       conteos.value[p._id] = p.stock
     })
   } catch (e) {
-    console.error('Error cargando productos:', e)
+    console.error('❌ Error al cargar productos:', e)
+    error.value = e.message || 'Error al cargar los productos'
+  } finally {
+    cargando.value = false
   }
 })
 </script>
