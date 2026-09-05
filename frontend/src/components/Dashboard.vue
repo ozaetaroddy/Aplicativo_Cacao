@@ -32,6 +32,12 @@
         </router-link>
       </div>
       <div class="col-md-2 col-4">
+        <router-link to="/importar-facturas" class="quick-access">
+          <div class="icon-circle" style="background: #f39c12;"><i class="fas fa-file-import"></i></div>
+          <span>Importar TXT</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
         <router-link to="/clientes/nuevo" class="quick-access">
           <div class="icon-circle" style="background: #8e44ad;"><i class="fas fa-user-plus"></i></div>
           <span>Cliente</span>
@@ -81,7 +87,7 @@
       </div>
     </div>
 
-    <!-- ===== ESTADÍSTICAS RÁPIDAS ===== -->
+    <!-- ===== ESTADÍSTICAS ===== -->
     <div class="row g-4 mb-4">
       <div class="col-lg-3 col-md-6">
         <div class="stat-card" style="border-left: 4px solid #3498db;">
@@ -129,7 +135,10 @@
       </div>
     </div>
 
-    <!-- ===== EXPORTAR / IMPORTAR DATOS ===== -->
+    <!-- ===== WIDGETS ===== -->
+    <WidgetContainer :initial-widgets="defaultWidgets" @layout-changed="onLayoutChanged" />
+
+    <!-- ===== EXPORTAR / IMPORTAR ===== -->
     <div class="row g-4 mt-2">
       <div class="col-12">
         <div class="card card-cacao">
@@ -137,74 +146,24 @@
             <i class="fas fa-file-export me-2"></i> Exportar / Importar Datos
           </div>
           <div class="card-body">
-            <ExportImport />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== IMPORTAR FACTURAS (BOTÓN ADICIONAL) ===== -->
-    <div class="row g-4 mt-2">
-      <div class="col-12">
-        <div class="card card-cacao">
-          <div class="card-header">
-            <i class="fas fa-file-import me-2" style="color:#27ae60;"></i> Importar Facturas desde TXT (SRI)
-          </div>
-          <div class="card-body">
-            <div class="row g-3">
-              <div class="col-md-6">
-                <label class="form-label">Seleccionar archivo TXT</label>
-                <input type="file" class="form-control" accept=".txt" ref="fileInput" @change="handleFileUpload" />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label">Tipo de Compra</label>
-                <select class="form-select" v-model="tipoCompraImport">
-                  <option value="inventario">Inventario (Cacao)</option>
-                  <option value="gasto">Gasto</option>
-                </select>
-              </div>
-              <div class="col-md-3 d-flex align-items-end">
-                <button class="btn btn-success w-100" @click="importarFacturas" :disabled="!archivoCargado || importando">
-                  <i class="fas fa-upload" :class="{ 'fa-spin': importando }"></i>
-                  {{ importando ? 'Importando...' : 'Importar Facturas' }}
-                </button>
-              </div>
-            </div>
-            <div v-if="resultadoImportacion" class="mt-3">
-              <div v-if="resultadoImportacion.success" class="alert alert-success">
-                <i class="fas fa-check-circle"></i>
-                {{ resultadoImportacion.importados }} facturas importadas correctamente.
-                <span v-if="resultadoImportacion.errores.length > 0" class="d-block mt-2">
-                  <i class="fas fa-exclamation-triangle"></i>
-                  {{ resultadoImportacion.errores.length }} errores:
-                  <ul class="mb-0">
-                    <li v-for="(err, idx) in resultadoImportacion.errores" :key="idx">{{ err }}</li>
-                  </ul>
-                </span>
-              </div>
-              <div v-else class="alert alert-danger">
-                <i class="fas fa-exclamation-circle"></i>
-                {{ resultadoImportacion.mensaje || 'Error al importar' }}
-              </div>
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-success" @click="exportarExcel('productos')"><i class="fas fa-file-excel"></i> Productos</button>
+              <button class="btn btn-success" @click="exportarExcel('clientes')"><i class="fas fa-file-excel"></i> Clientes</button>
+              <button class="btn btn-success" @click="exportarExcel('proveedores')"><i class="fas fa-file-excel"></i> Proveedores</button>
+              <button class="btn btn-success" @click="exportarExcel('ventas')"><i class="fas fa-file-excel"></i> Ventas</button>
+              <button class="btn btn-success" @click="exportarExcel('compras')"><i class="fas fa-file-excel"></i> Compras</button>
+              <label class="btn btn-primary">
+                <i class="fas fa-file-import"></i> Importar Productos
+                <input type="file" accept=".xlsx,.xls,.csv" style="display:none" @change="importarProductos" />
+              </label>
+              <router-link to="/importar-facturas" class="btn btn-warning">
+                <i class="fas fa-file-import"></i> Importar Facturas TXT
+              </router-link>
             </div>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- ===== IMPORTAR FACTURAS ===== -->
-  <div class="row g-4 mt-2">
-    <div class="col-12">
-      <div class="card card-cacao">
-        <div class="card-header">
-          <i class="fas fa-file-import me-2"></i> Importar Facturas desde TXT
-        </div>
-        <div class="card-body">
-          <ImportarFacturas />
-        </div>
-      </div>
-    </div>
-  </div>
   </div>
 </template>
 
@@ -212,10 +171,12 @@
 import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../composables/useMongoDB'
 import { useEstadisticas } from '../composables/useEstadisticas'
-import ExportImport from './ExportImport.vue'
-import ImportarFacturas from './compras/ImportarFacturas.vue'
+import WidgetContainer from './dashboard/WidgetContainer.vue'
+import * as XLSX from 'xlsx'
+import { useToast } from 'vue-toastification'
 
-const { find } = useMongoDB()
+const toast = useToast()
+const { find, insertOne } = useMongoDB()
 const {
   ventasHoy,
   ventasMes,
@@ -224,85 +185,79 @@ const {
   cargarEstadisticas
 } = useEstadisticas()
 
-// ===== IMPORTACIÓN DE FACTURAS =====
-const fileInput = ref(null)
-const archivoCargado = ref(false)
-const importando = ref(false)
-const tipoCompraImport = ref('inventario')
-const resultadoImportacion = ref(null)
-const lineasTXT = ref([])
+const defaultWidgets = [
+  { id: 'stats', title: 'Estadísticas', component: 'StatsWidget', size: 'col-12 col-md-6', props: {} },
+  { id: 'ventas-chart', title: 'Ventas (7 días)', component: 'VentasChartWidget', size: 'col-12 col-md-6', props: {} },
+  { id: 'compras-chart', title: 'Compras (7 días)', component: 'ComprasChartWidget', size: 'col-12 col-md-6', props: {} },
+  { id: 'top-productos', title: 'Top Productos', component: 'TopProductosWidget', size: 'col-12 col-md-6', props: {} },
+  { id: 'actividad-reciente', title: 'Actividad Reciente', component: 'ActividadRecienteWidget', size: 'col-12 col-md-6', props: {} }
+]
 
-const handleFileUpload = (event) => {
-  const file = event.target.files[0]
-  if (!file) {
-    archivoCargado.value = false
-    return
-  }
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    const texto = e.target.result
-    const lineas = texto.split('\n')
-      .map(linea => linea.trim())
-      .filter(linea => linea.length > 0 && !linea.startsWith('RUC_EMISOR'))
-    lineasTXT.value = lineas
-    archivoCargado.value = lineas.length > 0
-    resultadoImportacion.value = null
-    if (lineas.length === 0) {
-      alert('El archivo está vacío o no tiene líneas de datos')
-    }
-  }
-  reader.readAsText(file)
+const onLayoutChanged = (widgets) => {
+  console.log('Layout guardado:', widgets)
 }
 
-const importarFacturas = async () => {
-  if (!archivoCargado.value || lineasTXT.value.length === 0) {
-    alert('Seleccione un archivo TXT válido')
-    return
-  }
-
-  importando.value = true
-  resultadoImportacion.value = null
-
+// Exportar a Excel
+const exportarExcel = async (coleccion) => {
   try {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/compras/importar-txt`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        lineas: lineasTXT.value,
-        tipo_compra: tipoCompraImport.value
-      })
+    const data = await find(coleccion)
+    if (!data || data.length === 0) {
+      toast.warning('No hay datos para exportar')
+      return
+    }
+    const formatted = data.map(item => {
+      const obj = { ...item }
+      delete obj._id
+      delete obj.createdAt
+      delete obj.updatedAt
+      return obj
     })
-
-    const data = await response.json()
-    if (!response.ok) {
-      throw new Error(data.error || 'Error al importar')
-    }
-
-    resultadoImportacion.value = {
-      success: true,
-      importados: data.importados || 0,
-      errores: data.errores || []
-    }
-
-    // Recargar estadísticas después de importar
-    await cargarEstadisticas()
-
-    // Limpiar archivo
-    if (fileInput.value) {
-      fileInput.value.value = ''
-    }
-    archivoCargado.value = false
-    lineasTXT.value = []
-
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(formatted)
+    XLSX.utils.book_append_sheet(wb, ws, coleccion)
+    XLSX.writeFile(wb, `${coleccion}_${new Date().toISOString().slice(0,10)}.xlsx`)
+    toast.success(`Exportación de ${coleccion} completada`)
   } catch (e) {
-    resultadoImportacion.value = {
-      success: false,
-      mensaje: e.message
+    toast.error('Error al exportar: ' + e.message)
+  }
+}
+
+// Importar productos desde Excel
+const importarProductos = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  try {
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const data = new Uint8Array(e.target.result)
+      const workbook = XLSX.read(data, { type: 'array' })
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet)
+      let count = 0
+      for (const row of jsonData) {
+        const producto = {
+          nombre: row.nombre || row.Nombre || row['Nombre'] || '',
+          codigo: row.codigo || row.Codigo || row['Código'] || `PROD-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+          categoriaId: null,
+          descripcion: row.descripcion || row.Descripcion || '',
+          precio_compra: parseFloat(row.precio_compra || row.PrecioCompra || 0),
+          precio_venta: parseFloat(row.precio_venta || row.PrecioVenta || 0),
+          stock: parseFloat(row.stock || row.Stock || 0),
+          stock_minimo: parseFloat(row.stock_minimo || row.StockMinimo || 0),
+          unidad_medida: row.unidad_medida || row.UnidadMedida || 'unidad',
+          aplica_iva: row.aplica_iva !== undefined ? Boolean(row.aplica_iva) : true,
+          tipo_medida: row.tipo_medida || row.TipoMedida || 'unidad'
+        }
+        if (!producto.nombre) continue
+        await insertOne('productos', producto)
+        count++
+      }
+      toast.success(`Importados ${count} productos correctamente`)
     }
-  } finally {
-    importando.value = false
+    reader.readAsArrayBuffer(file)
+    event.target.value = ''
+  } catch (e) {
+    toast.error('Error al importar: ' + e.message)
   }
 }
 
@@ -406,7 +361,6 @@ onMounted(async () => {
 .section-subtitle i {
   color: #3498db;
 }
-
 body.dark-mode .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);

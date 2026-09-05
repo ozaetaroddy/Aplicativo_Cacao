@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-// ===== LAZY LOADING =====
+// ===== LAZY LOADING (carga bajo demanda) =====
+// Componentes principales
 const Dashboard = () => import('../components/Dashboard.vue')
 const ProductosList = () => import('../components/productos/ProductosList.vue')
 const ProductoForm = () => import('../components/productos/ProductoForm.vue')
@@ -26,12 +27,16 @@ const InventarioValorizado = () => import('../components/inventario/InventarioVa
 const PlanificacionInventarios = () => import('../components/inventario/PlanificacionInventarios.vue')
 const AjustesInventario = () => import('../components/inventario/AjustesInventario.vue')
 
+// ===== NUEVOS MÓDULOS =====
 // Retenciones
 const RetencionesList = () => import('../components/retenciones/RetencionesList.vue')
 const RetencionForm = () => import('../components/retenciones/RetencionForm.vue')
 
-// Reportes adicionales
+// Reporte Mensual
 const ReporteMensual = () => import('../components/reportes/ReporteMensual.vue')
+
+// Importar Facturas (desde Dashboard o Compras)
+const ImportarFacturas = () => import('../components/compras/ImportarFacturas.vue')
 
 const routes = [
   // Dashboard
@@ -80,15 +85,21 @@ const routes = [
   // Reportes
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
-  { path: '/reportes/mensual', component: ReporteMensual },
   { path: '/reportes', redirect: '/reportes/ventas' },
-
-  // Retenciones
-  { path: '/retenciones', component: RetencionesList },
-  { path: '/retenciones/nuevo', component: RetencionForm },
+  
+  // ===== NUEVO: Reporte Mensual =====
+  { path: '/reportes/mensual', component: ReporteMensual },
 
   // Consulta de documentos
   { path: '/consultar-documentos', component: ConsultarDocumentos },
+
+  // ===== NUEVO: Retenciones =====
+  { path: '/retenciones', component: RetencionesList },
+  { path: '/retenciones/nuevo', component: RetencionForm },
+  { path: '/retenciones/editar/:id', component: RetencionForm, props: true },
+
+  // ===== NUEVO: Importar Facturas =====
+  { path: '/importar-facturas', component: ImportarFacturas },
 
   // Redirección por si se pierde
   { path: '/:pathMatch(.*)*', redirect: '/' }

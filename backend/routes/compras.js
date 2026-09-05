@@ -51,18 +51,14 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Crear compra (con nuevos campos)
+// Crear compra
 router.post('/', async (req, res) => {
   try {
     const {
       proveedorId, numero_factura, fecha_emision,
       detalles, subtotal, iva, total,
-      tipo_compra,
-      estado_pago,
-      forma_pago,
-      fecha_pago,
-      retencion_valor,
-      retencion_porcentaje,
+      tipo_compra, estado_pago, forma_pago,
+      fecha_pago, retencion_valor, retencion_porcentaje,
       observaciones
     } = req.body;
 
@@ -102,7 +98,7 @@ router.post('/', async (req, res) => {
       const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
       const compraId = compraResult.insertedId;
 
-      // Actualizar inventario solo si es inventario
+      // Actualizar inventario si es inventario
       if (tipo_compra === 'inventario') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
@@ -233,6 +229,181 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// ===== NUEVO: IMPORTAR FACTURAS DESDE TXT (CREA PROVEEDORES AUTOMÁTICAMENTE) =====
+router.post('/importar-txt', async (req, res) => {
+  try {
+    const { lineas, tipo_compra } = req.body;
+    if (!lineas || !Array.isArray(lineas) || lineas.length === 0) {
+      return res.status(400).json({ error: 'No se enviaron líneas para importar' });
+    }
+
+    const importados = [];
+    const errores = [];
+    const proveedoresCreados = [];
+
+    for (const linea of lineas) {
+      try {
+        const {
+          ruc,
+          razonSocial,
+          tipoComprobante,
+          serie,
+          claveAcceso,
+          fechaAutorizacion,
+          fechaEmision,
+          identificacionReceptor,
+          valorSinImpuestos,
+          iva,
+          total
+        } = linea;
+
+        // Validar datos mínimos
+        if (!ruc || !total || total === 0) {
+          errores.push(`Línea inválida: falta RUC o total`);
+          continue;
+        }
+
+        // 1. Buscar o crear proveedor
+        let proveedor = await req.db.collection('proveedores').findOne({ ruc: ruc });
+        if (!proveedor) {
+          // Crear proveedor automáticamente
+          const nuevoProveedor = {
+            nombre: razonSocial || `Proveedor ${ruc}`,
+            ruc: ruc,
+            telefono: '',
+            email: '',
+            direccion: '',
+            createdAt: new Date()
+          };
+          const result = await req.db.collection('proveedores').insertOne(nuevoProveedor);
+          proveedor = { ...nuevoProveedor, _id: result.insertedId };
+          proveedoresCreados.push(ruc);
+        }
+
+        // 2. Crear compra
+        const compraData = {
+          proveedorId: proveedor._id,
+          numero_factura: serie || `IMP-${Date.now()}`,
+          fecha_emision: new Date(fechaEmision || Date.now()),
+          detalles: [
+            {
+              productoId: null, // Se asignará manualmente después o se buscará por nombre
+              cantidad: 1,
+              costo_unitario: total,
+              aplica_iva: iva > 0
+            }
+          ],
+          subtotal: valorSinImpuestos || total,
+          iva: iva || 0,
+          total: total,
+          tipo_compra: tipo_compra || 'inventario',
+          estado_pago: 'pendiente',
+          forma_pago: '',
+          fecha_pago: null,
+          retencion_valor: 0,
+          retencion_porcentaje: 0,
+          observaciones: `Importado desde TXT. Emisor: ${razonSocial}`
+        };
+
+        // Insertar compra
+        const session = req.db.client.startSession();
+        let compraId;
+        await session.withTransaction(async () => {
+          const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
+            { _id: 'compra' },
+            { $inc: { valor: 1 } },
+            { upsert: true, returnDocument: 'after' }
+          );
+          const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
+
+          const compra = {
+            ...compraData,
+            numero_factura: compraData.numero_factura || codigo,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
+          compraId = compraResult.insertedId;
+
+          // Si es inventario, actualizar stock (buscar producto por nombre "CACAO" o similar)
+          if (tipo_compra === 'inventario') {
+            // Buscar producto por nombre (puedes ajustar la búsqueda)
+            const producto = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } });
+            if (producto) {
+              await req.db.collection('productos').updateOne(
+                { _id: producto._id },
+                {
+                  $inc: { stock: 1 },
+                  $set: { precio_compra: total, updatedAt: new Date() }
+                },
+                { session }
+              );
+              const productoActualizado = await req.db.collection('productos').findOne({ _id: producto._id }, { session });
+              await req.db.collection('kardex').insertOne({
+                productoId: producto._id,
+                fecha: compra.fecha_emision,
+                tipo_movimiento: 'compra',
+                cantidad: 1,
+                costo_unitario: total,
+                saldo: productoActualizado.stock,
+                referencia_id: compraId,
+                referencia_tipo: 'compra',
+                createdAt: new Date()
+              }, { session });
+            } else {
+              // Si no hay producto CACAO, crear uno genérico
+              const nuevoProducto = {
+                nombre: 'Cacao (Importado)',
+                codigo: `CACAO-${Date.now()}`,
+                categoriaId: null,
+                descripcion: 'Producto creado automáticamente desde importación TXT',
+                precio_compra: total,
+                precio_venta: total * 1.2,
+                stock: 1,
+                stock_minimo: 0,
+                unidad_medida: 'kg',
+                aplica_iva: true,
+                tipo_medida: 'peso',
+                createdAt: new Date(),
+                updatedAt: new Date()
+              };
+              const prodResult = await req.db.collection('productos').insertOne(nuevoProducto, { session });
+              await req.db.collection('kardex').insertOne({
+                productoId: prodResult.insertedId,
+                fecha: compra.fecha_emision,
+                tipo_movimiento: 'compra',
+                cantidad: 1,
+                costo_unitario: total,
+                saldo: 1,
+                referencia_id: compraId,
+                referencia_tipo: 'compra',
+                createdAt: new Date()
+              }, { session });
+            }
+          }
+        });
+
+        importados.push({ compraId, numero: compraData.numero_factura });
+
+      } catch (e) {
+        errores.push(`Error en línea ${linea.ruc || 'desconocido'}: ${e.message}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      importados: importados.length,
+      proveedoresCreados,
+      errores,
+      detalles: importados
+    });
+
+  } catch (err) {
+    console.error('Error en importación:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== REPORTE MENSUAL =====
 router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   try {
@@ -281,152 +452,4 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   }
 });
 
-// ===== NUEVO: Importar facturas desde TXT (formato SRI) con creación automática de proveedores =====
-router.post('/importar-txt', async (req, res) => {
-  try {
-    const { lineas, tipo_compra } = req.body;
-    if (!lineas || !Array.isArray(lineas) || lineas.length === 0) {
-      return res.status(400).json({ error: 'No se enviaron líneas para importar' });
-    }
-
-    let importados = 0;
-    const errores = [];
-    const resultados = [];
-    const proveedoresCreados = [];
-
-    // Procesar cada línea del archivo TXT
-    for (const linea of lineas) {
-      try {
-        // Dividir por tabulador (TSV) o por cualquier espacio múltiple
-        const campos = linea.split('\t').map(c => c.trim());
-        if (campos.length < 11) continue;
-
-        const [
-          ruc_emisor,
-          razon_social_emisor,
-          tipo_comprobante,
-          serie_comprobante,
-          clave_acceso,
-          fecha_autorizacion,
-          fecha_emision,
-          identificacion_receptor,
-          valor_sin_impuestos,
-          iva,
-          importe_total
-        ] = campos;
-
-        // Validar datos mínimos
-        if (!importe_total || parseFloat(importe_total) === 0) continue;
-
-        // ===== BUSCAR O CREAR PROVEEDOR =====
-        let proveedor = await req.db.collection('proveedores').findOne({ ruc: ruc_emisor });
-        if (!proveedor) {
-          // Crear proveedor automáticamente
-          const nuevoProveedor = {
-            nombre: razon_social_emisor || 'Proveedor sin razón social',
-            ruc: ruc_emisor,
-            telefono: '',
-            email: '',
-            direccion: '',
-            createdAt: new Date(),
-            updatedAt: new Date()
-          };
-          const result = await req.db.collection('proveedores').insertOne(nuevoProveedor);
-          proveedor = { ...nuevoProveedor, _id: result.insertedId };
-          proveedoresCreados.push({ ruc: ruc_emisor, nombre: razon_social_emisor });
-        }
-
-        // Crear compra
-        const compraData = {
-          proveedorId: proveedor._id,
-          numero_factura: serie_comprobante,
-          fecha_emision: new Date(fecha_emision),
-          detalles: [
-            {
-              productoId: null, // Se asignará manualmente o se buscará por nombre
-              cantidad: 1,
-              costo_unitario: parseFloat(importe_total),
-              aplica_iva: parseFloat(iva) > 0
-            }
-          ],
-          subtotal: parseFloat(valor_sin_impuestos) || 0,
-          iva: parseFloat(iva) || 0,
-          total: parseFloat(importe_total) || 0,
-          tipo_compra: tipo_compra || 'inventario',
-          estado_pago: 'pendiente',
-          forma_pago: '',
-          fecha_pago: null,
-          retencion_valor: 0,
-          retencion_porcentaje: 0,
-          observaciones: `Importado desde TXT. Emisor: ${razon_social_emisor}`
-        };
-
-        const session = req.db.client.startSession();
-        await session.withTransaction(async () => {
-          // Generar código
-          const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
-            { _id: 'compra' },
-            { $inc: { valor: 1 } },
-            { upsert: true, returnDocument: 'after' }
-          );
-          const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
-
-          const compra = {
-            ...compraData,
-            numero_factura: compraData.numero_factura || codigo,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          };
-          const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
-          const compraId = compraResult.insertedId;
-
-          // Si es inventario, actualizar stock (usar un producto genérico o buscar por nombre)
-          if (tipo_compra === 'inventario') {
-            // Buscar producto por nombre (ej: "CACAO") o usar un producto por defecto
-            const producto = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } });
-            if (producto) {
-              await req.db.collection('productos').updateOne(
-                { _id: producto._id },
-                {
-                  $inc: { stock: 1 },
-                  $set: { precio_compra: compra.total, updatedAt: new Date() }
-                },
-                { session }
-              );
-              const productoActualizado = await req.db.collection('productos').findOne({ _id: producto._id }, { session });
-              await req.db.collection('kardex').insertOne({
-                productoId: producto._id,
-                fecha: compra.fecha_emision,
-                tipo_movimiento: 'compra',
-                cantidad: 1,
-                costo_unitario: compra.total,
-                saldo: productoActualizado.stock,
-                referencia_id: compraId,
-                referencia_tipo: 'compra',
-                createdAt: new Date()
-              }, { session });
-            }
-          }
-
-          resultados.push({ compraId, numero: compra.numero_factura });
-          importados++;
-        });
-
-      } catch (e) {
-        errores.push(`Error en línea: ${e.message}`);
-      }
-    }
-
-    res.json({
-      success: true,
-      importados,
-      errores,
-      resultados,
-      proveedoresCreados
-    });
-
-  } catch (err) {
-    console.error('Error en importación:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+module.exports = router;
