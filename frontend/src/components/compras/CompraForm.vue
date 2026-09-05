@@ -1,11 +1,11 @@
 <template>
   <div>
-    <h4 class="section-title"><i class="fas fa-shopping-cart"></i> Nueva Compra</h4>
+    <h4 class="section-title"><i class="fas fa-shopping-cart"></i> {{ id ? 'Editar' : 'Nueva' }} Compra</h4>
 
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar" novalidate>
-          <!-- ===== PROVEEDOR ===== -->
+          <!-- Proveedor -->
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Proveedor</label>
@@ -22,7 +22,7 @@
             </div>
           </div>
 
-          <!-- ===== DATOS DE FACTURA ===== -->
+          <!-- Nº Factura y Fecha -->
           <div class="row g-3 mt-2">
             <div class="col-md-4">
               <label class="form-label">Nº Factura</label>
@@ -41,7 +41,7 @@
             </div>
           </div>
 
-          <!-- ===== DETALLES DE COMPRA ===== -->
+          <!-- Detalles de compra -->
           <hr />
           <h5>Detalles de compra</h5>
           <div v-for="(item, index) in compra.detalles" :key="index" class="row g-2 align-items-end mb-2">
@@ -90,7 +90,7 @@
             </router-link>
           </div>
 
-          <!-- ===== TOTALES ===== -->
+          <!-- Totales -->
           <hr />
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
@@ -109,7 +109,7 @@
             </div>
           </div>
 
-          <!-- ===== PAGO Y RETENCIÓN ===== -->
+          <!-- Pago y Retención -->
           <hr />
           <div class="row g-3">
             <div class="col-md-3">
@@ -164,20 +164,21 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
 
 const toast = useToast()
+const route = useRoute()
 const router = useRouter()
-const { find, insertOne } = useMongoDB()
+const { find, findById, insertOne } = useMongoDB()
 const proveedores = ref([])
 const productos = ref([])
 const cargando = ref(false)
 const errorGeneral = ref('')
+const id = route.params.id // ID para edición
 
-// ===== DATOS DE LA COMPRA (con nuevos campos) =====
 const compra = ref({
   proveedorId: '',
   numero_factura: '',
@@ -186,7 +187,6 @@ const compra = ref({
   subtotal: 0,
   iva: 0,
   total: 0,
-  // NUEVOS CAMPOS
   tipo_compra: 'inventario',
   estado_pago: 'pendiente',
   forma_pago: '',
@@ -218,7 +218,7 @@ const eliminarDetalle = (index) => {
   errores.value.detalles.splice(index, 1)
 }
 
-// ===== CARGAR PRECIO DEL PRODUCTO =====
+// ===== CARGAR PRECIO =====
 const cargarPrecio = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
   if (prod) {
@@ -248,17 +248,14 @@ const total = computed(() => {
   return roundTo2(subtotal.value + iva.value)
 })
 
-// ===== VALIDACIÓN DEL FORMULARIO =====
+// ===== VALIDACIÓN =====
 const formularioValido = computed(() => {
-  // Validar proveedor
   if (!compra.value.proveedorId) {
     errores.value.proveedor = 'Seleccione un proveedor'
     return false
   } else {
     errores.value.proveedor = ''
   }
-
-  // Validar detalles
   let valid = true
   compra.value.detalles.forEach((d, idx) => {
     const err = errores.value.detalles[idx] || { producto: '', cantidad: '', costo: '' }
@@ -269,24 +266,23 @@ const formularioValido = computed(() => {
       err.producto = ''
     }
     if (!d.cantidad || d.cantidad <= 0) {
-      err.cantidad = 'Cantidad debe ser > 0'
+      err.cantidad = 'Cantidad > 0'
       valid = false
     } else {
       err.cantidad = ''
     }
     if (d.costo_unitario === undefined || d.costo_unitario === null || d.costo_unitario < 0) {
-      err.costo = 'Costo unitario debe ser >= 0'
+      err.costo = 'Costo >= 0'
       valid = false
     } else {
       err.costo = ''
     }
     errores.value.detalles[idx] = err
   })
-
   return valid
 })
 
-// ===== MONTAJE =====
+// ===== CARGAR DATOS SI ES EDICIÓN =====
 onMounted(async () => {
   try {
     const [provs, prods] = await Promise.all([
@@ -295,11 +291,31 @@ onMounted(async () => {
     ])
     proveedores.value = provs
     productos.value = prods
-    agregarDetalle()
-    compra.value.numero_factura = generarCodigoCompra()
+
+    if (id) {
+      console.log('🔍 Cargando compra con ID:', id)
+      const data = await findById('compras', id)
+      console.log('📦 Datos recibidos:', data)
+      if (data) {
+        compra.value = data
+        // Asegurar que los detalles tengan aplica_iva
+        if (compra.value.detalles.length === 0) agregarDetalle()
+        // Si no tiene número de factura, asignar
+        if (!compra.value.numero_factura) {
+          compra.value.numero_factura = generarCodigoCompra()
+        }
+      } else {
+        errorGeneral.value = 'No se encontró la compra'
+        toast.warning('No se encontró la compra')
+      }
+    } else {
+      if (compra.value.detalles.length === 0) agregarDetalle()
+      compra.value.numero_factura = generarCodigoCompra()
+    }
   } catch (e) {
-    console.error(e)
-    toast.error('Error al cargar datos: ' + e.message)
+    console.error('Error al cargar compra:', e)
+    errorGeneral.value = 'Error al cargar los datos: ' + e.message
+    toast.error('Error al cargar los datos: ' + e.message)
   }
 })
 
@@ -328,7 +344,6 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
-      // Nuevos campos
       tipo_compra: compra.value.tipo_compra,
       estado_pago: compra.value.estado_pago,
       forma_pago: compra.value.forma_pago,

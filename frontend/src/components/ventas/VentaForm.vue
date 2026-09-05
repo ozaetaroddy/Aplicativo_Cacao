@@ -41,7 +41,7 @@
             </div>
           </div>
 
-          <!-- ===== GUÍA DE REMISIÓN (CAMPOS COMPLETOS) ===== -->
+          <!-- Guía de Remisión (todos los campos) -->
           <div v-if="venta.tipo_documento === 'guia_remision'">
             <div class="row g-3">
               <div class="col-12"><h6>Datos Generales</h6></div>
@@ -170,7 +170,7 @@
             </div>
           </div>
 
-          <!-- ===== Cliente (solo para no guías) ===== -->
+          <!-- Cliente (solo para no guías) -->
           <div class="row g-3" v-if="venta.tipo_documento !== 'guia_remision'">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Cliente</label>
@@ -275,10 +275,6 @@
   </div>
 </template>
 
-<!-- ===== EL SCRIPT ES EL MISMO QUE YA TIENES ===== -->
-<!-- Copia aquí el script de tu VentaForm.vue actual (no lo cambies) -->
-
-
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -289,13 +285,14 @@ import { useToast } from 'vue-toastification'
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
-const { find, insertOne } = useMongoDB()
+const { find, findById, insertOne } = useMongoDB()
 const clientes = ref([])
 const productos = ref([])
 const cargando = ref(false)
 const errorGeneral = ref('')
 
 const tipoInicial = route.query.tipo || 'factura'
+const id = route.params.id // Para edición
 
 const venta = ref({
   clienteId: '',
@@ -371,7 +368,6 @@ const asignarCodigos = () => {
 }
 
 const cambiarTipo = () => {
-  // Resetear campos
   venta.value.numero_guia = ''
   venta.value.transportista = ''
   venta.value.placa = ''
@@ -451,17 +447,12 @@ const total = computed(() => {
 
 // ===== VALIDACIÓN =====
 const formularioValido = computed(() => {
-  // Cliente (solo si no es guía)
-  if (venta.value.tipo_documento !== 'guia_remision') {
-    if (!venta.value.clienteId) {
-      errores.value.cliente = 'Seleccione un cliente'
-      return false
-    } else {
-      errores.value.cliente = ''
-    }
+  if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) {
+    errores.value.cliente = 'Seleccione un cliente'
+    return false
+  } else {
+    errores.value.cliente = ''
   }
-
-  // Detalles
   let valid = true
   venta.value.detalles.forEach((d, idx) => {
     const err = errores.value.detalles[idx] || { producto: '', cantidad: '', precio: '' }
@@ -485,11 +476,10 @@ const formularioValido = computed(() => {
     }
     errores.value.detalles[idx] = err
   })
-
   return valid
 })
 
-// ===== MONTAJE =====
+// ===== CARGAR DATOS SI ES EDICIÓN =====
 onMounted(async () => {
   try {
     const [clis, prods] = await Promise.all([
@@ -498,11 +488,29 @@ onMounted(async () => {
     ])
     clientes.value = clis
     productos.value = prods
-    if (venta.value.detalles.length === 0) agregarDetalle()
-    if (!route.params.id) asignarCodigos()
+
+    if (id) {
+      console.log('🔍 Cargando venta con ID:', id)
+      const data = await findById('ventas', id)
+      console.log('📦 Datos recibidos:', data)
+      if (data) {
+        venta.value = data
+        // Asegurar que los detalles tengan aplica_iva
+        if (venta.value.detalles.length === 0) agregarDetalle()
+        // Asignar códigos si no tienen
+        if (!venta.value.numero_factura) asignarCodigos()
+      } else {
+        errorGeneral.value = 'No se encontró la venta'
+        toast.warning('No se encontró la venta')
+      }
+    } else {
+      if (venta.value.detalles.length === 0) agregarDetalle()
+      if (!route.params.id) asignarCodigos()
+    }
   } catch (e) {
-    console.error(e)
-    toast.error('Error al cargar datos: ' + e.message)
+    console.error('Error al cargar venta:', e)
+    errorGeneral.value = 'Error al cargar los datos: ' + e.message
+    toast.error('Error al cargar los datos: ' + e.message)
   }
 })
 
@@ -532,7 +540,6 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
-      // ... todos los campos especiales (guía, exportación, retención)
       numero_guia: venta.value.numero_guia,
       transportista: venta.value.transportista,
       placa: venta.value.placa,
