@@ -17,10 +17,7 @@ const VentaForm = () => import('../components/ventas/VentaForm.vue')
 const KardexView = () => import('../components/kardex/KardexView.vue')
 const ReporteVentas = () => import('../components/reportes/ReporteVentas.vue')
 const ReporteCompras = () => import('../components/reportes/ReporteCompras.vue')
-const ReporteMensual = () => import('../components/reportes/ReporteMensual.vue')
 const ConsultarDocumentos = () => import('../components/ConsultarDocumentos.vue')
-const RetencionesList = () => import('../components/retenciones/RetencionesList.vue')
-const RetencionForm = () => import('../components/retenciones/RetencionForm.vue')
 
 // Inventario
 const StockActual = () => import('../components/inventario/StockActual.vue')
@@ -28,6 +25,13 @@ const ConteoFisico = () => import('../components/inventario/ConteoFisico.vue')
 const InventarioValorizado = () => import('../components/inventario/InventarioValorizado.vue')
 const PlanificacionInventarios = () => import('../components/inventario/PlanificacionInventarios.vue')
 const AjustesInventario = () => import('../components/inventario/AjustesInventario.vue')
+
+// Retenciones
+const RetencionesList = () => import('../components/retenciones/RetencionesList.vue')
+const RetencionForm = () => import('../components/retenciones/RetencionForm.vue')
+
+// Reportes adicionales
+const ReporteMensual = () => import('../components/reportes/ReporteMensual.vue')
 
 const routes = [
   // Dashboard
