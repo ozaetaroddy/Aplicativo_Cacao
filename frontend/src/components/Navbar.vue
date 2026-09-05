@@ -94,6 +94,23 @@
             <ul class="dropdown-menu" :class="{ show: dropdowns.reportes }">
               <li><router-link class="dropdown-item" to="/reportes/ventas" @click="cerrarTodo"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
               <li><router-link class="dropdown-item" to="/reportes/compras" @click="cerrarTodo"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/mensual" @click="cerrarTodo"><i class="fas fa-file-invoice"></i> Reporte Mensual</router-link></li>
+            </ul>
+          </li>
+
+          <!-- ===== RETENCIONES ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.retenciones }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('retenciones')"
+            >
+              <i class="fas fa-percent"></i> Retenciones
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.retenciones }">
+              <li><router-link class="dropdown-item" to="/retenciones" @click="cerrarTodo">Lista de Retenciones</router-link></li>
+              <li><router-link class="dropdown-item" to="/retenciones/nuevo" @click="cerrarTodo">Nueva Retención</router-link></li>
             </ul>
           </li>
         </ul>
@@ -120,7 +137,8 @@ const dropdowns = ref({
   documentos: false,
   maestros: false,
   inventarios: false,
-  reportes: false
+  reportes: false,
+  retenciones: false
 })
 
 const toggleNavbar = () => {
@@ -147,14 +165,9 @@ const cerrarTodo = () => {
 </script>
 
 <style scoped>
-.search-bar-nav {
-  max-width: 280px;
-}
+.search-bar-nav { max-width: 280px; }
 @media (max-width: 992px) {
-  .search-bar-nav {
-    max-width: 100%;
-    margin: 10px 0;
-  }
+  .search-bar-nav { max-width: 100%; margin: 10px 0; }
 }
 .navbar-cacao .dropdown-menu {
   display: block;

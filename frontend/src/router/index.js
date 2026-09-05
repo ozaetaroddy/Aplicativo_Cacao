@@ -18,7 +18,7 @@ const KardexView = () => import('../components/kardex/KardexView.vue')
 const ReporteVentas = () => import('../components/reportes/ReporteVentas.vue')
 const ReporteCompras = () => import('../components/reportes/ReporteCompras.vue')
 const ConsultarDocumentos = () => import('../components/ConsultarDocumentos.vue')
-
+const ImportarFacturas = () => import('../components/compras/ImportarFacturas.vue')
 // Inventario
 const StockActual = () => import('../components/inventario/StockActual.vue')
 const ConteoFisico = () => import('../components/inventario/ConteoFisico.vue')
@@ -78,6 +78,7 @@ const routes = [
   // Consulta de documentos
   { path: '/consultar-documentos', component: ConsultarDocumentos },
 
+  { path: '/compras/importar', component: ImportarFacturas },
   // Redirección por si se pierde
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
