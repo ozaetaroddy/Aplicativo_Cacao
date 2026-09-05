@@ -281,7 +281,7 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   }
 });
 
-// ===== IMPORTAR FACTURAS DESDE TXT =====
+// ===== NUEVO: Importar facturas desde TXT (formato SRI) con creación automática de proveedores =====
 router.post('/importar-txt', async (req, res) => {
   try {
     const { lineas, tipo_compra } = req.body;
@@ -292,9 +292,12 @@ router.post('/importar-txt', async (req, res) => {
     let importados = 0;
     const errores = [];
     const resultados = [];
+    const proveedoresCreados = [];
 
+    // Procesar cada línea del archivo TXT
     for (const linea of lineas) {
       try {
+        // Dividir por tabulador (TSV) o por cualquier espacio múltiple
         const campos = linea.split('\t').map(c => c.trim());
         if (campos.length < 11) continue;
 
@@ -312,16 +315,55 @@ router.post('/importar-txt', async (req, res) => {
           importe_total
         ] = campos;
 
+        // Validar datos mínimos
         if (!importe_total || parseFloat(importe_total) === 0) continue;
 
-        const proveedor = await req.db.collection('proveedores').findOne({ ruc: ruc_emisor });
+        // ===== BUSCAR O CREAR PROVEEDOR =====
+        let proveedor = await req.db.collection('proveedores').findOne({ ruc: ruc_emisor });
         if (!proveedor) {
-          errores.push(`Proveedor con RUC ${ruc_emisor} no encontrado`);
-          continue;
+          // Crear proveedor automáticamente
+          const nuevoProveedor = {
+            nombre: razon_social_emisor || 'Proveedor sin razón social',
+            ruc: ruc_emisor,
+            telefono: '',
+            email: '',
+            direccion: '',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          const result = await req.db.collection('proveedores').insertOne(nuevoProveedor);
+          proveedor = { ...nuevoProveedor, _id: result.insertedId };
+          proveedoresCreados.push({ ruc: ruc_emisor, nombre: razon_social_emisor });
         }
+
+        // Crear compra
+        const compraData = {
+          proveedorId: proveedor._id,
+          numero_factura: serie_comprobante,
+          fecha_emision: new Date(fecha_emision),
+          detalles: [
+            {
+              productoId: null, // Se asignará manualmente o se buscará por nombre
+              cantidad: 1,
+              costo_unitario: parseFloat(importe_total),
+              aplica_iva: parseFloat(iva) > 0
+            }
+          ],
+          subtotal: parseFloat(valor_sin_impuestos) || 0,
+          iva: parseFloat(iva) || 0,
+          total: parseFloat(importe_total) || 0,
+          tipo_compra: tipo_compra || 'inventario',
+          estado_pago: 'pendiente',
+          forma_pago: '',
+          fecha_pago: null,
+          retencion_valor: 0,
+          retencion_porcentaje: 0,
+          observaciones: `Importado desde TXT. Emisor: ${razon_social_emisor}`
+        };
 
         const session = req.db.client.startSession();
         await session.withTransaction(async () => {
+          // Generar código
           const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
             { _id: 'compra' },
             { $inc: { valor: 1 } },
@@ -330,35 +372,17 @@ router.post('/importar-txt', async (req, res) => {
           const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
 
           const compra = {
-            proveedorId: proveedor._id,
-            numero_factura: serie_comprobante || codigo,
-            fecha_emision: new Date(fecha_emision),
-            detalles: [
-              {
-                productoId: null,
-                cantidad: 1,
-                costo_unitario: parseFloat(importe_total),
-                aplica_iva: parseFloat(iva) > 0
-              }
-            ],
-            subtotal: parseFloat(valor_sin_impuestos) || 0,
-            iva: parseFloat(iva) || 0,
-            total: parseFloat(importe_total) || 0,
-            tipo_compra: tipo_compra || 'inventario',
-            estado_pago: 'pendiente',
-            forma_pago: '',
-            fecha_pago: null,
-            retencion_valor: 0,
-            retencion_porcentaje: 0,
-            observaciones: `Importado desde TXT. Emisor: ${razon_social_emisor}`,
+            ...compraData,
+            numero_factura: compraData.numero_factura || codigo,
             createdAt: new Date(),
             updatedAt: new Date()
           };
-
           const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
           const compraId = compraResult.insertedId;
 
+          // Si es inventario, actualizar stock (usar un producto genérico o buscar por nombre)
           if (tipo_compra === 'inventario') {
+            // Buscar producto por nombre (ej: "CACAO") o usar un producto por defecto
             const producto = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } });
             if (producto) {
               await req.db.collection('productos').updateOne(
@@ -397,7 +421,8 @@ router.post('/importar-txt', async (req, res) => {
       success: true,
       importados,
       errores,
-      resultados
+      resultados,
+      proveedoresCreados
     });
 
   } catch (err) {
@@ -405,5 +430,3 @@ router.post('/importar-txt', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-module.exports = router;

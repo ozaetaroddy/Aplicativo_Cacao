@@ -192,6 +192,19 @@
       </div>
     </div>
 
+    <!-- ===== IMPORTAR FACTURAS ===== -->
+  <div class="row g-4 mt-2">
+    <div class="col-12">
+      <div class="card card-cacao">
+        <div class="card-header">
+          <i class="fas fa-file-import me-2"></i> Importar Facturas desde TXT
+        </div>
+        <div class="card-body">
+          <ImportarFacturas />
+        </div>
+      </div>
+    </div>
+  </div>
   </div>
 </template>
 
@@ -200,6 +213,7 @@ import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../composables/useMongoDB'
 import { useEstadisticas } from '../composables/useEstadisticas'
 import ExportImport from './ExportImport.vue'
+import ImportarFacturas from './compras/ImportarFacturas.vue'
 
 const { find } = useMongoDB()
 const {
