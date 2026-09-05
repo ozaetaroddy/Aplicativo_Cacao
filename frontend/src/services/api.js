@@ -17,7 +17,7 @@ export const api = {
 
       const data = await response.json()
 
-      // Si hay errores de validación (400 con errors)
+      // Manejo de errores de validación (400 con errors)
       if (response.status === 400 && data.errors) {
         const mensajes = data.errors.map(err => err.msg).join(', ')
         toast.error(`Validación fallida: ${mensajes}`)

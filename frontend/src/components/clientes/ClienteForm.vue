@@ -13,26 +13,24 @@
           <div class="row g-3">
             <div class="col-md-8">
               <label class="form-label"><span class="text-danger">*</span> RUC / Cédula</label>
-              <Field name="ruc" v-slot="{ field, errors }">
-                <input
-                  type="text"
-                  class="form-control"
-                  v-bind="field"
-                  v-model="form.ruc"
-                  placeholder="10 o 13 dígitos"
-                  :class="{ 'is-invalid': errors.length > 0 }"
-                />
-                <div v-if="errors.length > 0" class="text-danger small">
-                  {{ errors[0] }}
-                </div>
-              </Field>
+              <input
+                type="text"
+                class="form-control"
+                :class="{ 'is-invalid': errores.ruc }"
+                v-model="form.ruc"
+                placeholder="10 o 13 dígitos"
+                @input="validarRuc"
+                @blur="validarRuc"
+                required
+              />
+              <div v-if="errores.ruc" class="invalid-feedback">{{ errores.ruc }}</div>
             </div>
             <div class="col-md-4 d-flex align-items-end">
               <button
                 type="button"
                 class="btn btn-primary w-100"
                 @click="buscarPorIdentificacion"
-                :disabled="buscando"
+                :disabled="buscando || !form.ruc || errores.ruc"
               >
                 <i class="fas fa-search" :class="{ 'fa-spin': buscando }"></i>
                 {{ buscando ? 'Buscando...' : 'Buscar Datos' }}
@@ -45,18 +43,16 @@
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Nombre / Razón Social</label>
-              <Field name="nombre" v-slot="{ field, errors }">
-                <input
-                  type="text"
-                  class="form-control"
-                  v-bind="field"
-                  v-model="form.nombre"
-                  :class="{ 'is-invalid': errors.length > 0 }"
-                />
-                <div v-if="errors.length > 0" class="text-danger small">
-                  {{ errors[0] }}
-                </div>
-              </Field>
+              <input
+                type="text"
+                class="form-control"
+                :class="{ 'is-invalid': errores.nombre }"
+                v-model="form.nombre"
+                @input="validarNombre"
+                @blur="validarNombre"
+                required
+              />
+              <div v-if="errores.nombre" class="invalid-feedback">{{ errores.nombre }}</div>
             </div>
             <div class="col-md-6">
               <label class="form-label">Tipo</label>
@@ -67,35 +63,31 @@
             </div>
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Teléfono</label>
-              <Field name="telefono" v-slot="{ field, errors }">
-                <input
-                  type="text"
-                  class="form-control"
-                  v-bind="field"
-                  v-model="form.telefono"
-                  placeholder="09XXXXXXXX"
-                  :class="{ 'is-invalid': errors.length > 0 }"
-                />
-                <div v-if="errors.length > 0" class="text-danger small">
-                  {{ errors[0] }}
-                </div>
-              </Field>
+              <input
+                type="text"
+                class="form-control"
+                :class="{ 'is-invalid': errores.telefono }"
+                v-model="form.telefono"
+                placeholder="09XXXXXXXX"
+                @input="validarTelefono"
+                @blur="validarTelefono"
+                required
+              />
+              <div v-if="errores.telefono" class="invalid-feedback">{{ errores.telefono }}</div>
             </div>
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Email</label>
-              <Field name="email" v-slot="{ field, errors }">
-                <input
-                  type="email"
-                  class="form-control"
-                  v-bind="field"
-                  v-model="form.email"
-                  placeholder="correo@ejemplo.com"
-                  :class="{ 'is-invalid': errors.length > 0 }"
-                />
-                <div v-if="errors.length > 0" class="text-danger small">
-                  {{ errors[0] }}
-                </div>
-              </Field>
+              <input
+                type="email"
+                class="form-control"
+                :class="{ 'is-invalid': errores.email }"
+                v-model="form.email"
+                placeholder="correo@ejemplo.com"
+                @input="validarEmail"
+                @blur="validarEmail"
+                required
+              />
+              <div v-if="errores.email" class="invalid-feedback">{{ errores.email }}</div>
             </div>
             <div class="col-md-12">
               <label class="form-label">Dirección</label>
@@ -108,7 +100,7 @@
           </div>
 
           <div class="mt-4">
-            <button type="submit" class="btn btn-success me-2" :disabled="cargando">
+            <button type="submit" class="btn btn-success me-2" :disabled="cargando || !formularioValido">
               <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
               {{ cargando ? 'Guardando...' : 'Guardar' }}
             </button>
@@ -121,12 +113,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
-import { Field, ErrorMessage, useForm } from 'vee-validate'
-import * as yup from 'yup'
 
 const toast = useToast()
 const route = useRoute()
@@ -137,45 +127,6 @@ const buscando = ref(false)
 const cargando = ref(false)
 const errorGeneral = ref('')
 
-// Esquema de validación con Yup
-const validationSchema = yup.object({
-  ruc: yup
-    .string()
-    .required('El RUC/Cédula es obligatorio')
-    .matches(/^\d+$/, 'Solo dígitos numéricos')
-    .test('len', 'Debe tener 10 (cédula) o 13 (RUC) dígitos', (value) => {
-      return value && (value.length === 10 || value.length === 13)
-    })
-    .test('ruc', 'RUC debe terminar en 001', (value) => {
-      if (value && value.length === 13) {
-        return value.endsWith('001')
-      }
-      return true
-    }),
-  nombre: yup
-    .string()
-    .required('El nombre es obligatorio')
-    .matches(/^[A-Za-zÁÉÍÓÚÑáéíóúñ\s.]+$/, 'Solo letras, espacios y puntos'),
-  telefono: yup
-    .string()
-    .required('El teléfono es obligatorio')
-    .matches(/^09\d{8}$/, 'Debe comenzar con 09 y tener 10 dígitos'),
-  email: yup
-    .string()
-    .required('El email es obligatorio')
-    .email('Email inválido')
-})
-
-const { handleSubmit, errors } = useForm({
-  validationSchema,
-  initialValues: {
-    ruc: '',
-    nombre: '',
-    telefono: '',
-    email: ''
-  }
-})
-
 const form = ref({
   ruc: '',
   nombre: '',
@@ -185,26 +136,120 @@ const form = ref({
   direccion: ''
 })
 
+const errores = ref({
+  ruc: '',
+  nombre: '',
+  telefono: '',
+  email: ''
+})
+
+// ===== VALIDACIONES =====
+const validarRuc = () => {
+  const ruc = form.value.ruc?.trim() || ''
+  if (!ruc) {
+    errores.value.ruc = 'El RUC/Cédula es obligatorio'
+    return false
+  }
+  if (!/^\d+$/.test(ruc)) {
+    errores.value.ruc = 'Solo dígitos numéricos'
+    return false
+  }
+  if (ruc.length === 10) {
+    errores.value.ruc = ''
+    return true
+  } else if (ruc.length === 13) {
+    if (!ruc.endsWith('001')) {
+      errores.value.ruc = 'RUC debe terminar en 001'
+      return false
+    }
+    errores.value.ruc = ''
+    return true
+  } else {
+    errores.value.ruc = 'Debe tener 10 (cédula) o 13 (RUC) dígitos'
+    return false
+  }
+}
+
+const validarNombre = () => {
+  const nombre = form.value.nombre?.trim() || ''
+  if (!nombre) {
+    errores.value.nombre = 'El nombre es obligatorio'
+    return false
+  }
+  if (nombre.length < 3) {
+    errores.value.nombre = 'El nombre debe tener al menos 3 caracteres'
+    return false
+  }
+  if (!/^[A-Za-zÁÉÍÓÚÑáéíóúñ\s.]+$/.test(nombre)) {
+    errores.value.nombre = 'Solo letras, espacios y puntos'
+    return false
+  }
+  errores.value.nombre = ''
+  return true
+}
+
+const validarTelefono = () => {
+  const telefono = form.value.telefono?.trim() || ''
+  if (!telefono) {
+    errores.value.telefono = 'El teléfono es obligatorio'
+    return false
+  }
+  if (!/^09\d{8}$/.test(telefono)) {
+    errores.value.telefono = 'Debe comenzar con 09 y tener 10 dígitos'
+    return false
+  }
+  errores.value.telefono = ''
+  return true
+}
+
+const validarEmail = () => {
+  const email = form.value.email?.trim() || ''
+  if (!email) {
+    errores.value.email = 'El email es obligatorio'
+    return false
+  }
+  if (!/^[^\s@]+@[^\s@]+\.(com|es|ec|org|net|edu|info|gob|mil)$/i.test(email)) {
+    errores.value.email = 'Email inválido (ej: usuario@dominio.com)'
+    return false
+  }
+  errores.value.email = ''
+  return true
+}
+
+const formularioValido = computed(() => {
+  return validarRuc() && validarNombre() && validarTelefono() && validarEmail()
+})
+
+// ===== CARGAR DATOS SI ES EDICIÓN =====
 onMounted(async () => {
   if (id) {
     try {
+      console.log('🔍 Cargando cliente con ID:', id)
       const data = await findById('clientes', id)
+      console.log('📦 Datos recibidos:', data)
       if (data) {
         form.value = data
-        // Sincronizar initialValues de vee-validate
-        // (opcional, pero no necesario si usamos v-model en Fields)
+        // Forzar validación para mostrar errores si los hay
+        validarRuc()
+        validarNombre()
+        validarTelefono()
+        validarEmail()
+      } else {
+        errorGeneral.value = 'No se encontró el cliente'
+        toast.warning('No se encontró el cliente')
       }
     } catch (e) {
-      console.error(e)
-      errorGeneral.value = 'Error al cargar los datos'
+      console.error('❌ Error al cargar cliente:', e)
+      errorGeneral.value = 'Error al cargar los datos: ' + e.message
       toast.error('Error al cargar los datos: ' + e.message)
     }
   }
 })
 
+// ===== BUSCAR POR IDENTIFICACIÓN =====
 const buscarPorIdentificacion = async () => {
-  if (!form.value.ruc) {
-    toast.warning('Ingrese un RUC/Cédula para buscar')
+  if (!validarRuc()) {
+    toast.warning('Corrija el RUC/Cédula antes de buscar')
     return
   }
   buscando.value = true
@@ -212,7 +257,13 @@ const buscarPorIdentificacion = async () => {
     const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/consultas/cedula/${form.value.ruc.trim()}`)
     if (!response.ok) throw new Error('No se encontraron datos')
     const data = await response.json()
-    if (data.nombre) form.value.nombre = data.nombre
+    if (data.nombre) {
+      form.value.nombre = data.nombre
+      validarNombre()
+      toast.success('Datos encontrados y cargados')
+    } else {
+      toast.info('No se encontró nombre para esta cédula, ingréselo manualmente')
+    }
   } catch (e) {
     toast.error('Error al consultar: ' + e.message)
   } finally {
@@ -220,9 +271,23 @@ const buscarPorIdentificacion = async () => {
   }
 }
 
-const guardar = handleSubmit(async (values) => {
-  cargando.value = true
+// ===== GUARDAR =====
+const guardar = async () => {
+  // Forzar validación de todos los campos
+  const rucOk = validarRuc()
+  const nombreOk = validarNombre()
+  const telefonoOk = validarTelefono()
+  const emailOk = validarEmail()
+
+  if (!rucOk || !nombreOk || !telefonoOk || !emailOk) {
+    errorGeneral.value = 'Corrija los errores marcados en rojo'
+    toast.warning('Corrija los errores antes de guardar')
+    return
+  }
+
   errorGeneral.value = ''
+  cargando.value = true
+
   try {
     const datos = {
       ruc: form.value.ruc.trim(),
@@ -246,5 +311,5 @@ const guardar = handleSubmit(async (values) => {
   } finally {
     cargando.value = false
   }
-})
+}
 </script>

@@ -94,26 +94,26 @@ const onSearch = () => {
           icon = 'fas fa-user'
           title = item.nombre
           subtitle = `RUC: ${item.ruc} | ${item.telefono}`
-          routePath = `/clientes/editar/${item._id}`
+          routePath = `/clientes/editar/${item._id}`  // <--- EDICIÓN
           break
         case 'productos':
           icon = 'fas fa-box'
           title = item.nombre
           const codigo = typeof item.codigo === 'object' ? Object.values(item.codigo).join('') : (item.codigo || 'N/A')
           subtitle = `Código: ${codigo} | Stock: ${item.stock}`
-          routePath = `/productos/editar/${item._id}`
+          routePath = `/productos/editar/${item._id}`  // <--- EDICIÓN
           break
         case 'ventas':
           icon = 'fas fa-file-invoice'
           title = `Factura ${item.numero_factura || 'N/A'}`
           subtitle = `Cliente: ${item.cliente?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          routePath = `/ventas/editar/${item._id}`
+          routePath = `/ventas/editar/${item._id}`  // <--- EDICIÓN
           break
         case 'compras':
           icon = 'fas fa-shopping-cart'
           title = `Compra ${item.numero_factura || 'N/A'}`
           subtitle = `Proveedor: ${item.proveedor?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          routePath = `/compras/editar/${item._id}`
+          routePath = `/compras/editar/${item._id}`  // <--- EDICIÓN
           break
       }
       allResults.push({ id: item._id, icon, title, subtitle, routePath })
@@ -121,15 +121,11 @@ const onSearch = () => {
   })
 
   results.value = allResults.slice(0, 10)
-  console.log('🔍 Resultados de búsqueda:', results.value)
 }
 
 const navigateTo = (result) => {
-  console.log('🔗 Navegando a:', result.routePath)
   if (result.routePath) {
     router.push(result.routePath)
-  } else {
-    console.warn('⚠️ No se encontró ruta para el resultado:', result)
   }
   showResults.value = false
   query.value = ''
@@ -148,6 +144,7 @@ const closeResults = () => {
 
 onMounted(loadData)
 </script>
+
 
 <style scoped>
 /* (estilos existentes) */

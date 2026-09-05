@@ -5,6 +5,12 @@ export function useMongoDB() {
   const loading = ref(false)
   const error = ref(null)
 
+  /**
+   * Función base para hacer peticiones a la API
+   * @param {string} endpoint - Ruta del endpoint (ej: '/clientes')
+   * @param {object} options - Opciones de fetch (method, body, etc.)
+   * @returns {Promise<any>} Datos de la respuesta
+   */
   async function request(endpoint, options = {}) {
     loading.value = true
     error.value = null
@@ -19,15 +25,33 @@ export function useMongoDB() {
     }
   }
 
-  // Métodos genéricos
+  // ===== MÉTODOS CRUD GENÉRICOS =====
+
+  /**
+   * Obtener todos los documentos de una colección
+   * @param {string} collection - Nombre de la colección (ej: 'clientes')
+   * @returns {Promise<Array>} Lista de documentos
+   */
   async function find(collection) {
     return request(`/${collection}`)
   }
 
+  /**
+   * Obtener un documento por su ID
+   * @param {string} collection - Nombre de la colección
+   * @param {string} id - ID del documento
+   * @returns {Promise<object>} Documento encontrado
+   */
   async function findById(collection, id) {
     return request(`/${collection}/${id}`)
   }
 
+  /**
+   * Insertar un nuevo documento
+   * @param {string} collection - Nombre de la colección
+   * @param {object} document - Datos del documento
+   * @returns {Promise<object>} Documento insertado con su ID
+   */
   async function insertOne(collection, document) {
     return request(`/${collection}`, {
       method: 'POST',
@@ -35,6 +59,13 @@ export function useMongoDB() {
     })
   }
 
+  /**
+   * Actualizar un documento existente
+   * @param {string} collection - Nombre de la colección
+   * @param {string} id - ID del documento a actualizar
+   * @param {object} document - Datos actualizados
+   * @returns {Promise<object>} Resultado de la operación
+   */
   async function updateOne(collection, id, document) {
     return request(`/${collection}/${id}`, {
       method: 'PUT',
@@ -42,17 +73,35 @@ export function useMongoDB() {
     })
   }
 
+  /**
+   * Eliminar un documento
+   * @param {string} collection - Nombre de la colección
+   * @param {string} id - ID del documento a eliminar
+   * @returns {Promise<object>} Resultado de la operación
+   */
   async function deleteOne(collection, id) {
     return request(`/${collection}/${id}`, {
       method: 'DELETE'
     })
   }
 
-  // Métodos específicos
+  // ===== MÉTODOS ESPECÍFICOS =====
+
+  /**
+   * Obtener productos con stock bajo (stock <= stock_minimo)
+   * @returns {Promise<Array>} Lista de productos con stock bajo
+   */
   async function getProductosStockBajo() {
     return request('/productos/stock/bajo')
   }
 
+  /**
+   * Obtener kardex por producto
+   * @param {string} productoId - ID del producto
+   * @param {string} desde - Fecha inicio (YYYY-MM-DD)
+   * @param {string} hasta - Fecha fin (YYYY-MM-DD)
+   * @returns {Promise<Array>} Movimientos del kardex
+   */
   async function getKardexByProducto(productoId, desde, hasta) {
     let url = `/kardex/producto/${productoId}`
     const params = []
@@ -62,6 +111,13 @@ export function useMongoDB() {
     return request(url)
   }
 
+  /**
+   * Obtener kardex por cliente
+   * @param {string} clienteId - ID del cliente
+   * @param {string} desde - Fecha inicio
+   * @param {string} hasta - Fecha fin
+   * @returns {Promise<Array>} Movimientos del kardex del cliente
+   */
   async function getKardexByCliente(clienteId, desde, hasta) {
     let url = `/kardex/cliente/${clienteId}`
     const params = []
@@ -71,6 +127,13 @@ export function useMongoDB() {
     return request(url)
   }
 
+  /**
+   * Obtener kardex por proveedor
+   * @param {string} proveedorId - ID del proveedor
+   * @param {string} desde - Fecha inicio
+   * @param {string} hasta - Fecha fin
+   * @returns {Promise<Array>} Movimientos del kardex del proveedor
+   */
   async function getKardexByProveedor(proveedorId, desde, hasta) {
     let url = `/kardex/proveedor/${proveedorId}`
     const params = []
@@ -80,6 +143,12 @@ export function useMongoDB() {
     return request(url)
   }
 
+  /**
+   * Reporte de ventas por período
+   * @param {string} desde - Fecha inicio (YYYY-MM-DD)
+   * @param {string} hasta - Fecha fin (YYYY-MM-DD)
+   * @returns {Promise<Array>} Lista de ventas en el período
+   */
   async function reporteVentas(desde, hasta) {
     let url = '/reportes/ventas'
     const params = []
@@ -89,6 +158,12 @@ export function useMongoDB() {
     return request(url)
   }
 
+  /**
+   * Reporte de compras por período
+   * @param {string} desde - Fecha inicio
+   * @param {string} hasta - Fecha fin
+   * @returns {Promise<Array>} Lista de compras en el período
+   */
   async function reporteCompras(desde, hasta) {
     let url = '/reportes/compras'
     const params = []
@@ -99,14 +174,18 @@ export function useMongoDB() {
   }
 
   return {
+    // Estado
     loading,
     error,
-    request,  // <-- Asegúrate de exportar request
+    // Método base
+    request,
+    // CRUD genérico
     find,
     findById,
     insertOne,
     updateOne,
     deleteOne,
+    // Específicos
     getProductosStockBajo,
     getKardexByProducto,
     getKardexByCliente,
