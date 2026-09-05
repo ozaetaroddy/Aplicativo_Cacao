@@ -68,7 +68,7 @@
 
     <!-- ===== MODAL PARA IMPORTAR TXT ===== -->
     <div class="modal fade" id="modalImportar" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg">
+      <div class="modal-dialog modal-xl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title"><i class="fas fa-file-import me-2"></i>Importar Facturas desde TXT</h5>
@@ -78,56 +78,64 @@
             <div class="alert alert-info">
               <i class="fas fa-info-circle me-2"></i>
               Seleccione un archivo TXT con el formato de facturas del SRI (separado por tabuladores).
-              Si el proveedor no existe, se creará automáticamente con los datos del emisor.
+              Puede seleccionar individualmente si cada factura es de <strong>Inventario</strong> o <strong>Gasto</strong>.
             </div>
 
+            <!-- Selección de archivo -->
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label"><span class="text-danger">*</span> Archivo TXT</label>
                 <input type="file" class="form-control" accept=".txt" @change="procesarArchivo" ref="fileInput" />
               </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Tipo de Compra</label>
-                <select class="form-select" v-model="tipoImportacion">
-                  <option value="inventario">Inventario (Cacao)</option>
-                  <option value="gasto">Gasto</option>
-                </select>
-              </div>
-              <div class="col-md-3 d-flex align-items-end">
-                <button class="btn btn-primary w-100" @click="importarFacturas" :disabled="!lineas.length || importando">
+              <div class="col-md-6 d-flex align-items-end gap-2">
+                <button class="btn btn-outline-success" @click="seleccionarTodos('inventario')" :disabled="!lineas.length">
+                  <i class="fas fa-box"></i> Todos Inventario
+                </button>
+                <button class="btn btn-outline-warning" @click="seleccionarTodos('gasto')" :disabled="!lineas.length">
+                  <i class="fas fa-receipt"></i> Todos Gasto
+                </button>
+                <button class="btn btn-primary" @click="importarFacturas" :disabled="!lineas.length || importando">
                   <i class="fas fa-upload" :class="{ 'fa-spin': importando }"></i>
                   {{ importando ? 'Importando...' : 'Importar' }}
                 </button>
               </div>
             </div>
 
-            <!-- Previsualización -->
+            <!-- Tabla con selección individual por línea -->
             <div v-if="lineas.length > 0" class="mt-3">
-              <h6>Vista previa (primeras 5 líneas)</h6>
-              <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                  <thead>
+              <h6>Vista previa ({{ lineas.length }} líneas)</h6>
+              <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+                <table class="table table-sm table-bordered table-striped">
+                  <thead class="sticky-top bg-white">
                     <tr>
+                      <th style="width:40px;">#</th>
                       <th>RUC Emisor</th>
                       <th>Razón Social</th>
                       <th>Fecha</th>
                       <th>Total</th>
+                      <th style="width:140px;">Tipo</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(linea, idx) in lineas.slice(0, 5)" :key="idx">
+                    <tr v-for="(linea, idx) in lineas" :key="idx">
+                      <td>{{ idx + 1 }}</td>
                       <td>{{ linea.ruc }}</td>
                       <td>{{ linea.razonSocial }}</td>
                       <td>{{ linea.fecha }}</td>
-                      <td>${{ linea.total }}</td>
+                      <td>${{ linea.total.toFixed(2) }}</td>
+                      <td>
+                        <select class="form-select form-select-sm" v-model="linea.tipo">
+                          <option value="inventario">Inventario</option>
+                          <option value="gasto">Gasto</option>
+                        </select>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <p class="text-muted small">Total de líneas: {{ lineas.length }}</p>
             </div>
 
-            <!-- Resultados -->
+            <!-- Resultados de la importación -->
             <div v-if="resultadoImportacion" class="mt-3">
               <div class="alert alert-success">
                 <i class="fas fa-check-circle me-2"></i>
@@ -172,8 +180,7 @@ const modalInstance = ref(null)
 
 // Estado para importación
 const fileInput = ref(null)
-const lineas = ref([])
-const tipoImportacion = ref('inventario')
+const lineas = ref([]) // Cada línea: { ruc, razonSocial, fecha, total, tipo }
 const importando = ref(false)
 const resultadoImportacion = ref(null)
 
@@ -219,7 +226,7 @@ const procesarArchivo = (event) => {
     const contenido = e.target.result
     const lineasRaw = contenido.split('\n').filter(line => line.trim() !== '')
 
-    // Saltar encabezado
+    // Saltar encabezado (si existe)
     const dataLines = lineasRaw[0].toLowerCase().includes('ruc_emisor') ? lineasRaw.slice(1) : lineasRaw
 
     const parsed = dataLines.map(line => {
@@ -236,7 +243,10 @@ const procesarArchivo = (event) => {
         identificacionReceptor: campos[7],
         valorSinImpuestos: parseFloat(campos[8]) || 0,
         iva: parseFloat(campos[9]) || 0,
-        total: parseFloat(campos[10]) || 0
+        total: parseFloat(campos[10]) || 0,
+        // Campo nuevo: tipo de compra (por defecto inventario)
+        tipo: 'inventario',
+        fecha: campos[6] ? new Date(campos[6]).toLocaleDateString() : ''
       }
     }).filter(line => line && line.ruc && line.total > 0)
 
@@ -247,7 +257,14 @@ const procesarArchivo = (event) => {
   reader.readAsText(file)
 }
 
-// Importar facturas usando fetch directo (evita problemas con request)
+// Seleccionar todos con un tipo específico
+const seleccionarTodos = (tipo) => {
+  lineas.value.forEach(linea => {
+    linea.tipo = tipo
+  })
+}
+
+// Importar facturas usando fetch directo
 const importarFacturas = async () => {
   if (lineas.value.length === 0) {
     toast.warning('No hay líneas para importar')
@@ -258,17 +275,28 @@ const importarFacturas = async () => {
   resultadoImportacion.value = null
 
   try {
+    // Construir payload con el tipo individual de cada línea
+    const payload = {
+      lineas: lineas.value.map(linea => ({
+        ruc: linea.ruc,
+        razonSocial: linea.razonSocial,
+        fechaEmision: linea.fechaEmision,
+        total: linea.total,
+        valorSinImpuestos: linea.valorSinImpuestos,
+        iva: linea.iva,
+        tipo_compra: linea.tipo // <--- TIPO INDIVIDUAL
+      })),
+      tipo_compra_global: null // Ya no usamos global
+    }
+
     const url = `${API_BASE_URL}/compras/importar-txt`
     console.log('📡 Enviando a:', url)
-    console.log('📦 Datos:', { lineas: lineas.value, tipo_compra: tipoImportacion.value })
+    console.log('📦 Datos:', payload)
 
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        lineas: lineas.value,
-        tipo_compra: tipoImportacion.value
-      })
+      body: JSON.stringify(payload)
     })
 
     if (!response.ok) {
@@ -301,3 +329,11 @@ onMounted(() => {
   cargarCompras()
 })
 </script>
+
+<style scoped>
+.sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+</style>
