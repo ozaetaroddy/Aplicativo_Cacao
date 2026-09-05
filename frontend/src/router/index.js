@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-// ===== LAZY LOADING (carga bajo demanda) =====
+// ===== LAZY LOADING =====
 const Dashboard = () => import('../components/Dashboard.vue')
 const ProductosList = () => import('../components/productos/ProductosList.vue')
 const ProductoForm = () => import('../components/productos/ProductoForm.vue')
@@ -17,8 +17,11 @@ const VentaForm = () => import('../components/ventas/VentaForm.vue')
 const KardexView = () => import('../components/kardex/KardexView.vue')
 const ReporteVentas = () => import('../components/reportes/ReporteVentas.vue')
 const ReporteCompras = () => import('../components/reportes/ReporteCompras.vue')
+const ReporteMensual = () => import('../components/reportes/ReporteMensual.vue')
 const ConsultarDocumentos = () => import('../components/ConsultarDocumentos.vue')
-const ImportarFacturas = () => import('../components/compras/ImportarFacturas.vue')
+const RetencionesList = () => import('../components/retenciones/RetencionesList.vue')
+const RetencionForm = () => import('../components/retenciones/RetencionForm.vue')
+
 // Inventario
 const StockActual = () => import('../components/inventario/StockActual.vue')
 const ConteoFisico = () => import('../components/inventario/ConteoFisico.vue')
@@ -73,12 +76,16 @@ const routes = [
   // Reportes
   { path: '/reportes/ventas', component: ReporteVentas },
   { path: '/reportes/compras', component: ReporteCompras },
+  { path: '/reportes/mensual', component: ReporteMensual },
   { path: '/reportes', redirect: '/reportes/ventas' },
+
+  // Retenciones
+  { path: '/retenciones', component: RetencionesList },
+  { path: '/retenciones/nuevo', component: RetencionForm },
 
   // Consulta de documentos
   { path: '/consultar-documentos', component: ConsultarDocumentos },
 
-  { path: '/compras/importar', component: ImportarFacturas },
   // Redirección por si se pierde
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]

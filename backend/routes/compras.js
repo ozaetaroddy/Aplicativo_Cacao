@@ -57,8 +57,8 @@ router.post('/', async (req, res) => {
     const {
       proveedorId, numero_factura, fecha_emision,
       detalles, subtotal, iva, total,
-      tipo_compra, // 'inventario' | 'gasto'
-      estado_pago, // 'pagado' | 'pendiente'
+      tipo_compra,
+      estado_pago,
       forma_pago,
       fecha_pago,
       retencion_valor,
@@ -74,7 +74,6 @@ router.post('/', async (req, res) => {
     let result;
 
     await session.withTransaction(async () => {
-      // Generar código secuencial
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: 'compra' },
         { $inc: { valor: 1 } },
@@ -90,7 +89,6 @@ router.post('/', async (req, res) => {
         subtotal,
         iva,
         total,
-        // Nuevos campos
         tipo_compra: tipo_compra || 'inventario',
         estado_pago: estado_pago || 'pendiente',
         forma_pago: forma_pago || '',
@@ -104,14 +102,13 @@ router.post('/', async (req, res) => {
       const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
       const compraId = compraResult.insertedId;
 
-      // ===== ACTUALIZAR INVENTARIO SOLO SI ES INVENTARIO =====
+      // Actualizar inventario solo si es inventario
       if (tipo_compra === 'inventario') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
           const cantidad = detalle.cantidad;
           const costoUnitario = detalle.costo_unitario;
 
-          // Actualizar stock del producto
           await req.db.collection('productos').updateOne(
             { _id: productoId },
             {
@@ -124,7 +121,6 @@ router.post('/', async (req, res) => {
           const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
           const saldoActual = productoActualizado.stock;
 
-          // Registrar en kardex
           await req.db.collection('kardex').insertOne({
             productoId,
             fecha: new Date(fecha_emision),
@@ -139,7 +135,7 @@ router.post('/', async (req, res) => {
         }
       }
 
-      // ===== REGISTRAR RETENCIÓN SI APLICA =====
+      // Registrar retención si aplica
       if (retencion_valor > 0) {
         await req.db.collection('retenciones').insertOne({
           compraId: compraId,
@@ -156,7 +152,6 @@ router.post('/', async (req, res) => {
       result = compraResult;
     });
 
-    // Obtener compra creada con datos completos
     const compraCreada = await req.db.collection('compras_v2').aggregate([
       { $match: { _id: result.insertedId } },
       {
@@ -238,7 +233,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// ===== NUEVO: Reporte mensual de compras para declaración =====
+// ===== REPORTE MENSUAL =====
 router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   try {
     const { mes, anio } = req.params;
@@ -286,7 +281,7 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   }
 });
 
-// ===== NUEVO: Importar facturas desde TXT (formato SRI) =====
+// ===== IMPORTAR FACTURAS DESDE TXT =====
 router.post('/importar-txt', async (req, res) => {
   try {
     const { lineas, tipo_compra } = req.body;
@@ -298,10 +293,8 @@ router.post('/importar-txt', async (req, res) => {
     const errores = [];
     const resultados = [];
 
-    // Procesar cada línea del archivo TXT
     for (const linea of lineas) {
       try {
-        // Dividir por tabulador (TSV) o por cualquier espacio múltiple
         const campos = linea.split('\t').map(c => c.trim());
         if (campos.length < 11) continue;
 
@@ -319,50 +312,16 @@ router.post('/importar-txt', async (req, res) => {
           importe_total
         ] = campos;
 
-        // Validar datos mínimos
         if (!importe_total || parseFloat(importe_total) === 0) continue;
 
-        // Buscar proveedor por RUC
         const proveedor = await req.db.collection('proveedores').findOne({ ruc: ruc_emisor });
         if (!proveedor) {
           errores.push(`Proveedor con RUC ${ruc_emisor} no encontrado`);
           continue;
         }
 
-        // Crear compra
-        const compraData = {
-          proveedorId: proveedor._id,
-          numero_factura: serie_comprobante,
-          fecha_emision: new Date(fecha_emision),
-          detalles: [
-            {
-              productoId: null, // Se asignará manualmente o se buscará por nombre
-              cantidad: 1,
-              costo_unitario: parseFloat(importe_total),
-              aplica_iva: parseFloat(iva) > 0
-            }
-          ],
-          subtotal: parseFloat(valor_sin_impuestos) || 0,
-          iva: parseFloat(iva) || 0,
-          total: parseFloat(importe_total) || 0,
-          tipo_compra: tipo_compra || 'inventario',
-          estado_pago: 'pendiente',
-          forma_pago: '',
-          fecha_pago: null,
-          retencion_valor: 0,
-          retencion_porcentaje: 0,
-          observaciones: `Importado desde TXT. Emisor: ${razon_social_emisor}`
-        };
-
-        // Insertar compra usando la función de creación (para que maneje stock y kardex)
-        const reqInterno = { body: compraData, db: req.db };
-        const resInterno = { status: () => ({ json: () => {} }) };
-        // Nota: No podemos llamar directamente a la función POST desde aquí, así que insertamos directamente
-        // y luego actualizamos stock manualmente si es inventario.
-
         const session = req.db.client.startSession();
         await session.withTransaction(async () => {
-          // Generar código
           const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
             { _id: 'compra' },
             { $inc: { valor: 1 } },
@@ -371,17 +330,35 @@ router.post('/importar-txt', async (req, res) => {
           const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
 
           const compra = {
-            ...compraData,
-            numero_factura: compraData.numero_factura || codigo,
+            proveedorId: proveedor._id,
+            numero_factura: serie_comprobante || codigo,
+            fecha_emision: new Date(fecha_emision),
+            detalles: [
+              {
+                productoId: null,
+                cantidad: 1,
+                costo_unitario: parseFloat(importe_total),
+                aplica_iva: parseFloat(iva) > 0
+              }
+            ],
+            subtotal: parseFloat(valor_sin_impuestos) || 0,
+            iva: parseFloat(iva) || 0,
+            total: parseFloat(importe_total) || 0,
+            tipo_compra: tipo_compra || 'inventario',
+            estado_pago: 'pendiente',
+            forma_pago: '',
+            fecha_pago: null,
+            retencion_valor: 0,
+            retencion_porcentaje: 0,
+            observaciones: `Importado desde TXT. Emisor: ${razon_social_emisor}`,
             createdAt: new Date(),
             updatedAt: new Date()
           };
+
           const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
           const compraId = compraResult.insertedId;
 
-          // Si es inventario, actualizar stock (usar un producto genérico o buscar por nombre)
           if (tipo_compra === 'inventario') {
-            // Buscar producto por nombre (ej: "CACAO") o usar un producto por defecto
             const producto = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } });
             if (producto) {
               await req.db.collection('productos').updateOne(

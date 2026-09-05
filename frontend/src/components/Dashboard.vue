@@ -129,10 +129,7 @@
       </div>
     </div>
 
-    <!-- ===== WIDGETS (Dashboard personalizable) ===== -->
-    <WidgetContainer :initial-widgets="defaultWidgets" @layout-changed="onLayoutChanged" />
-
-    <!-- ===== EXPORTAR / IMPORTAR ===== -->
+    <!-- ===== EXPORTAR / IMPORTAR DATOS ===== -->
     <div class="row g-4 mt-2">
       <div class="col-12">
         <div class="card card-cacao">
@@ -145,6 +142,56 @@
         </div>
       </div>
     </div>
+
+    <!-- ===== IMPORTAR FACTURAS (BOTÓN ADICIONAL) ===== -->
+    <div class="row g-4 mt-2">
+      <div class="col-12">
+        <div class="card card-cacao">
+          <div class="card-header">
+            <i class="fas fa-file-import me-2" style="color:#27ae60;"></i> Importar Facturas desde TXT (SRI)
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Seleccionar archivo TXT</label>
+                <input type="file" class="form-control" accept=".txt" ref="fileInput" @change="handleFileUpload" />
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Tipo de Compra</label>
+                <select class="form-select" v-model="tipoCompraImport">
+                  <option value="inventario">Inventario (Cacao)</option>
+                  <option value="gasto">Gasto</option>
+                </select>
+              </div>
+              <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-success w-100" @click="importarFacturas" :disabled="!archivoCargado || importando">
+                  <i class="fas fa-upload" :class="{ 'fa-spin': importando }"></i>
+                  {{ importando ? 'Importando...' : 'Importar Facturas' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="resultadoImportacion" class="mt-3">
+              <div v-if="resultadoImportacion.success" class="alert alert-success">
+                <i class="fas fa-check-circle"></i>
+                {{ resultadoImportacion.importados }} facturas importadas correctamente.
+                <span v-if="resultadoImportacion.errores.length > 0" class="d-block mt-2">
+                  <i class="fas fa-exclamation-triangle"></i>
+                  {{ resultadoImportacion.errores.length }} errores:
+                  <ul class="mb-0">
+                    <li v-for="(err, idx) in resultadoImportacion.errores" :key="idx">{{ err }}</li>
+                  </ul>
+                </span>
+              </div>
+              <div v-else class="alert alert-danger">
+                <i class="fas fa-exclamation-circle"></i>
+                {{ resultadoImportacion.mensaje || 'Error al importar' }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -152,7 +199,6 @@
 import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../composables/useMongoDB'
 import { useEstadisticas } from '../composables/useEstadisticas'
-import WidgetContainer from './dashboard/WidgetContainer.vue'
 import ExportImport from './ExportImport.vue'
 
 const { find } = useMongoDB()
@@ -164,25 +210,89 @@ const {
   cargarEstadisticas
 } = useEstadisticas()
 
-const productos = ref([])
+// ===== IMPORTACIÓN DE FACTURAS =====
+const fileInput = ref(null)
+const archivoCargado = ref(false)
+const importando = ref(false)
+const tipoCompraImport = ref('inventario')
+const resultadoImportacion = ref(null)
+const lineasTXT = ref([])
 
-// Widgets por defecto
-const defaultWidgets = [
-  { id: 'stats', title: 'Estadísticas', component: 'StatsWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'ventas-chart', title: 'Ventas (7 días)', component: 'VentasChartWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'compras-chart', title: 'Compras (7 días)', component: 'ComprasChartWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'top-productos', title: 'Top Productos', component: 'TopProductosWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'actividad-reciente', title: 'Actividad Reciente', component: 'ActividadRecienteWidget', size: 'col-12 col-md-6', props: {} }
-]
+const handleFileUpload = (event) => {
+  const file = event.target.files[0]
+  if (!file) {
+    archivoCargado.value = false
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const texto = e.target.result
+    const lineas = texto.split('\n')
+      .map(linea => linea.trim())
+      .filter(linea => linea.length > 0 && !linea.startsWith('RUC_EMISOR'))
+    lineasTXT.value = lineas
+    archivoCargado.value = lineas.length > 0
+    resultadoImportacion.value = null
+    if (lineas.length === 0) {
+      alert('El archivo está vacío o no tiene líneas de datos')
+    }
+  }
+  reader.readAsText(file)
+}
 
-const onLayoutChanged = (widgets) => {
-  console.log('Layout guardado:', widgets)
+const importarFacturas = async () => {
+  if (!archivoCargado.value || lineasTXT.value.length === 0) {
+    alert('Seleccione un archivo TXT válido')
+    return
+  }
+
+  importando.value = true
+  resultadoImportacion.value = null
+
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/compras/importar-txt`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        lineas: lineasTXT.value,
+        tipo_compra: tipoCompraImport.value
+      })
+    })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || 'Error al importar')
+    }
+
+    resultadoImportacion.value = {
+      success: true,
+      importados: data.importados || 0,
+      errores: data.errores || []
+    }
+
+    // Recargar estadísticas después de importar
+    await cargarEstadisticas()
+
+    // Limpiar archivo
+    if (fileInput.value) {
+      fileInput.value.value = ''
+    }
+    archivoCargado.value = false
+    lineasTXT.value = []
+
+  } catch (e) {
+    resultadoImportacion.value = {
+      success: false,
+      mensaje: e.message
+    }
+  } finally {
+    importando.value = false
+  }
 }
 
 onMounted(async () => {
-  try {
-    productos.value = await find('productos')
-  } catch (e) { console.error(e) }
   await cargarEstadisticas()
 })
 </script>

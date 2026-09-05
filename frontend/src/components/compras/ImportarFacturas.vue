@@ -1,107 +1,120 @@
 <template>
   <div>
-    <h4 class="section-title"><i class="fas fa-file-import"></i> Importar Facturas</h4>
+    <button class="btn btn-primary" @click="abrirModal">
+      <i class="fas fa-file-import me-1"></i> Importar Facturas (TXT)
+    </button>
 
-    <div class="card card-cacao">
-      <div class="card-body">
-        <div class="alert alert-info">
-          <i class="fas fa-info-circle"></i>
-          Sube un archivo de texto (TSV) con facturas para importarlas automáticamente.
-          El archivo debe tener las columnas: RUC_EMISOR, RAZON_SOCIAL_EMISOR, TIPO_COMPROBANTE,
-          SERIE_COMPROBANTE, CLAVE_ACCESO, FECHA_AUTORIZACION, FECHA_EMISION,
-          IDENTIFICACION_RECEPTOR, VALOR_SIN_IMPUESTOS, IVA, IMPORTE_TOTAL.
-        </div>
+    <!-- Modal -->
+    <div class="modal fade" id="modalImportarFacturas" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fas fa-file-import me-2"></i>Importar Facturas desde TXT</h5>
+            <button type="button" class="btn-close" @click="cerrarModal"></button>
+          </div>
+          <div class="modal-body">
+            <!-- Paso 1: Subir archivo -->
+            <div v-if="!procesado" class="mb-3">
+              <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                Seleccione un archivo TXT con el formato de facturas del SRI (columnas separadas por tabulador).
+                Las líneas con RUC de proveedores no registrados se mostrarán para que pueda crearlos.
+              </div>
+              <div class="input-group">
+                <input type="file" class="form-control" accept=".txt" @change="handleFileUpload" ref="fileInput" />
+                <button class="btn btn-outline-secondary" @click="procesarArchivo" :disabled="!archivoCargado || procesando">
+                  <i class="fas fa-cog" :class="{ 'fa-spin': procesando }"></i>
+                  {{ procesando ? 'Procesando...' : 'Procesar Archivo' }}
+                </button>
+              </div>
+              <div v-if="archivoCargado" class="mt-2">
+                <span class="badge bg-success"><i class="fas fa-check"></i> Archivo cargado: {{ nombreArchivo }}</span>
+                <span class="badge bg-secondary ms-2">{{ lineas.length }} líneas encontradas</span>
+              </div>
+            </div>
 
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label">Archivo de Facturas (.txt)</label>
-            <input type="file" class="form-control" @change="handleFileUpload" accept=".txt" ref="fileInput" />
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">RUC del Comprador</label>
-            <input type="text" class="form-control" v-model="rucComprador" placeholder="1311552069" />
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Tipo por Defecto</label>
-            <select class="form-select" v-model="tipoPorDefecto">
-              <option value="gasto">Gasto</option>
-              <option value="inventario">Inventario</option>
-            </select>
-          </div>
-        </div>
+            <!-- Paso 2: Resultados del procesamiento -->
+            <div v-if="procesado">
+              <!-- Proveedores no encontrados -->
+              <div v-if="proveedoresFaltantes.length > 0" class="alert alert-warning">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Proveedores no registrados</h6>
+                <p>Los siguientes RUC no existen en el sistema. Puede crearlos ahora o omitir estas facturas.</p>
+                <div class="table-responsive">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>RUC</th>
+                        <th>Razón Social</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(prov, idx) in proveedoresFaltantes" :key="idx">
+                        <td>{{ prov.ruc }}</td>
+                        <td>{{ prov.razon_social }}</td>
+                        <td>
+                          <button class="btn btn-sm btn-success" @click="crearProveedor(prov)">
+                            <i class="fas fa-plus"></i> Crear
+                          </button>
+                          <button class="btn btn-sm btn-danger" @click="omitirProveedor(prov.ruc)">
+                            <i class="fas fa-times"></i> Omitir
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
-        <div class="mt-3">
-          <button class="btn btn-primary" @click="importarFacturas" :disabled="!facturas.length || cargando">
-            <i class="fas fa-upload" :class="{ 'fa-spin': cargando }"></i>
-            {{ cargando ? 'Importando...' : 'Importar Facturas' }}
-          </button>
-          <button class="btn btn-secondary ms-2" @click="limpiarArchivo">
-            <i class="fas fa-undo"></i> Limpiar
-          </button>
-        </div>
+              <!-- Lista de facturas a importar -->
+              <div v-if="facturasValidas.length > 0">
+                <h6><i class="fas fa-list me-2"></i>Facturas listas para importar ({{ facturasValidas.length }})</h6>
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                  <table class="table table-sm table-cacao">
+                    <thead>
+                      <tr>
+                        <th style="width:20px;">#</th>
+                        <th>Fecha</th>
+                        <th>Proveedor</th>
+                        <th>Nº Factura</th>
+                        <th>Total</th>
+                        <th>Tipo</th>
+                        <th>Seleccionar</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(factura, idx) in facturasValidas" :key="idx">
+                        <td>{{ idx + 1 }}</td>
+                        <td>{{ factura.fecha }}</td>
+                        <td>{{ factura.proveedor?.nombre || factura.razon_social }}</td>
+                        <td>{{ factura.numero_factura }}</td>
+                        <td>${{ factura.total.toFixed(2) }}</td>
+                        <td>
+                          <select class="form-select form-select-sm" v-model="factura.tipo_compra">
+                            <option value="inventario">Inventario</option>
+                            <option value="gasto">Gasto</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input type="checkbox" v-model="factura.seleccionada" />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
-        <!-- Previsualización -->
-        <div v-if="facturas.length > 0" class="mt-3">
-          <h6>Previsualización ({{ facturas.length }} facturas encontradas)</h6>
-          <div class="table-responsive" style="max-height:300px;">
-            <table class="table table-sm table-cacao">
-              <thead>
-                <tr>
-                  <th>RUC Emisor</th>
-                  <th>Razón Social</th>
-                  <th>Nº Factura</th>
-                  <th>Fecha</th>
-                  <th>Total</th>
-                  <th>IVA</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(f, idx) in facturas.slice(0, 20)" :key="idx">
-                  <td>{{ f.ruc_emisor }}</td>
-                  <td>{{ f.razon_social_emisor }}</td>
-                  <td>{{ f.numero_factura }}</td>
-                  <td>{{ f.fecha_emision }}</td>
-                  <td>${{ f.importe_total }}</td>
-                  <td>${{ f.iva }}</td>
-                </tr>
-                <tr v-if="facturas.length > 20">
-                  <td colspan="6" class="text-muted text-center">
-                    ... y {{ facturas.length - 20 }} más
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+              <div v-if="facturasValidas.length === 0 && proveedoresFaltantes.length === 0" class="alert alert-info">
+                No se encontraron facturas válidas para importar.
+              </div>
+            </div>
           </div>
-        </div>
-
-        <!-- Resultados -->
-        <div v-if="resultados" class="mt-3">
-          <div class="alert" :class="resultados.errores.length > 0 ? 'alert-warning' : 'alert-success'">
-            <strong>Importación completada</strong><br />
-            Total: {{ resultados.total }} | Exitosos: {{ resultados.exitosos.length }} | Errores: {{ resultados.errores.length }}
-          </div>
-          <div v-if="resultados.errores.length > 0" class="table-responsive">
-            <table class="table table-sm table-cacao">
-              <thead><tr><th>Factura</th><th>Error</th></tr></thead>
-              <tbody>
-                <tr v-for="e in resultados.errores" :key="e.factura">
-                  <td>{{ e.factura }}</td>
-                  <td class="text-danger">{{ e.error }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div v-if="resultados.resultados && resultados.resultados.length > 0" class="table-responsive">
-            <table class="table table-sm table-cacao">
-              <thead><tr><th>Factura</th><th>Tipo</th><th>Estado</th></tr></thead>
-              <tbody>
-                <tr v-for="r in resultados.resultados.slice(0, 20)" :key="r.factura">
-                  <td>{{ r.factura }}</td>
-                  <td><span class="badge" :class="r.tipo === 'inventario' ? 'bg-success' : 'bg-info'">{{ r.tipo }}</span></td>
-                  <td><span class="badge bg-success">Exitoso</span></td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="cerrarModal">Cerrar</button>
+            <button class="btn btn-success" @click="importarSeleccionadas" :disabled="!haySeleccionadas || importando">
+              <i class="fas fa-save" :class="{ 'fa-spin': importando }"></i>
+              {{ importando ? 'Importando...' : 'Importar Seleccionadas' }}
+            </button>
           </div>
         </div>
       </div>
@@ -110,78 +123,246 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useMongoDB } from '../../composables/useMongoDB'
+import { ref, computed } from 'vue'
+import { Modal } from 'bootstrap'
+import { useMongoDB } from '../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
 
 const toast = useToast()
-const { request } = useMongoDB()
-const fileInput = ref(null)
-const facturas = ref([])
-const rucComprador = ref('1311552069')
-const tipoPorDefecto = ref('gasto')
-const cargando = ref(false)
-const resultados = ref(null)
+const { find, insertOne, request } = useMongoDB()
+const emit = defineEmits(['importado'])
 
+// Estado del modal
+let modalInstance = null
+const fileInput = ref(null)
+const archivoCargado = ref(false)
+const nombreArchivo = ref('')
+const lineas = ref([])
+const procesado = ref(false)
+const procesando = ref(false)
+const importando = ref(false)
+
+// Datos procesados
+const proveedoresFaltantes = ref([])
+const facturasValidas = ref([])
+const proveedoresMap = ref({})
+
+// Computed
+const haySeleccionadas = computed(() => {
+  return facturasValidas.value.some(f => f.seleccionada)
+})
+
+// Abrir modal
+const abrirModal = () => {
+  if (!modalInstance) {
+    const modalEl = document.getElementById('modalImportarFacturas')
+    modalInstance = new Modal(modalEl, {
+      backdrop: 'static',
+      keyboard: false
+    })
+  }
+  // Resetear estado
+  archivoCargado.value = false
+  nombreArchivo.value = ''
+  lineas.value = []
+  procesado.value = false
+  proveedoresFaltantes.value = []
+  facturasValidas.value = []
+  proveedoresMap.value = {}
+  modalInstance.show()
+}
+
+const cerrarModal = () => {
+  if (modalInstance) {
+    modalInstance.hide()
+  }
+}
+
+// Manejar selección de archivo
 const handleFileUpload = (event) => {
   const file = event.target.files[0]
   if (!file) return
-
+  archivoCargado.value = true
+  nombreArchivo.value = file.name
   const reader = new FileReader()
   reader.onload = (e) => {
     const contenido = e.target.result
-    const lineas = contenido.split('\n')
-    
-    // Obtener encabezados
-    const encabezados = lineas[0].split('\t').map(h => h.trim())
-    
-    const facturasParseadas = []
-    for (let i = 1; i < lineas.length; i++) {
-      if (!lineas[i].trim()) continue
-      const valores = lineas[i].split('\t')
-      if (valores.length < 11) continue
-      
-      const factura = {}
-      encabezados.forEach((key, idx) => {
-        factura[key] = valores[idx]?.trim() || ''
-      })
-      facturasParseadas.push(factura)
-    }
-    
-    facturas.value = facturasParseadas
-    toast.success(`Se encontraron ${facturasParseadas.length} facturas en el archivo`)
+    lineas.value = contenido.split('\n')
+      .filter(line => line.trim() !== '')
+      .map(line => line.split('\t').map(c => c.trim()))
+    // Filtrar líneas que tengan al menos 11 columnas
+    lineas.value = lineas.value.filter(campos => campos.length >= 11)
+    toast.info(`Archivo cargado: ${lineas.value.length} líneas procesadas`)
   }
   reader.readAsText(file)
 }
 
-const limpiarArchivo = () => {
-  fileInput.value.value = ''
-  facturas.value = []
-  resultados.value = null
-}
-
-const importarFacturas = async () => {
-  if (!facturas.value.length) {
-    toast.warning('No hay facturas para importar')
+// Procesar archivo
+const procesarArchivo = async () => {
+  if (lineas.value.length === 0) {
+    toast.warning('No hay líneas para procesar')
     return
   }
 
-  cargando.value = true
+  procesando.value = true
   try {
-    const data = await request('/compras/importar-facturas', {
-      method: 'POST',
-      body: JSON.stringify({
-        facturas: facturas.value,
-        rucComprador: rucComprador.value,
-        tipoCompraPorDefecto: tipoPorDefecto.value
-      })
+    // Obtener todos los proveedores existentes
+    const proveedores = await find('proveedores')
+    const proveedoresPorRuc = {}
+    proveedores.forEach(p => {
+      proveedoresPorRuc[p.ruc] = p
     })
-    resultados.value = data
-    toast.success(data.mensaje)
+    proveedoresMap.value = proveedoresPorRuc
+
+    const faltantes = []
+    const validas = []
+
+    for (const campos of lineas.value) {
+      const [
+        ruc_emisor,
+        razon_social_emisor,
+        tipo_comprobante,
+        serie_comprobante,
+        clave_acceso,
+        fecha_autorizacion,
+        fecha_emision,
+        identificacion_receptor,
+        valor_sin_impuestos,
+        iva,
+        importe_total
+      ] = campos
+
+      const total = parseFloat(importe_total) || 0
+      if (total === 0) continue
+
+      const proveedor = proveedoresPorRuc[ruc_emisor]
+      if (!proveedor) {
+        faltantes.push({
+          ruc: ruc_emisor,
+          razon_social: razon_social_emisor
+        })
+        continue
+      }
+
+      validas.push({
+        ruc_emisor,
+        razon_social: razon_social_emisor,
+        proveedor: proveedor,
+        fecha: fecha_emision,
+        numero_factura: serie_comprobante,
+        valor_sin_impuestos: parseFloat(valor_sin_impuestos) || 0,
+        iva: parseFloat(iva) || 0,
+        total: total,
+        tipo_compra: 'inventario',
+        seleccionada: true,
+        detalles: [
+          {
+            productoId: null,
+            cantidad: 1,
+            costo_unitario: total,
+            aplica_iva: parseFloat(iva) > 0
+          }
+        ]
+      })
+    }
+
+    proveedoresFaltantes.value = faltantes
+    facturasValidas.value = validas
+    procesado.value = true
+
+    if (faltantes.length > 0) {
+      toast.warning(`${faltantes.length} proveedores no encontrados. Cree o omita para continuar.`)
+    }
+    if (validas.length === 0 && faltantes.length === 0) {
+      toast.info('No se encontraron facturas válidas')
+    } else {
+      toast.success(`${validas.length} facturas listas para importar`)
+    }
+  } catch (e) {
+    toast.error('Error al procesar archivo: ' + e.message)
+  } finally {
+    procesando.value = false
+  }
+}
+
+// Crear proveedor desde el modal
+const crearProveedor = async (prov) => {
+  try {
+    const nuevo = {
+      ruc: prov.ruc,
+      nombre: prov.razon_social,
+      telefono: '',
+      email: '',
+      direccion: ''
+    }
+    const result = await insertOne('proveedores', nuevo)
+    // Actualizar mapa de proveedores
+    proveedoresMap.value[prov.ruc] = { ...nuevo, _id: result.insertedId }
+    // Eliminar de la lista de faltantes
+    proveedoresFaltantes.value = proveedoresFaltantes.value.filter(p => p.ruc !== prov.ruc)
+    // Actualizar facturas que usaban este proveedor
+    facturasValidas.value = facturasValidas.value.map(f => {
+      if (f.ruc_emisor === prov.ruc) {
+        return { ...f, proveedor: proveedoresMap.value[prov.ruc] }
+      }
+      return f
+    })
+    toast.success(`Proveedor ${prov.razon_social} creado`)
+  } catch (e) {
+    toast.error('Error al crear proveedor: ' + e.message)
+  }
+}
+
+const omitirProveedor = (ruc) => {
+  proveedoresFaltantes.value = proveedoresFaltantes.value.filter(p => p.ruc !== ruc)
+  // Ocultar facturas de ese proveedor
+  facturasValidas.value = facturasValidas.value.filter(f => f.ruc_emisor !== ruc)
+  toast.info('Proveedor omitido')
+}
+
+// Importar facturas seleccionadas
+const importarSeleccionadas = async () => {
+  const seleccionadas = facturasValidas.value.filter(f => f.seleccionada)
+  if (seleccionadas.length === 0) {
+    toast.warning('Seleccione al menos una factura')
+    return
+  }
+
+  importando.value = true
+  try {
+    const payload = seleccionadas.map(f => ({
+      proveedorId: f.proveedor._id,
+      numero_factura: f.numero_factura,
+      fecha_emision: f.fecha,
+      detalles: f.detalles,
+      subtotal: f.valor_sin_impuestos,
+      iva: f.iva,
+      total: f.total,
+      tipo_compra: f.tipo_compra,
+      estado_pago: 'pendiente',
+      forma_pago: '',
+      observaciones: `Importado desde TXT. Emisor: ${f.razon_social}`
+    }))
+
+    const response = await request('/compras/importar-txt', {
+      method: 'POST',
+      body: JSON.stringify({ facturas: payload })
+    })
+
+    if (response.success) {
+      toast.success(`Importadas ${response.importadas} facturas correctamente`)
+      if (response.errores && response.errores.length > 0) {
+        toast.warning(`Errores: ${response.errores.join(', ')}`)
+      }
+      emit('importado')
+      cerrarModal()
+    } else {
+      toast.error('Error al importar: ' + (response.error || 'Error desconocido'))
+    }
   } catch (e) {
     toast.error('Error al importar: ' + e.message)
   } finally {
-    cargando.value = false
+    importando.value = false
   }
 }
 </script>
