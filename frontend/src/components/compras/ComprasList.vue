@@ -165,7 +165,8 @@ import { useToast } from 'vue-toastification'
 import { Modal } from 'bootstrap'
 
 const toast = useToast()
-const { find, deleteOne, request } = useMongoDB()
+const { find, deleteOne } = useMongoDB()
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 const compras = ref([])
 const modalInstance = ref(null)
 
@@ -201,7 +202,6 @@ const abrirModalImportar = () => {
     const modalEl = document.getElementById('modalImportar')
     modalInstance.value = new Modal(modalEl, { backdrop: 'static' })
   }
-  // Resetear estado al abrir
   lineas.value = []
   resultadoImportacion.value = null
   importando.value = false
@@ -219,7 +219,7 @@ const procesarArchivo = (event) => {
     const contenido = e.target.result
     const lineasRaw = contenido.split('\n').filter(line => line.trim() !== '')
 
-    // Saltar encabezado (primera línea si tiene nombres de columnas)
+    // Saltar encabezado
     const dataLines = lineasRaw[0].toLowerCase().includes('ruc_emisor') ? lineasRaw.slice(1) : lineasRaw
 
     const parsed = dataLines.map(line => {
@@ -247,7 +247,7 @@ const procesarArchivo = (event) => {
   reader.readAsText(file)
 }
 
-// Importar facturas al backend
+// Importar facturas usando fetch directo (evita problemas con request)
 const importarFacturas = async () => {
   if (lineas.value.length === 0) {
     toast.warning('No hay líneas para importar')
@@ -258,30 +258,39 @@ const importarFacturas = async () => {
   resultadoImportacion.value = null
 
   try {
-    const payload = {
-      lineas: lineas.value,
-      tipo_compra: tipoImportacion.value
-    }
-    const response = await request('/compras/importar-txt', {
+    const url = `${API_BASE_URL}/compras/importar-txt`
+    console.log('📡 Enviando a:', url)
+    console.log('📦 Datos:', { lineas: lineas.value, tipo_compra: tipoImportacion.value })
+
+    const response = await fetch(url, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lineas: lineas.value,
+        tipo_compra: tipoImportacion.value
+      })
     })
-    resultadoImportacion.value = response
-    toast.success(`Importación completada: ${response.importados} facturas`)
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Error ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('✅ Respuesta:', data)
+    resultadoImportacion.value = data
+    toast.success(`Importación completada: ${data.importados} facturas`)
 
     // Recargar lista de compras
     await cargarCompras()
 
-    // Si hay errores, no cerramos el modal para que el usuario los vea
-    if (response.errores.length > 0) {
-      // Mantener abierto
-    } else {
-      // Si todo ok, cerrar después de 2 segundos
+    if (data.errores.length === 0) {
       setTimeout(() => {
         if (modalInstance.value) modalInstance.value.hide()
       }, 2000)
     }
   } catch (e) {
+    console.error('❌ Error en importación:', e)
     toast.error('Error en la importación: ' + e.message)
   } finally {
     importando.value = false

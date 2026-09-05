@@ -48,7 +48,7 @@ export function useMongoDB() {
     })
   }
 
-  // Métodos específicos (Kardex, Reportes, etc.)
+  // Métodos específicos
   async function getProductosStockBajo() {
     return request('/productos/stock/bajo')
   }
@@ -101,6 +101,7 @@ export function useMongoDB() {
   return {
     loading,
     error,
+    request,  // <-- Asegúrate de exportar request
     find,
     findById,
     insertOne,
