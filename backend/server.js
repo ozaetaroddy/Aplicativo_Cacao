@@ -15,6 +15,8 @@ const reportesRoutes = require('./routes/reportes');
 const consultasRoutes = require('./routes/consultas');
 const secuenciasRoutes = require('./routes/secuencias');
 const contadoresRoutes = require('./routes/contadores');
+const retencionesRoutes = require('./routes/retenciones');
+const reportesMensualesRoutes = require('./routes/reportesMensuales');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -56,6 +58,8 @@ app.use('/api/reportes', reportesRoutes);
 app.use('/api/consultas', consultasRoutes);
 app.use('/api/secuencias', secuenciasRoutes);
 app.use('/api/contadores', contadoresRoutes);
+app.use('/api/retenciones', retencionesRoutes);
+app.use('/api/reportes', reportesMensualesRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {

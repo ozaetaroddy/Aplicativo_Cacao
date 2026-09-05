@@ -5,7 +5,7 @@
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar" novalidate>
-          <!-- Proveedor -->
+          <!-- ===== PROVEEDOR ===== -->
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Proveedor</label>
@@ -22,7 +22,7 @@
             </div>
           </div>
 
-          <!-- Nº Factura y Fecha -->
+          <!-- ===== DATOS DE FACTURA ===== -->
           <div class="row g-3 mt-2">
             <div class="col-md-4">
               <label class="form-label">Nº Factura</label>
@@ -32,11 +32,18 @@
               <label class="form-label"><span class="text-danger">*</span> Fecha Emisión</label>
               <input type="date" class="form-control" v-model="compra.fecha_emision" required />
             </div>
+            <div class="col-md-4">
+              <label class="form-label"><span class="text-danger">*</span> Tipo de Compra</label>
+              <select class="form-select" v-model="compra.tipo_compra" required>
+                <option value="inventario">Inventario (Cacao, insumos)</option>
+                <option value="gasto">Gasto (Servicios, papelería, honorarios)</option>
+              </select>
+            </div>
           </div>
 
+          <!-- ===== DETALLES DE COMPRA ===== -->
           <hr />
           <h5>Detalles de compra</h5>
-
           <div v-for="(item, index) in compra.detalles" :key="index" class="row g-2 align-items-end mb-2">
             <div class="col-md-3">
               <label class="form-label">Producto</label>
@@ -83,6 +90,7 @@
             </router-link>
           </div>
 
+          <!-- ===== TOTALES ===== -->
           <hr />
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
@@ -98,6 +106,42 @@
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Total</label>
               <input type="text" class="form-control" :value="formatCurrency(total)" readonly style="font-weight:700;" />
+            </div>
+          </div>
+
+          <!-- ===== PAGO Y RETENCIÓN ===== -->
+          <hr />
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">Estado de Pago</label>
+              <select class="form-select" v-model="compra.estado_pago">
+                <option value="pendiente">Pendiente</option>
+                <option value="pagado">Pagado</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Forma de Pago</label>
+              <select class="form-select" v-model="compra.forma_pago">
+                <option value="">Seleccionar</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia Bancaria</option>
+                <option value="cheque">Cheque</option>
+                <option value="credito">Crédito</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Fecha de Pago</label>
+              <input type="date" class="form-control" v-model="compra.fecha_pago" />
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Valor Retenido ($)</label>
+              <input type="number" step="0.01" class="form-control" v-model.number="compra.retencion_valor" min="0" />
+            </div>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Observaciones</label>
+              <textarea class="form-control" v-model="compra.observaciones" rows="2" placeholder="Notas adicionales"></textarea>
             </div>
           </div>
 
@@ -119,7 +163,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
@@ -133,6 +177,7 @@ const productos = ref([])
 const cargando = ref(false)
 const errorGeneral = ref('')
 
+// ===== DATOS DE LA COMPRA (con nuevos campos) =====
 const compra = ref({
   proveedorId: '',
   numero_factura: '',
@@ -140,7 +185,15 @@ const compra = ref({
   detalles: [],
   subtotal: 0,
   iva: 0,
-  total: 0
+  total: 0,
+  // NUEVOS CAMPOS
+  tipo_compra: 'inventario',
+  estado_pago: 'pendiente',
+  forma_pago: '',
+  fecha_pago: '',
+  retencion_valor: 0,
+  retencion_porcentaje: 0,
+  observaciones: ''
 })
 
 const errores = ref({
@@ -157,7 +210,6 @@ const generarCodigoCompra = () => {
 // ===== AGREGAR / ELIMINAR DETALLE =====
 const agregarDetalle = () => {
   compra.value.detalles.push({ productoId: '', cantidad: 1, costo_unitario: 0, aplica_iva: true })
-  // Expandir array de errores
   errores.value.detalles.push({ producto: '', cantidad: '', costo: '' })
 }
 
@@ -166,7 +218,7 @@ const eliminarDetalle = (index) => {
   errores.value.detalles.splice(index, 1)
 }
 
-// ===== CARGAR PRECIO =====
+// ===== CARGAR PRECIO DEL PRODUCTO =====
 const cargarPrecio = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
   if (prod) {
@@ -196,7 +248,7 @@ const total = computed(() => {
   return roundTo2(subtotal.value + iva.value)
 })
 
-// ===== VALIDACIÓN =====
+// ===== VALIDACIÓN DEL FORMULARIO =====
 const formularioValido = computed(() => {
   // Validar proveedor
   if (!compra.value.proveedorId) {
@@ -253,7 +305,6 @@ onMounted(async () => {
 
 // ===== GUARDAR =====
 const guardar = async () => {
-  // Forzar validación
   if (!formularioValido.value) {
     errorGeneral.value = 'Corrija los errores antes de guardar'
     toast.warning('Corrija los errores antes de guardar')
@@ -276,7 +327,15 @@ const guardar = async () => {
       })),
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
-      total: roundTo2(total.value)
+      total: roundTo2(total.value),
+      // Nuevos campos
+      tipo_compra: compra.value.tipo_compra,
+      estado_pago: compra.value.estado_pago,
+      forma_pago: compra.value.forma_pago,
+      fecha_pago: compra.value.fecha_pago || null,
+      retencion_valor: compra.value.retencion_valor || 0,
+      retencion_porcentaje: compra.value.retencion_porcentaje || 0,
+      observaciones: compra.value.observaciones || ''
     }
     await insertOne('compras', payload)
     toast.success('Compra guardada exitosamente')
