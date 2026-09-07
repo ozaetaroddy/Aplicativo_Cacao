@@ -32,12 +32,6 @@
         </router-link>
       </div>
       <div class="col-md-2 col-4">
-        <router-link to="/importar-facturas" class="quick-access">
-          <div class="icon-circle" style="background: #f39c12;"><i class="fas fa-file-import"></i></div>
-          <span>Importar TXT</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
         <router-link to="/clientes/nuevo" class="quick-access">
           <div class="icon-circle" style="background: #8e44ad;"><i class="fas fa-user-plus"></i></div>
           <span>Cliente</span>
@@ -87,7 +81,7 @@
       </div>
     </div>
 
-    <!-- ===== ESTADÍSTICAS ===== -->
+    <!-- ===== ESTADÍSTICAS RÁPIDAS ===== -->
     <div class="row g-4 mb-4">
       <div class="col-lg-3 col-md-6">
         <div class="stat-card" style="border-left: 4px solid #3498db;">
@@ -135,6 +129,61 @@
       </div>
     </div>
 
+    <!-- ===== KPIS AVANZADOS ===== -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-3 col-md-6">
+        <div class="stat-card" style="border-left: 4px solid #3498db;">
+          <div class="stat-icon-wrapper" style="background: rgba(52,152,219,0.12);">
+            <i class="fas fa-credit-card" style="color:#3498db;"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-number">${{ totalFacturado.toFixed(2) }}</span>
+            <span class="stat-label">Facturado (mes)</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-3 col-md-6">
+        <div class="stat-card" style="border-left: 4px solid #e74c3c;">
+          <div class="stat-icon-wrapper" style="background: rgba(231,76,60,0.12);">
+            <i class="fas fa-exclamation-triangle" style="color:#e74c3c;"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-number">{{ cuentasPorPagar }}</span>
+            <span class="stat-label">Cuentas por Pagar</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-3 col-md-6">
+        <div class="stat-card" style="border-left: 4px solid #f39c12;">
+          <div class="stat-icon-wrapper" style="background: rgba(243,156,18,0.12);">
+            <i class="fas fa-sync-alt" style="color:#f39c12;"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-number">{{ rotacionInventario.toFixed(2) }}</span>
+            <span class="stat-label">Rotación de Inventario</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-3 col-md-6">
+        <div class="stat-card" style="border-left: 4px solid #2ecc71;">
+          <div class="stat-icon-wrapper" style="background: rgba(46,204,113,0.12);">
+            <i class="fas fa-percent" style="color:#2ecc71;"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-number">{{ margenBruto.toFixed(2) }}%</span>
+            <span class="stat-label">Margen Bruto</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== GRÁFICOS ===== -->
+    <DashboardCharts
+      :ventas-diarias="ventasDiarias"
+      :compras-diarias="comprasDiarias"
+      :dias="dias"
+    />
+
     <!-- ===== WIDGETS ===== -->
     <WidgetContainer :initial-widgets="defaultWidgets" @layout-changed="onLayoutChanged" />
 
@@ -146,20 +195,7 @@
             <i class="fas fa-file-export me-2"></i> Exportar / Importar Datos
           </div>
           <div class="card-body">
-            <div class="d-flex flex-wrap gap-2">
-              <button class="btn btn-success" @click="exportarExcel('productos')"><i class="fas fa-file-excel"></i> Productos</button>
-              <button class="btn btn-success" @click="exportarExcel('clientes')"><i class="fas fa-file-excel"></i> Clientes</button>
-              <button class="btn btn-success" @click="exportarExcel('proveedores')"><i class="fas fa-file-excel"></i> Proveedores</button>
-              <button class="btn btn-success" @click="exportarExcel('ventas')"><i class="fas fa-file-excel"></i> Ventas</button>
-              <button class="btn btn-success" @click="exportarExcel('compras')"><i class="fas fa-file-excel"></i> Compras</button>
-              <label class="btn btn-primary">
-                <i class="fas fa-file-import"></i> Importar Productos
-                <input type="file" accept=".xlsx,.xls,.csv" style="display:none" @change="importarProductos" />
-              </label>
-              <router-link to="/importar-facturas" class="btn btn-warning">
-                <i class="fas fa-file-import"></i> Importar Facturas TXT
-              </router-link>
-            </div>
+            <ExportImport />
           </div>
         </div>
       </div>
@@ -171,19 +207,27 @@
 import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../composables/useMongoDB'
 import { useEstadisticas } from '../composables/useEstadisticas'
+import DashboardCharts from './dashboard/DashboardCharts.vue'
 import WidgetContainer from './dashboard/WidgetContainer.vue'
-import * as XLSX from 'xlsx'
-import { useToast } from 'vue-toastification'
+import ExportImport from './ExportImport.vue'
 
-const toast = useToast()
-const { find, insertOne } = useMongoDB()
+const { find } = useMongoDB()
 const {
   ventasHoy,
   ventasMes,
   comprasHoy,
   comprasMes,
+  ventasDiarias,
+  comprasDiarias,
+  dias,
   cargarEstadisticas
 } = useEstadisticas()
+
+// ===== KPIS =====
+const totalFacturado = ref(0)
+const cuentasPorPagar = ref(0)
+const rotacionInventario = ref(0)
+const margenBruto = ref(0)
 
 const defaultWidgets = [
   { id: 'stats', title: 'Estadísticas', component: 'StatsWidget', size: 'col-12 col-md-6', props: {} },
@@ -197,72 +241,44 @@ const onLayoutChanged = (widgets) => {
   console.log('Layout guardado:', widgets)
 }
 
-// Exportar a Excel
-const exportarExcel = async (coleccion) => {
+// ===== CALCULAR KPIS =====
+const calcularKPIs = async () => {
   try {
-    const data = await find(coleccion)
-    if (!data || data.length === 0) {
-      toast.warning('No hay datos para exportar')
-      return
-    }
-    const formatted = data.map(item => {
-      const obj = { ...item }
-      delete obj._id
-      delete obj.createdAt
-      delete obj.updatedAt
-      return obj
-    })
-    const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(formatted)
-    XLSX.utils.book_append_sheet(wb, ws, coleccion)
-    XLSX.writeFile(wb, `${coleccion}_${new Date().toISOString().slice(0,10)}.xlsx`)
-    toast.success(`Exportación de ${coleccion} completada`)
-  } catch (e) {
-    toast.error('Error al exportar: ' + e.message)
-  }
-}
+    const [ventas, compras, productos] = await Promise.all([
+      find('ventas'),
+      find('compras'),
+      find('productos')
+    ])
 
-// Importar productos desde Excel
-const importarProductos = async (event) => {
-  const file = event.target.files[0]
-  if (!file) return
-  try {
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-      const data = new Uint8Array(e.target.result)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(firstSheet)
-      let count = 0
-      for (const row of jsonData) {
-        const producto = {
-          nombre: row.nombre || row.Nombre || row['Nombre'] || '',
-          codigo: row.codigo || row.Codigo || row['Código'] || `PROD-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
-          categoriaId: null,
-          descripcion: row.descripcion || row.Descripcion || '',
-          precio_compra: parseFloat(row.precio_compra || row.PrecioCompra || 0),
-          precio_venta: parseFloat(row.precio_venta || row.PrecioVenta || 0),
-          stock: parseFloat(row.stock || row.Stock || 0),
-          stock_minimo: parseFloat(row.stock_minimo || row.StockMinimo || 0),
-          unidad_medida: row.unidad_medida || row.UnidadMedida || 'unidad',
-          aplica_iva: row.aplica_iva !== undefined ? Boolean(row.aplica_iva) : true,
-          tipo_medida: row.tipo_medida || row.TipoMedida || 'unidad'
-        }
-        if (!producto.nombre) continue
-        await insertOne('productos', producto)
-        count++
-      }
-      toast.success(`Importados ${count} productos correctamente`)
-    }
-    reader.readAsArrayBuffer(file)
-    event.target.value = ''
+    const hoy = new Date()
+    const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+
+    // Total facturado en el mes
+    const facturadoMes = ventas
+      .filter(v => new Date(v.fecha_emision) >= inicioMes)
+      .reduce((sum, v) => sum + (v.total || 0), 0)
+    totalFacturado.value = facturadoMes
+
+    // Cuentas por pagar (compras pendientes)
+    cuentasPorPagar.value = compras.filter(c => c.estado_pago === 'pendiente').length
+
+    // Rotación de inventario (ventas totales / stock promedio)
+    const totalVentas = ventas.reduce((sum, v) => sum + (v.total || 0), 0)
+    const stockTotal = productos.reduce((sum, p) => sum + (p.stock || 0), 0)
+    rotacionInventario.value = stockTotal > 0 ? totalVentas / stockTotal : 0
+
+    // Margen bruto (ventas - compras) / ventas
+    const totalCompras = compras.reduce((sum, c) => sum + (c.total || 0), 0)
+    margenBruto.value = totalVentas > 0 ? ((totalVentas - totalCompras) / totalVentas) * 100 : 0
+
   } catch (e) {
-    toast.error('Error al importar: ' + e.message)
+    console.error('Error calculando KPIs:', e)
   }
 }
 
 onMounted(async () => {
   await cargarEstadisticas()
+  await calcularKPIs()
 })
 </script>
 
@@ -361,6 +377,7 @@ onMounted(async () => {
 .section-subtitle i {
   color: #3498db;
 }
+
 body.dark-mode .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);

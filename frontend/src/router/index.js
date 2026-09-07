@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import Login from '../views/Login.vue'
 
-// ===== LAZY LOADING (carga bajo demanda) =====
-// Componentes principales
+// ===== LAZY LOADING =====
 const Dashboard = () => import('../components/Dashboard.vue')
 const ProductosList = () => import('../components/productos/ProductosList.vue')
 const ProductoForm = () => import('../components/productos/ProductoForm.vue')
@@ -27,7 +27,6 @@ const InventarioValorizado = () => import('../components/inventario/InventarioVa
 const PlanificacionInventarios = () => import('../components/inventario/PlanificacionInventarios.vue')
 const AjustesInventario = () => import('../components/inventario/AjustesInventario.vue')
 
-// ===== NUEVOS MÓDULOS =====
 // Retenciones
 const RetencionesList = () => import('../components/retenciones/RetencionesList.vue')
 const RetencionForm = () => import('../components/retenciones/RetencionForm.vue')
@@ -35,79 +34,92 @@ const RetencionForm = () => import('../components/retenciones/RetencionForm.vue'
 // Reporte Mensual
 const ReporteMensual = () => import('../components/reportes/ReporteMensual.vue')
 
-// Importar Facturas (desde Dashboard o Compras)
+// Importar Facturas
 const ImportarFacturas = () => import('../components/compras/ImportarFacturas.vue')
 
+// ===== RUTAS =====
 const routes = [
-  // Dashboard
-  { path: '/', component: Dashboard },
+  // Login (pública)
+  { path: '/login', component: Login },
+
+  // Dashboard (requiere autenticación)
+  { path: '/', component: Dashboard, meta: { requiresAuth: true } },
 
   // Productos
-  { path: '/productos', component: ProductosList },
-  { path: '/productos/nuevo', component: ProductoForm },
-  { path: '/productos/editar/:id', component: ProductoForm, props: true },
+  { path: '/productos', component: ProductosList, meta: { requiresAuth: true } },
+  { path: '/productos/nuevo', component: ProductoForm, meta: { requiresAuth: true } },
+  { path: '/productos/editar/:id', component: ProductoForm, props: true, meta: { requiresAuth: true } },
 
   // Categorías
-  { path: '/categorias', component: CategoriasList },
-  { path: '/categorias/nuevo', component: CategoriaForm },
-  { path: '/categorias/editar/:id', component: CategoriaForm, props: true },
+  { path: '/categorias', component: CategoriasList, meta: { requiresAuth: true } },
+  { path: '/categorias/nuevo', component: CategoriaForm, meta: { requiresAuth: true } },
+  { path: '/categorias/editar/:id', component: CategoriaForm, props: true, meta: { requiresAuth: true } },
 
   // Clientes
-  { path: '/clientes', component: ClientesList },
-  { path: '/clientes/nuevo', component: ClienteForm },
-  { path: '/clientes/editar/:id', component: ClienteForm, props: true },
+  { path: '/clientes', component: ClientesList, meta: { requiresAuth: true } },
+  { path: '/clientes/nuevo', component: ClienteForm, meta: { requiresAuth: true } },
+  { path: '/clientes/editar/:id', component: ClienteForm, props: true, meta: { requiresAuth: true } },
 
   // Proveedores
-  { path: '/proveedores', component: ProveedoresList },
-  { path: '/proveedores/nuevo', component: ProveedorForm },
-  { path: '/proveedores/editar/:id', component: ProveedorForm, props: true },
+  { path: '/proveedores', component: ProveedoresList, meta: { requiresAuth: true } },
+  { path: '/proveedores/nuevo', component: ProveedorForm, meta: { requiresAuth: true } },
+  { path: '/proveedores/editar/:id', component: ProveedorForm, props: true, meta: { requiresAuth: true } },
 
   // Compras
-  { path: '/compras', component: ComprasList },
-  { path: '/compras/nuevo', component: CompraForm },
-  { path: '/compras/editar/:id', component: CompraForm, props: true },
+  { path: '/compras', component: ComprasList, meta: { requiresAuth: true } },
+  { path: '/compras/nuevo', component: CompraForm, meta: { requiresAuth: true } },
+  { path: '/compras/editar/:id', component: CompraForm, props: true, meta: { requiresAuth: true } },
 
   // Ventas
-  { path: '/ventas', component: VentasList },
-  { path: '/ventas/nuevo', component: VentaForm },
-  { path: '/ventas/editar/:id', component: VentaForm, props: true },
+  { path: '/ventas', component: VentasList, meta: { requiresAuth: true } },
+  { path: '/ventas/nuevo', component: VentaForm, meta: { requiresAuth: true } },
+  { path: '/ventas/editar/:id', component: VentaForm, props: true, meta: { requiresAuth: true } },
 
   // Kardex
-  { path: '/kardex', component: KardexView },
+  { path: '/kardex', component: KardexView, meta: { requiresAuth: true } },
 
   // Inventario
-  { path: '/inventario/stock', component: StockActual },
-  { path: '/inventario/conteo', component: ConteoFisico },
-  { path: '/inventario/valorizado', component: InventarioValorizado },
-  { path: '/inventario/planificacion', component: PlanificacionInventarios },
-  { path: '/inventario/ajustes', component: AjustesInventario },
+  { path: '/inventario/stock', component: StockActual, meta: { requiresAuth: true } },
+  { path: '/inventario/conteo', component: ConteoFisico, meta: { requiresAuth: true } },
+  { path: '/inventario/valorizado', component: InventarioValorizado, meta: { requiresAuth: true } },
+  { path: '/inventario/planificacion', component: PlanificacionInventarios, meta: { requiresAuth: true } },
+  { path: '/inventario/ajustes', component: AjustesInventario, meta: { requiresAuth: true } },
 
   // Reportes
-  { path: '/reportes/ventas', component: ReporteVentas },
-  { path: '/reportes/compras', component: ReporteCompras },
+  { path: '/reportes/ventas', component: ReporteVentas, meta: { requiresAuth: true } },
+  { path: '/reportes/compras', component: ReporteCompras, meta: { requiresAuth: true } },
+  { path: '/reportes/mensual', component: ReporteMensual, meta: { requiresAuth: true } },
   { path: '/reportes', redirect: '/reportes/ventas' },
-  
-  // ===== NUEVO: Reporte Mensual =====
-  { path: '/reportes/mensual', component: ReporteMensual },
 
-  // Consulta de documentos
-  { path: '/consultar-documentos', component: ConsultarDocumentos },
+  // Documentos
+  { path: '/consultar-documentos', component: ConsultarDocumentos, meta: { requiresAuth: true } },
 
-  // ===== NUEVO: Retenciones =====
-  { path: '/retenciones', component: RetencionesList },
-  { path: '/retenciones/nuevo', component: RetencionForm },
-  { path: '/retenciones/editar/:id', component: RetencionForm, props: true },
+  // Retenciones
+  { path: '/retenciones', component: RetencionesList, meta: { requiresAuth: true } },
+  { path: '/retenciones/nuevo', component: RetencionForm, meta: { requiresAuth: true } },
+  { path: '/retenciones/editar/:id', component: RetencionForm, props: true, meta: { requiresAuth: true } },
 
-  // ===== NUEVO: Importar Facturas =====
-  { path: '/importar-facturas', component: ImportarFacturas },
+  // Importar Facturas
+  { path: '/importar-facturas', component: ImportarFacturas, meta: { requiresAuth: true } },
 
-  // Redirección por si se pierde
+  // Redirección por error
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
+// ===== CREAR ROUTER =====
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+// ===== GUARD GLOBAL DE AUTENTICACIÓN =====
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('token')
+  if (to.meta.requiresAuth && !token) {
+    next('/login')
+  } else {
+    next()
+  }
 })
 
 export default router

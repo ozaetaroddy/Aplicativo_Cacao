@@ -1,19 +1,20 @@
-import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import Toast from 'vue-toastification'
-import 'vue-toastification/dist/index.css'
-import App from './App.vue'
-import router from './router'
-import 'bootstrap/dist/css/bootstrap.min.css'
-import 'bootstrap/dist/js/bootstrap.bundle.min.js'
-import '@fortawesome/fontawesome-free/css/all.min.css'
-import './styles.css'
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import Toast from 'vue-toastification';
+import 'vue-toastification/dist/index.css';
+import App from './App.vue';
+import router from './router';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import 'bootstrap/dist/js/bootstrap.bundle.min.js';
+import '@fortawesome/fontawesome-free/css/all.min.css';
+import './styles.css';
+import io from 'socket.io-client';
 
-const app = createApp(App)
-const pinia = createPinia()
+const app = createApp(App);
+const pinia = createPinia();
 
-app.use(pinia)
-app.use(router)
+app.use(pinia);
+app.use(router);
 app.use(Toast, {
   position: 'top-right',
   timeout: 5000,
@@ -27,8 +28,12 @@ app.use(Toast, {
   closeButton: 'button',
   icon: true,
   rtl: false
-})
+});
 
-app.mount('#app')
+// Socket.io
+const socket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
+app.config.globalProperties.$socket = socket;
 
-document.title = 'Sistema Contable'
+app.mount('#app');
+
+document.title = 'Sistema Contable';

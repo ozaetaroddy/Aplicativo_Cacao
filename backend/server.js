@@ -1,7 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ObjectId } = require('mongodb');
+const { MongoClient } = require('mongodb');
+const http = require('http');
+const socketIo = require('socket.io');
 
 // Importar rutas
 const productosRoutes = require('./routes/productos');
@@ -17,6 +19,7 @@ const secuenciasRoutes = require('./routes/secuencias');
 const contadoresRoutes = require('./routes/contadores');
 const retencionesRoutes = require('./routes/retenciones');
 const reportesMensualesRoutes = require('./routes/reportesMensuales');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -60,12 +63,35 @@ app.use('/api/secuencias', secuenciasRoutes);
 app.use('/api/contadores', contadoresRoutes);
 app.use('/api/retenciones', retencionesRoutes);
 app.use('/api/reportes', reportesMensualesRoutes);
+app.use('/api/auth', authRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
 });
 
-app.listen(port, () => {
+// ===== SOCKET.IO =====
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: { origin: '*' }
+});
+
+io.on('connection', (socket) => {
+  console.log('🟢 Cliente conectado:', socket.id);
+  socket.on('disconnect', () => {
+    console.log('🔴 Cliente desconectado:', socket.id);
+  });
+});
+
+// Emitir eventos desde las rutas (se inyecta io en req)
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+// Modificar rutas para emitir eventos (opcional, se puede hacer en cada endpoint)
+// Ejemplo: en compras.js, después de insertar, hacer req.io.emit('nueva-compra', data);
+
+server.listen(port, () => {
   console.log(`🚀 Servidor backend corriendo en http://localhost:${port}`);
 });
