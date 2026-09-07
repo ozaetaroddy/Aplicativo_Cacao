@@ -6,11 +6,9 @@ const cheerio = require('cheerio');
 router.get('/cedula/:cedula', async (req, res) => {
   try {
     const { cedula } = req.params;
-
     if (!cedula || cedula.length !== 10 || !/^\d+$/.test(cedula)) {
       return res.status(400).json({ error: 'Cédula inválida (debe tener 10 dígitos)' });
     }
-
     console.log(`🔍 Consultando cédula: ${cedula}`);
 
     const response = await axios.post(
@@ -27,10 +25,8 @@ router.get('/cedula/:cedula', async (req, res) => {
 
     const html = response.data;
     const $ = cheerio.load(html);
-
     let nombre = null;
 
-    // Estrategia 1: Buscar en la tabla de resultados (clase específica)
     $('table tbody tr').each((i, row) => {
       const cells = $(row).find('td');
       if (cells.length >= 2) {
@@ -42,24 +38,17 @@ router.get('/cedula/:cedula', async (req, res) => {
       }
     });
 
-    // Estrategia 2: Buscar cualquier texto que parezca un nombre completo
     if (!nombre) {
       const texto = $('body').text();
-      // Patrón: dos o más palabras con mayúscula inicial
       const match = texto.match(/([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,})/);
-      if (match) {
-        nombre = match[0].trim();
-      }
+      if (match) nombre = match[0].trim();
     }
 
-    // Estrategia 3: Buscar después de "Nombre:" o "Cédula:"
     if (!nombre) {
       const texto = $('body').text();
       const regex = /(?:Nombre|NOMBRE|Apellidos|APELLIDOS)\s*:\s*([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+)/;
       const match = texto.match(regex);
-      if (match && match[1]) {
-        nombre = match[1].trim();
-      }
+      if (match && match[1]) nombre = match[1].trim();
     }
 
     if (!nombre) {
@@ -69,7 +58,6 @@ router.get('/cedula/:cedula', async (req, res) => {
 
     console.log(`✅ Nombre encontrado: ${nombre}`);
     res.json({ nombre });
-
   } catch (error) {
     console.error('❌ Error en scraping:', error.message);
     res.status(500).json({ error: 'Error al consultar el servicio externo' });

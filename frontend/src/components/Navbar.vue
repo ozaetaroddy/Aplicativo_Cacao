@@ -117,7 +117,7 @@
 
         <div class="d-flex align-items-center gap-3">
           <SearchBar class="search-bar-nav" />
-          <ThemeToggle />
+          <ThemeToggle />  <!-- Esto ahora apunta al componente correcto -->
           <span class="navbar-text">
             <i class="fas fa-database me-1"></i> MongoDB
           </span>
@@ -130,7 +130,7 @@
 <script setup>
 import { ref } from 'vue'
 import SearchBar from './SearchBar.vue'
-import ThemeToggle from './ThemeToggle.vue'
+import ThemeToggle from './ThemeToggle.vue' // Asegurar que el archivo existe con este nombre
 
 const navbarAbierto = ref(false)
 const dropdowns = ref({

@@ -1,17 +1,12 @@
 const express = require('express');
 const router = express.Router();
 
-// Obtener siguiente número secuencial para un tipo de documento
 router.post('/siguiente', async (req, res) => {
   try {
     const { tipo } = req.body;
-    if (!tipo) {
-      return res.status(400).json({ error: 'Tipo de documento es requerido' });
-    }
+    if (!tipo) return res.status(400).json({ error: 'Tipo de documento es requerido' });
 
     const collection = req.db.collection('contadores');
-    
-    // Buscar y actualizar atómicamente
     const result = await collection.findOneAndUpdate(
       { _id: tipo },
       { $inc: { valor: 1 } },

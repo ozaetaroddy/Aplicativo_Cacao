@@ -30,11 +30,13 @@ app.use(Toast, {
   rtl: false
 });
 
-// Socket.io
+// Socket.io - proveer globalmente
 const socket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
   transports: ['websocket'],
   upgrade: false
 });
+app.provide('socket', socket); // <-- Proveer socket
+
 app.config.globalProperties.$socket = socket;
 
 app.mount('#app');

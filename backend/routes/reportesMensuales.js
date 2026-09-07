@@ -1,8 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { ObjectId } = require('mongodb');
 
-// Reporte mensual para declaración (IVA, retenciones, base imponible)
 router.get('/declaracion/:mes/:anio', async (req, res) => {
   try {
     const { mes, anio } = req.params;
@@ -10,7 +8,6 @@ router.get('/declaracion/:mes/:anio', async (req, res) => {
     const fin = new Date(anio, mes, 0);
     fin.setHours(23, 59, 59, 999);
 
-    // Obtener compras del mes
     const compras = await req.db.collection('compras_v2').aggregate([
       { $match: { fecha_emision: { $gte: inicio, $lte: fin } } },
       {
@@ -24,12 +21,10 @@ router.get('/declaracion/:mes/:anio', async (req, res) => {
       { $unwind: '$proveedor' }
     ]).toArray();
 
-    // Obtener retenciones del mes
     const retenciones = await req.db.collection('retenciones').find({
       fecha_emision: { $gte: inicio, $lte: fin }
     }).toArray();
 
-    // Totales
     const totalComprasInventario = compras
       .filter(c => c.tipo_compra === 'inventario')
       .reduce((sum, c) => sum + c.total, 0);

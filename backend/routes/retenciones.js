@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 
-// Obtener todas las retenciones
 router.get('/', async (req, res) => {
   try {
     const retenciones = await req.db.collection('retenciones').aggregate([
@@ -23,7 +22,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Crear retención (manual o desde compra)
 router.post('/', async (req, res) => {
   try {
     const {
@@ -33,7 +31,7 @@ router.post('/', async (req, res) => {
       fecha_emision,
       valor_retenido,
       porcentaje,
-      tipo // 'compra' o 'manual'
+      tipo
     } = req.body;
 
     if (!ObjectId.isValid(proveedorId)) {
@@ -57,17 +55,12 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Eliminar retención
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'ID inválido' });
-    }
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
     const result = await req.db.collection('retenciones').deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Retención no encontrada' });
-    }
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Retención no encontrada' });
     res.json({ message: 'Retención eliminada' });
   } catch (err) {
     res.status(500).json({ error: err.message });

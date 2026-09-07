@@ -1,8 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
+const { body, validationResult } = require('express-validator');
 
-// ===== OBTENER TODAS LAS COMPRAS =====
+// Validaciones para crear/actualizar compra
+const validarCompra = [
+  body('proveedorId').isMongoId().withMessage('ID de proveedor inválido'),
+  body('fecha_emision').isISO8601().withMessage('Fecha inválida'),
+  body('detalles').isArray({ min: 1 }).withMessage('Debe incluir al menos un detalle'),
+  body('subtotal').isNumeric().withMessage('Subtotal debe ser número'),
+  body('iva').isNumeric().withMessage('IVA debe ser número'),
+  body('total').isNumeric().withMessage('Total debe ser número'),
+];
+
+// OBTENER TODAS
 router.get('/', async (req, res) => {
   try {
     const compras = await req.db.collection('compras_v2').aggregate([
@@ -23,13 +34,11 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ===== OBTENER COMPRA POR ID =====
+// OBTENER POR ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'ID inválido' });
-    }
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
     const compra = await req.db.collection('compras_v2').aggregate([
       { $match: { _id: new ObjectId(id) } },
       {
@@ -42,17 +51,18 @@ router.get('/:id', async (req, res) => {
       },
       { $unwind: '$proveedor' }
     ]).toArray();
-    if (compra.length === 0) {
-      return res.status(404).json({ error: 'Compra no encontrada' });
-    }
+    if (compra.length === 0) return res.status(404).json({ error: 'Compra no encontrada' });
     res.json(compra[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===== CREAR COMPRA =====
-router.post('/', async (req, res) => {
+// CREAR
+router.post('/', validarCompra, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
   try {
     const {
       proveedorId, numero_factura, fecha_emision,
@@ -62,15 +72,11 @@ router.post('/', async (req, res) => {
       observaciones
     } = req.body;
 
-    if (!ObjectId.isValid(proveedorId)) {
-      return res.status(400).json({ error: 'ID de proveedor inválido' });
-    }
-
     const session = req.db.client.startSession();
     let result;
 
     await session.withTransaction(async () => {
-      // Generar código secuencial
+      // Generar código
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: 'compra' },
         { $inc: { valor: 1 } },
@@ -99,10 +105,14 @@ router.post('/', async (req, res) => {
       const compraResult = await req.db.collection('compras_v2').insertOne(compra, { session });
       const compraId = compraResult.insertedId;
 
-      // ===== ACTUALIZAR INVENTARIO SOLO SI ES INVENTARIO =====
+      // Actualizar inventario si es inventario
       if (tipo_compra === 'inventario') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
+          // Verificar que el producto existe
+          const producto = await req.db.collection('productos').findOne({ _id: productoId }, { session });
+          if (!producto) throw new Error(`Producto ${detalle.productoId} no encontrado`);
+
           const cantidad = detalle.cantidad;
           const costoUnitario = detalle.costo_unitario;
 
@@ -116,15 +126,13 @@ router.post('/', async (req, res) => {
           );
 
           const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
-          const saldoActual = productoActualizado.stock;
-
           await req.db.collection('kardex').insertOne({
             productoId,
             fecha: new Date(fecha_emision),
             tipo_movimiento: 'compra',
             cantidad,
             costo_unitario: costoUnitario,
-            saldo: saldoActual,
+            saldo: productoActualizado.stock,
             referencia_id: compraId,
             referencia_tipo: 'compra',
             createdAt: new Date()
@@ -132,7 +140,7 @@ router.post('/', async (req, res) => {
         }
       }
 
-      // ===== REGISTRAR RETENCIÓN SI APLICA =====
+      // Registrar retención si aplica
       if (retencion_valor > 0) {
         await req.db.collection('retenciones').insertOne({
           compraId: compraId,
@@ -163,6 +171,9 @@ router.post('/', async (req, res) => {
       { $unwind: '$proveedor' }
     ]).toArray();
 
+    // Emitir evento socket
+    if (req.io) req.io.emit('nueva-compra', compraCreada[0]);
+
     res.status(201).json(compraCreada[0]);
   } catch (err) {
     console.error('Error en compra:', err);
@@ -170,13 +181,18 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ===== ACTUALIZAR COMPRA =====
-router.put('/:id', async (req, res) => {
+// ACTUALIZAR (con ajuste de inventario)
+router.put('/:id', validarCompra, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'ID inválido' });
-    }
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const compraActual = await req.db.collection('compras_v2').findOne({ _id: new ObjectId(id) });
+    if (!compraActual) return res.status(404).json({ error: 'Compra no encontrada' });
+
     const {
       proveedorId, numero_factura, fecha_emision,
       detalles, subtotal, iva, total,
@@ -184,54 +200,163 @@ router.put('/:id', async (req, res) => {
       fecha_pago, retencion_valor, retencion_porcentaje,
       observaciones
     } = req.body;
-    const updateData = {
-      proveedorId: new ObjectId(proveedorId),
-      numero_factura,
-      fecha_emision: new Date(fecha_emision),
-      detalles,
-      subtotal,
-      iva,
-      total,
-      tipo_compra,
-      estado_pago,
-      forma_pago,
-      fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
-      retencion_valor: retencion_valor || 0,
-      retencion_porcentaje: retencion_porcentaje || 0,
-      observaciones: observaciones || '',
-      updatedAt: new Date()
-    };
-    const result = await req.db.collection('compras_v2').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ error: 'Compra no encontrada' });
-    }
-    res.json({ message: 'Compra actualizada' });
+
+    const session = req.db.client.startSession();
+    await session.withTransaction(async () => {
+      // Si la compra anterior era de inventario, revertir su efecto
+      if (compraActual.tipo_compra === 'inventario') {
+        for (const detalle of compraActual.detalles) {
+          const productoId = new ObjectId(detalle.productoId);
+          await req.db.collection('productos').updateOne(
+            { _id: productoId },
+            { $inc: { stock: -detalle.cantidad } },
+            { session }
+          );
+          // Eliminar movimientos de kardex asociados a esta compra
+          await req.db.collection('kardex').deleteMany({
+            referencia_id: new ObjectId(id),
+            referencia_tipo: 'compra'
+          }, { session });
+        }
+      }
+
+      // Actualizar la compra
+      const updateData = {
+        proveedorId: new ObjectId(proveedorId),
+        numero_factura,
+        fecha_emision: new Date(fecha_emision),
+        detalles,
+        subtotal,
+        iva,
+        total,
+        tipo_compra,
+        estado_pago,
+        forma_pago,
+        fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
+        retencion_valor: retencion_valor || 0,
+        retencion_porcentaje: retencion_porcentaje || 0,
+        observaciones: observaciones || '',
+        updatedAt: new Date()
+      };
+      await req.db.collection('compras_v2').updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateData },
+        { session }
+      );
+
+      // Aplicar nuevo efecto si es inventario
+      if (tipo_compra === 'inventario') {
+        for (const detalle of detalles) {
+          const productoId = new ObjectId(detalle.productoId);
+          const producto = await req.db.collection('productos').findOne({ _id: productoId }, { session });
+          if (!producto) throw new Error(`Producto ${detalle.productoId} no encontrado`);
+
+          await req.db.collection('productos').updateOne(
+            { _id: productoId },
+            {
+              $inc: { stock: detalle.cantidad },
+              $set: { precio_compra: detalle.costo_unitario, updatedAt: new Date() }
+            },
+            { session }
+          );
+
+          const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
+          await req.db.collection('kardex').insertOne({
+            productoId,
+            fecha: new Date(fecha_emision),
+            tipo_movimiento: 'compra',
+            cantidad: detalle.cantidad,
+            costo_unitario: detalle.costo_unitario,
+            saldo: productoActualizado.stock,
+            referencia_id: new ObjectId(id),
+            referencia_tipo: 'compra',
+            createdAt: new Date()
+          }, { session });
+        }
+      }
+
+      // Actualizar retención (eliminar y recrear)
+      await req.db.collection('retenciones').deleteMany({ compraId: new ObjectId(id) }, { session });
+      if (retencion_valor > 0) {
+        await req.db.collection('retenciones').insertOne({
+          compraId: new ObjectId(id),
+          proveedorId: new ObjectId(proveedorId),
+          numero_factura,
+          fecha_emision: new Date(fecha_emision),
+          valor_retenido: retencion_valor,
+          porcentaje: retencion_porcentaje || 0,
+          tipo: 'compra',
+          createdAt: new Date()
+        }, { session });
+      }
+    });
+
+    // Obtener compra actualizada
+    const compraActualizada = await req.db.collection('compras_v2').aggregate([
+      { $match: { _id: new ObjectId(id) } },
+      {
+        $lookup: {
+          from: 'proveedores',
+          localField: 'proveedorId',
+          foreignField: '_id',
+          as: 'proveedor'
+        }
+      },
+      { $unwind: '$proveedor' }
+    ]).toArray();
+
+    if (req.io) req.io.emit('compra-actualizada', compraActualizada[0]);
+    res.json(compraActualizada[0]);
   } catch (err) {
+    console.error('Error actualizando compra:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===== ELIMINAR COMPRA =====
+// ELIMINAR (revertir inventario)
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'ID inválido' });
-    }
-    const result = await req.db.collection('compras_v2').deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Compra no encontrada' });
-    }
-    res.json({ message: 'Compra eliminada' });
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const compra = await req.db.collection('compras_v2').findOne({ _id: new ObjectId(id) });
+    if (!compra) return res.status(404).json({ error: 'Compra no encontrada' });
+
+    const session = req.db.client.startSession();
+    await session.withTransaction(async () => {
+      // Revertir inventario si era inventario
+      if (compra.tipo_compra === 'inventario') {
+        for (const detalle of compra.detalles) {
+          const productoId = new ObjectId(detalle.productoId);
+          await req.db.collection('productos').updateOne(
+            { _id: productoId },
+            { $inc: { stock: -detalle.cantidad } },
+            { session }
+          );
+        }
+        // Eliminar movimientos de kardex
+        await req.db.collection('kardex').deleteMany({
+          referencia_id: new ObjectId(id),
+          referencia_tipo: 'compra'
+        }, { session });
+      }
+
+      // Eliminar retenciones asociadas
+      await req.db.collection('retenciones').deleteMany({ compraId: new ObjectId(id) }, { session });
+
+      // Eliminar la compra
+      await req.db.collection('compras_v2').deleteOne({ _id: new ObjectId(id) }, { session });
+    });
+
+    if (req.io) req.io.emit('compra-eliminada', { id });
+    res.json({ message: 'Compra eliminada correctamente' });
   } catch (err) {
+    console.error('Error eliminando compra:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===== REPORTE MENSUAL PARA DECLARACIÓN =====
+// REPORTE MENSUAL
 router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   try {
     const { mes, anio } = req.params;
@@ -240,11 +365,7 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
     fin.setHours(23, 59, 59, 999);
 
     const compras = await req.db.collection('compras_v2').aggregate([
-      {
-        $match: {
-          fecha_emision: { $gte: inicio, $lte: fin }
-        }
-      },
+      { $match: { fecha_emision: { $gte: inicio, $lte: fin } } },
       {
         $lookup: {
           from: 'proveedores',
@@ -279,7 +400,7 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   }
 });
 
-// ===== IMPORTAR FACTURAS DESDE TXT (CON TIPO INDIVIDUAL) =====
+// IMPORTAR TXT (mejorado)
 router.post('/importar-txt', async (req, res) => {
   try {
     const { lineas } = req.body;
@@ -291,7 +412,6 @@ router.post('/importar-txt', async (req, res) => {
     const errores = [];
     const resultados = [];
 
-    // Procesar cada línea
     for (const linea of lineas) {
       try {
         const {
@@ -301,7 +421,8 @@ router.post('/importar-txt', async (req, res) => {
           total,
           valorSinImpuestos,
           iva,
-          tipo_compra // <--- TIPO INDIVIDUAL (inventario | gasto)
+          tipo_compra,
+          codigoProducto // nuevo: permitir especificar código de producto
         } = linea;
 
         if (!ruc || !total || total === 0) {
@@ -309,10 +430,9 @@ router.post('/importar-txt', async (req, res) => {
           continue;
         }
 
-        // Buscar proveedor por RUC (si no existe, crearlo)
+        // Buscar proveedor
         let proveedor = await req.db.collection('proveedores').findOne({ ruc });
         if (!proveedor) {
-          // Crear proveedor automáticamente
           const nuevoProveedor = {
             nombre: razonSocial || `Proveedor ${ruc}`,
             ruc: ruc,
@@ -323,13 +443,26 @@ router.post('/importar-txt', async (req, res) => {
           };
           const resultProv = await req.db.collection('proveedores').insertOne(nuevoProveedor);
           proveedor = { ...nuevoProveedor, _id: resultProv.insertedId };
-          console.log(`✅ Proveedor creado: ${razonSocial} (RUC: ${ruc})`);
         }
 
-        // Crear compra
+        // Determinar producto a usar
+        let productoId = null;
+        if (codigoProducto) {
+          const prod = await req.db.collection('productos').findOne({ codigo: codigoProducto });
+          if (prod) productoId = prod._id;
+        }
+        if (!productoId) {
+          // Buscar por nombre "CACAO" o similar (fallback)
+          const prod = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } });
+          if (prod) productoId = prod._id;
+        }
+        if (!productoId) {
+          errores.push(`No se encontró producto para la compra (RUC: ${ruc})`);
+          continue;
+        }
+
         const session = req.db.client.startSession();
         await session.withTransaction(async () => {
-          // Generar código secuencial
           const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
             { _id: 'compra' },
             { $inc: { valor: 1 } },
@@ -343,7 +476,7 @@ router.post('/importar-txt', async (req, res) => {
             fecha_emision: new Date(fechaEmision || new Date()),
             detalles: [
               {
-                productoId: null, // Se asignará manualmente
+                productoId: productoId,
                 cantidad: 1,
                 costo_unitario: parseFloat(total) || 0,
                 aplica_iva: parseFloat(iva) > 0
@@ -352,7 +485,7 @@ router.post('/importar-txt', async (req, res) => {
             subtotal: parseFloat(valorSinImpuestos) || 0,
             iva: parseFloat(iva) || 0,
             total: parseFloat(total) || 0,
-            tipo_compra: tipo_compra || 'inventario', // <--- TIPO INDIVIDUAL
+            tipo_compra: tipo_compra || 'inventario',
             estado_pago: 'pendiente',
             forma_pago: '',
             fecha_pago: null,
@@ -366,34 +499,27 @@ router.post('/importar-txt', async (req, res) => {
           const compraResult = await req.db.collection('compras_v2').insertOne(compraData, { session });
           const compraId = compraResult.insertedId;
 
-          // Si es inventario, actualizar stock (buscar producto por nombre o usar genérico)
           if (tipo_compra === 'inventario') {
-            // Buscar un producto de inventario (ej: "CACAO")
-            const producto = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } });
-            if (producto) {
-              await req.db.collection('productos').updateOne(
-                { _id: producto._id },
-                {
-                  $inc: { stock: 1 },
-                  $set: { precio_compra: parseFloat(total), updatedAt: new Date() }
-                },
-                { session }
-              );
-              const productoActualizado = await req.db.collection('productos').findOne({ _id: producto._id }, { session });
-              await req.db.collection('kardex').insertOne({
-                productoId: producto._id,
-                fecha: compraData.fecha_emision,
-                tipo_movimiento: 'compra',
-                cantidad: 1,
-                costo_unitario: parseFloat(total),
-                saldo: productoActualizado.stock,
-                referencia_id: compraId,
-                referencia_tipo: 'compra',
-                createdAt: new Date()
-              }, { session });
-            } else {
-              errores.push(`No se encontró producto para inventario (RUC: ${ruc})`);
-            }
+            await req.db.collection('productos').updateOne(
+              { _id: productoId },
+              {
+                $inc: { stock: 1 },
+                $set: { precio_compra: parseFloat(total), updatedAt: new Date() }
+              },
+              { session }
+            );
+            const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
+            await req.db.collection('kardex').insertOne({
+              productoId,
+              fecha: compraData.fecha_emision,
+              tipo_movimiento: 'compra',
+              cantidad: 1,
+              costo_unitario: parseFloat(total),
+              saldo: productoActualizado.stock,
+              referencia_id: compraId,
+              referencia_tipo: 'compra',
+              createdAt: new Date()
+            }, { session });
           }
 
           resultados.push({ compraId, numero: compraData.numero_factura });
@@ -410,7 +536,6 @@ router.post('/importar-txt', async (req, res) => {
       errores,
       resultados
     });
-
   } catch (err) {
     console.error('Error en importación:', err);
     res.status(500).json({ error: err.message });

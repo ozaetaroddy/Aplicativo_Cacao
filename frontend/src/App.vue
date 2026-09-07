@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, getCurrentInstance } from 'vue'
+import { computed, onMounted, ref, inject } from 'vue' // <-- usar inject
 import { useRoute } from 'vue-router'
 import { useToast } from 'vue-toastification'
 import Navbar from './components/Navbar.vue'
@@ -38,9 +38,10 @@ const isLoginPage = computed(() => route.path === '/login')
 const isAuthenticated = computed(() => !!localStorage.getItem('token'))
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 
-// Socket.io
+// Socket.io - inyectar
+const socket = inject('socket')
+
 onMounted(() => {
-  const socket = getCurrentInstance()?.appContext?.config?.globalProperties?.$socket
   if (socket) {
     socket.on('nueva-compra', (data) => {
       toast.info(`📥 Nueva compra: ${data.data?.numero_factura || 'Factura'}`)
@@ -51,7 +52,3 @@ onMounted(() => {
   }
 })
 </script>
-
-<style>
-/* Los estilos están en styles.css */
-</style>

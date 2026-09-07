@@ -94,26 +94,26 @@ const onSearch = () => {
           icon = 'fas fa-user'
           title = item.nombre
           subtitle = `RUC: ${item.ruc} | ${item.telefono}`
-          routePath = `/clientes/editar/${item._id}`  // <--- EDICIÓN
+          routePath = `/clientes/editar/${item._id}`
           break
         case 'productos':
           icon = 'fas fa-box'
           title = item.nombre
           const codigo = typeof item.codigo === 'object' ? Object.values(item.codigo).join('') : (item.codigo || 'N/A')
           subtitle = `Código: ${codigo} | Stock: ${item.stock}`
-          routePath = `/productos/editar/${item._id}`  // <--- EDICIÓN
+          routePath = `/productos/editar/${item._id}`
           break
         case 'ventas':
           icon = 'fas fa-file-invoice'
           title = `Factura ${item.numero_factura || 'N/A'}`
           subtitle = `Cliente: ${item.cliente?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          routePath = `/ventas/editar/${item._id}`  // <--- EDICIÓN
+          routePath = `/ventas/editar/${item._id}`
           break
         case 'compras':
           icon = 'fas fa-shopping-cart'
           title = `Compra ${item.numero_factura || 'N/A'}`
           subtitle = `Proveedor: ${item.proveedor?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          routePath = `/compras/editar/${item._id}`  // <--- EDICIÓN
+          routePath = `/compras/editar/${item._id}`
           break
       }
       allResults.push({ id: item._id, icon, title, subtitle, routePath })
@@ -145,9 +145,7 @@ const closeResults = () => {
 onMounted(loadData)
 </script>
 
-
 <style scoped>
-/* (estilos existentes) */
 .search-container { position: relative; width: 100%; max-width: 500px; }
 .search-input-wrapper { position: relative; display: flex; align-items: center; }
 .search-icon { position: absolute; left: 14px; color: #7f8c8d; font-size: 0.9rem; }

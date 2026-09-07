@@ -1,8 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
+const { body, validationResult } = require('express-validator');
 
-// Obtener todas las ventas
+const validarVenta = [
+  body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
+  body('fecha_emision').isISO8601().withMessage('Fecha inválida'),
+  body('detalles').isArray({ min: 1 }).withMessage('Debe incluir al menos un detalle'),
+  body('subtotal').isNumeric().withMessage('Subtotal debe ser número'),
+  body('iva').isNumeric().withMessage('IVA debe ser número'),
+  body('total').isNumeric().withMessage('Total debe ser número'),
+];
+
 router.get('/', async (req, res) => {
   try {
     const ventas = await req.db.collection('ventas_v2').aggregate([
@@ -23,13 +32,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Obtener venta por ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'ID inválido' });
-    }
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
     const venta = await req.db.collection('ventas_v2').aggregate([
       { $match: { _id: new ObjectId(id) } },
       {
@@ -42,17 +48,17 @@ router.get('/:id', async (req, res) => {
       },
       { $unwind: '$cliente' }
     ]).toArray();
-    if (venta.length === 0) {
-      return res.status(404).json({ error: 'Venta no encontrada' });
-    }
+    if (venta.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
     res.json(venta[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Crear venta
-router.post('/', async (req, res) => {
+router.post('/', validarVenta, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
   try {
     const {
       clienteId, numero_factura, fecha_emision, tipo_documento,
@@ -60,28 +66,30 @@ router.post('/', async (req, res) => {
       numero_guia, transportista, placa,
       numero_exportacion, pais_destino,
       numero_retencion, porcentaje_retencion,
-      // Nuevos campos para guía de remisión
       establecimiento, nombre_comercial, punto_emision,
       transportista_identificacion, transportista_tipo,
       transportista_razon_social, transportista_correo,
       direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
-      // Campos adicionales para guía
       destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
       destinatario_direccion, ruta, motivo, documento_aduana,
       comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
       comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision
     } = req.body;
 
-    if (!ObjectId.isValid(clienteId)) {
-      return res.status(400).json({ error: 'ID de cliente inválido' });
-    }
-
     const session = req.db.client.startSession();
     let result;
 
     await session.withTransaction(async () => {
-      const tipoDoc = tipo_documento || 'factura';
+      // Validar stock de cada producto antes de continuar
+      for (const detalle of detalles) {
+        const producto = await req.db.collection('productos').findOne({ _id: new ObjectId(detalle.productoId) }, { session });
+        if (!producto) throw new Error(`Producto ${detalle.productoId} no existe`);
+        if (producto.stock < detalle.cantidad) {
+          throw new Error(`Stock insuficiente para producto ${producto.nombre}. Disponible: ${producto.stock}, requerido: ${detalle.cantidad}`);
+        }
+      }
 
+      const tipoDoc = tipo_documento || 'factura';
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: tipoDoc },
         { $inc: { valor: 1 } },
@@ -137,7 +145,6 @@ router.post('/', async (req, res) => {
         inicio_transporte: inicio_transporte || '',
         fin_transporte: fin_transporte || '',
         placa_transporte: placa_transporte || '',
-        // Nuevos campos
         destinatario_identificacion: destinatario_identificacion || '',
         destinatario_tipo: destinatario_tipo || '',
         destinatario_razon_social: destinatario_razon_social || '',
@@ -158,7 +165,7 @@ router.post('/', async (req, res) => {
       const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
       const ventaId = ventaResult.insertedId;
 
-      // Actualizar stock y kardex (solo si no es guía ni nota de crédito)
+      // Actualizar stock y kardex (solo si no es nota crédito ni guía)
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
@@ -207,6 +214,7 @@ router.post('/', async (req, res) => {
       { $unwind: '$cliente' }
     ]).toArray();
 
+    if (req.io) req.io.emit('nueva-venta', ventaCreada[0]);
     res.status(201).json(ventaCreada[0]);
   } catch (err) {
     console.error('Error en venta:', err);
@@ -214,13 +222,18 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Actualizar venta
-router.put('/:id', async (req, res) => {
+// ACTUALIZAR (con ajuste de inventario)
+router.put('/:id', validarVenta, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'ID inválido' });
-    }
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const ventaActual = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
+    if (!ventaActual) return res.status(404).json({ error: 'Venta no encontrada' });
+
     const {
       clienteId, numero_factura, fecha_emision, tipo_documento,
       detalles, subtotal, iva, total,
@@ -237,74 +250,168 @@ router.put('/:id', async (req, res) => {
       comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision
     } = req.body;
 
-    const updateData = {
-      clienteId: new ObjectId(clienteId),
-      numero_factura,
-      fecha_emision: new Date(fecha_emision),
-      tipo_documento: tipo_documento || 'factura',
-      detalles,
-      subtotal,
-      iva,
-      total,
-      numero_guia,
-      transportista,
-      placa,
-      numero_exportacion,
-      pais_destino,
-      numero_retencion,
-      porcentaje_retencion,
-      establecimiento,
-      nombre_comercial,
-      punto_emision,
-      transportista_identificacion,
-      transportista_tipo,
-      transportista_razon_social,
-      transportista_correo,
-      direccion_partida,
-      inicio_transporte,
-      fin_transporte,
-      placa_transporte,
-      destinatario_identificacion,
-      destinatario_tipo,
-      destinatario_razon_social,
-      destinatario_direccion,
-      ruta,
-      motivo,
-      documento_aduana,
-      comprobante_tipo_emision,
-      comprobante_documento,
-      comprobante_clave_acceso,
-      comprobante_numero_autorizacion,
-      comprobante_numero,
-      comprobante_fecha_emision,
-      updatedAt: new Date()
-    };
-    const result = await req.db.collection('ventas_v2').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ error: 'Venta no encontrada' });
-    }
-    res.json({ message: 'Venta actualizada' });
+    const session = req.db.client.startSession();
+    await session.withTransaction(async () => {
+      // Revertir venta anterior (si no era nota crédito ni guía)
+      if (ventaActual.tipo_documento !== 'nota_credito' && ventaActual.tipo_documento !== 'guia_remision') {
+        for (const detalle of ventaActual.detalles) {
+          const productoId = new ObjectId(detalle.productoId);
+          await req.db.collection('productos').updateOne(
+            { _id: productoId },
+            { $inc: { stock: detalle.cantidad } },
+            { session }
+          );
+          await req.db.collection('kardex').deleteMany({
+            referencia_id: new ObjectId(id),
+            referencia_tipo: 'venta'
+          }, { session });
+        }
+      }
+
+      // Validar stock para los nuevos detalles
+      for (const detalle of detalles) {
+        const producto = await req.db.collection('productos').findOne({ _id: new ObjectId(detalle.productoId) }, { session });
+        if (!producto) throw new Error(`Producto ${detalle.productoId} no existe`);
+        // El stock actual ya incluye la reversión anterior, pero debemos considerar que otros usuarios puedan haber cambiado
+        // En una aplicación real, se debe manejar concurrencia. Aquí simplificamos.
+        const stockDisponible = producto.stock;
+        if (stockDisponible < detalle.cantidad) {
+          throw new Error(`Stock insuficiente para producto ${producto.nombre}. Disponible: ${stockDisponible}, requerido: ${detalle.cantidad}`);
+        }
+      }
+
+      // Actualizar datos de la venta
+      const updateData = {
+        clienteId: new ObjectId(clienteId),
+        numero_factura,
+        fecha_emision: new Date(fecha_emision),
+        tipo_documento: tipo_documento || 'factura',
+        detalles,
+        subtotal,
+        iva,
+        total,
+        numero_guia,
+        transportista,
+        placa,
+        numero_exportacion,
+        pais_destino,
+        numero_retencion,
+        porcentaje_retencion,
+        establecimiento,
+        nombre_comercial,
+        punto_emision,
+        transportista_identificacion,
+        transportista_tipo,
+        transportista_razon_social,
+        transportista_correo,
+        direccion_partida,
+        inicio_transporte,
+        fin_transporte,
+        placa_transporte,
+        destinatario_identificacion,
+        destinatario_tipo,
+        destinatario_razon_social,
+        destinatario_direccion,
+        ruta,
+        motivo,
+        documento_aduana,
+        comprobante_tipo_emision,
+        comprobante_documento,
+        comprobante_clave_acceso,
+        comprobante_numero_autorizacion,
+        comprobante_numero,
+        comprobante_fecha_emision,
+        updatedAt: new Date()
+      };
+      await req.db.collection('ventas_v2').updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateData },
+        { session }
+      );
+
+      // Aplicar nuevo efecto si no es nota crédito ni guía
+      if (tipo_documento !== 'nota_credito' && tipo_documento !== 'guia_remision') {
+        for (const detalle of detalles) {
+          const productoId = new ObjectId(detalle.productoId);
+          await req.db.collection('productos').updateOne(
+            { _id: productoId },
+            {
+              $inc: { stock: -detalle.cantidad },
+              $set: { updatedAt: new Date() }
+            },
+            { session }
+          );
+          const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
+          await req.db.collection('kardex').insertOne({
+            productoId,
+            fecha: new Date(fecha_emision),
+            tipo_movimiento: 'venta',
+            cantidad: -detalle.cantidad,
+            costo_unitario: detalle.precio_unitario,
+            saldo: productoActualizado.stock,
+            referencia_id: new ObjectId(id),
+            referencia_tipo: 'venta',
+            createdAt: new Date()
+          }, { session });
+        }
+      }
+    });
+
+    const ventaActualizada = await req.db.collection('ventas_v2').aggregate([
+      { $match: { _id: new ObjectId(id) } },
+      {
+        $lookup: {
+          from: 'clientes',
+          localField: 'clienteId',
+          foreignField: '_id',
+          as: 'cliente'
+        }
+      },
+      { $unwind: '$cliente' }
+    ]).toArray();
+
+    if (req.io) req.io.emit('venta-actualizada', ventaActualizada[0]);
+    res.json(ventaActualizada[0]);
   } catch (err) {
+    console.error('Error actualizando venta:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Eliminar venta
+// ELIMINAR (revertir inventario)
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'ID inválido' });
-    }
-    const result = await req.db.collection('ventas_v2').deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Venta no encontrada' });
-    }
-    res.json({ message: 'Venta eliminada' });
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    const session = req.db.client.startSession();
+    await session.withTransaction(async () => {
+      // Revertir inventario si no era nota crédito ni guía
+      if (venta.tipo_documento !== 'nota_credito' && venta.tipo_documento !== 'guia_remision') {
+        for (const detalle of venta.detalles) {
+          const productoId = new ObjectId(detalle.productoId);
+          await req.db.collection('productos').updateOne(
+            { _id: productoId },
+            { $inc: { stock: detalle.cantidad } },
+            { session }
+          );
+        }
+        await req.db.collection('kardex').deleteMany({
+          referencia_id: new ObjectId(id),
+          referencia_tipo: 'venta'
+        }, { session });
+      }
+
+      await req.db.collection('ventas_v2').deleteOne({ _id: new ObjectId(id) }, { session });
+    });
+
+    if (req.io) req.io.emit('venta-eliminada', { id });
+    res.json({ message: 'Venta eliminada correctamente' });
   } catch (err) {
+    console.error('Error eliminando venta:', err);
     res.status(500).json({ error: err.message });
   }
 });
