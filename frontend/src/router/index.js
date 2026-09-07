@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Login from '../views/Login.vue'
+import Login from '../components/Login.vue' // <--- CORREGIDO
 
 // ===== LAZY LOADING =====
 const Dashboard = () => import('../components/Dashboard.vue')
