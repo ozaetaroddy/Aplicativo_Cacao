@@ -31,7 +31,10 @@ app.use(Toast, {
 });
 
 // Socket.io
-const socket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
+const socket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
+  transports: ['websocket'],
+  upgrade: false
+});
 app.config.globalProperties.$socket = socket;
 
 app.mount('#app');
