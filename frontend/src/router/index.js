@@ -1,11 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
-// Cambia la ruta según donde tengas Login.vue
-// Opción 1: si está en components/
-import Login from '../components/Login.vue'
-// Opción 2: si lo mueves a views/, usa:
-// import Login from '../views/Login.vue'
 
 // ===== LAZY LOADING =====
+const Login = () => import('../components/Login.vue')
 const Dashboard = () => import('../components/Dashboard.vue')
 const ProductosList = () => import('../components/productos/ProductosList.vue')
 const ProductoForm = () => import('../components/productos/ProductoForm.vue')
@@ -86,15 +82,24 @@ const router = createRouter({
   routes,
 })
 
+// ===== GUARD DE RUTAS CORREGIDO =====
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  if (to.meta.requiresAuth && !token) {
-    next('/login')
-  } else if (to.path === '/login' && token) {
-    next('/')
-  } else {
-    next()
+  const publicPages = ['/login']
+  const authRequired = !publicPages.includes(to.path)
+
+  // Si está en login y tiene token, redirige al home (evita bucle)
+  if (to.path === '/login' && token) {
+    return next('/')
   }
+
+  // Si la ruta requiere autenticación y no hay token, redirige a login
+  if (authRequired && !token) {
+    return next('/login')
+  }
+
+  // En cualquier otro caso, permite el acceso
+  next()
 })
 
 export default router
