@@ -285,7 +285,7 @@ import { useToast } from 'vue-toastification'
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
-const { find, findById, insertOne } = useMongoDB()
+const { find, findById, insertOne, updateOne } = useMongoDB()
 const clientes = ref([])
 const productos = ref([])
 const cargando = ref(false)
@@ -495,9 +495,7 @@ onMounted(async () => {
       console.log('📦 Datos recibidos:', data)
       if (data) {
         venta.value = data
-        // Asegurar que los detalles tengan aplica_iva
         if (venta.value.detalles.length === 0) agregarDetalle()
-        // Asignar códigos si no tienen
         if (!venta.value.numero_factura) asignarCodigos()
       } else {
         errorGeneral.value = 'No se encontró la venta'
@@ -573,8 +571,14 @@ const guardar = async () => {
       comprobante_numero: venta.value.comprobante_numero,
       comprobante_fecha_emision: venta.value.comprobante_fecha_emision
     }
-    await insertOne('ventas', payload)
-    toast.success('Documento guardado exitosamente')
+
+    if (id) {
+      await updateOne('ventas', id, payload)
+      toast.success('Documento actualizado exitosamente')
+    } else {
+      await insertOne('ventas', payload)
+      toast.success('Documento creado exitosamente')
+    }
     router.push('/ventas')
   } catch (e) {
     errorGeneral.value = 'Error al guardar: ' + e.message

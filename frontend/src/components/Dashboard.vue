@@ -185,7 +185,7 @@
     />
 
     <!-- ===== WIDGETS ===== -->
-    <WidgetContainer :initial-widgets="defaultWidgets" @layout-changed="onLayoutChanged" />
+    <WidgetContainer :initial-widgets="defaultWidgets" />
 
     <!-- ===== EXPORTAR / IMPORTAR ===== -->
     <div class="row g-4 mt-2">

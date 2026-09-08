@@ -109,7 +109,6 @@ router.post('/', validarCompra, async (req, res) => {
       if (tipo_compra === 'inventario') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
-          // Verificar que el producto existe
           const producto = await req.db.collection('productos').findOne({ _id: productoId }, { session });
           if (!producto) throw new Error(`Producto ${detalle.productoId} no encontrado`);
 
@@ -400,7 +399,7 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   }
 });
 
-// IMPORTAR TXT (mejorado)
+// IMPORTAR TXT (mejorado con transacción por lote)
 router.post('/importar-txt', async (req, res) => {
   try {
     const { lineas } = req.body;
@@ -408,65 +407,65 @@ router.post('/importar-txt', async (req, res) => {
       return res.status(400).json({ error: 'No se enviaron líneas para importar' });
     }
 
-    let importados = 0;
-    const errores = [];
+    const session = req.db.client.startSession();
     const resultados = [];
+    const errores = [];
+    let importados = 0;
 
-    for (const linea of lineas) {
-      try {
-        const {
-          ruc,
-          razonSocial,
-          fechaEmision,
-          total,
-          valorSinImpuestos,
-          iva,
-          tipo_compra,
-          codigoProducto // nuevo: permitir especificar código de producto
-        } = linea;
+    await session.withTransaction(async () => {
+      for (const linea of lineas) {
+        try {
+          const {
+            ruc,
+            razonSocial,
+            fechaEmision,
+            total,
+            valorSinImpuestos,
+            iva,
+            tipo_compra,
+            codigoProducto
+          } = linea;
 
-        if (!ruc || !total || total === 0) {
-          errores.push(`Línea sin RUC o total: ${JSON.stringify(linea)}`);
-          continue;
-        }
+          if (!ruc || !total || total === 0) {
+            errores.push(`Línea sin RUC o total: ${JSON.stringify(linea)}`);
+            continue;
+          }
 
-        // Buscar proveedor
-        let proveedor = await req.db.collection('proveedores').findOne({ ruc });
-        if (!proveedor) {
-          const nuevoProveedor = {
-            nombre: razonSocial || `Proveedor ${ruc}`,
-            ruc: ruc,
-            telefono: '',
-            email: '',
-            direccion: '',
-            createdAt: new Date()
-          };
-          const resultProv = await req.db.collection('proveedores').insertOne(nuevoProveedor);
-          proveedor = { ...nuevoProveedor, _id: resultProv.insertedId };
-        }
+          // Buscar proveedor (o crearlo)
+          let proveedor = await req.db.collection('proveedores').findOne({ ruc }, { session });
+          if (!proveedor) {
+            const nuevoProveedor = {
+              nombre: razonSocial || `Proveedor ${ruc}`,
+              ruc: ruc,
+              telefono: '',
+              email: '',
+              direccion: '',
+              createdAt: new Date()
+            };
+            const resultProv = await req.db.collection('proveedores').insertOne(nuevoProveedor, { session });
+            proveedor = { ...nuevoProveedor, _id: resultProv.insertedId };
+          }
 
-        // Determinar producto a usar
-        let productoId = null;
-        if (codigoProducto) {
-          const prod = await req.db.collection('productos').findOne({ codigo: codigoProducto });
-          if (prod) productoId = prod._id;
-        }
-        if (!productoId) {
-          // Buscar por nombre "CACAO" o similar (fallback)
-          const prod = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } });
-          if (prod) productoId = prod._id;
-        }
-        if (!productoId) {
-          errores.push(`No se encontró producto para la compra (RUC: ${ruc})`);
-          continue;
-        }
+          // Determinar producto
+          let productoId = null;
+          if (codigoProducto) {
+            const prod = await req.db.collection('productos').findOne({ codigo: codigoProducto }, { session });
+            if (prod) productoId = prod._id;
+          }
+          if (!productoId) {
+            const prod = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } }, { session });
+            if (prod) productoId = prod._id;
+          }
+          if (!productoId) {
+            errores.push(`No se encontró producto para la compra (RUC: ${ruc})`);
+            continue;
+          }
 
-        const session = req.db.client.startSession();
-        await session.withTransaction(async () => {
+          // Generar código de compra
           const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
             { _id: 'compra' },
             { $inc: { valor: 1 } },
-            { upsert: true, returnDocument: 'after' }
+            { upsert: true, returnDocument: 'after', session }
           );
           const codigo = `COM-${String(contadorResult.valor).padStart(6, '0')}`;
 
@@ -524,11 +523,12 @@ router.post('/importar-txt', async (req, res) => {
 
           resultados.push({ compraId, numero: compraData.numero_factura });
           importados++;
-        });
-      } catch (e) {
-        errores.push(`Error en línea: ${e.message}`);
+        } catch (lineaError) {
+          // Si una línea falla, lanzamos error para revertir toda la transacción
+          throw new Error(`Error en línea: ${lineaError.message}`);
+        }
       }
-    }
+    });
 
     res.json({
       success: true,

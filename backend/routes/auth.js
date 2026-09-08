@@ -54,11 +54,15 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'El email ya está registrado' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
+    // Por seguridad, siempre asignamos rol 'vendedor' en registro público
+    // Si se requiere admin, se debe crear desde un panel con autenticación.
+    const assignedRol = 'vendedor';
+
     const newUser = {
       nombre,
       email,
       password: hashedPassword,
-      rol: rol || 'vendedor',
+      rol: assignedRol,
       activo: true,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -66,6 +70,7 @@ router.post('/register', async (req, res) => {
     const result = await req.db.collection('usuarios').insertOne(newUser);
     res.status(201).json({ message: 'Usuario creado exitosamente', userId: result.insertedId });
   } catch (err) {
+    console.error('❌ Error en register:', err);
     res.status(500).json({ error: err.message });
   }
 });

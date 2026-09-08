@@ -171,10 +171,10 @@ import { ref, onMounted } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
 import { Modal } from 'bootstrap'
+import { api } from '../../services/api' // <-- Importamos api
 
 const toast = useToast()
 const { find, deleteOne } = useMongoDB()
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 const compras = ref([])
 const modalInstance = ref(null)
 
@@ -244,7 +244,6 @@ const procesarArchivo = (event) => {
         valorSinImpuestos: parseFloat(campos[8]) || 0,
         iva: parseFloat(campos[9]) || 0,
         total: parseFloat(campos[10]) || 0,
-        // Campo nuevo: tipo de compra (por defecto inventario)
         tipo: 'inventario',
         fecha: campos[6] ? new Date(campos[6]).toLocaleDateString() : ''
       }
@@ -264,7 +263,7 @@ const seleccionarTodos = (tipo) => {
   })
 }
 
-// Importar facturas usando fetch directo
+// Importar facturas usando api.request (con token)
 const importarFacturas = async () => {
   if (lineas.value.length === 0) {
     toast.warning('No hay líneas para importar')
@@ -275,7 +274,6 @@ const importarFacturas = async () => {
   resultadoImportacion.value = null
 
   try {
-    // Construir payload con el tipo individual de cada línea
     const payload = {
       lineas: lineas.value.map(linea => ({
         ruc: linea.ruc,
@@ -284,28 +282,15 @@ const importarFacturas = async () => {
         total: linea.total,
         valorSinImpuestos: linea.valorSinImpuestos,
         iva: linea.iva,
-        tipo_compra: linea.tipo // <--- TIPO INDIVIDUAL
-      })),
-      tipo_compra_global: null // Ya no usamos global
+        tipo_compra: linea.tipo
+      }))
     }
 
-    const url = `${API_BASE_URL}/compras/importar-txt`
-    console.log('📡 Enviando a:', url)
-    console.log('📦 Datos:', payload)
-
-    const response = await fetch(url, {
+    const data = await api.request('/compras/importar-txt', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
 
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || `Error ${response.status}`)
-    }
-
-    const data = await response.json()
-    console.log('✅ Respuesta:', data)
     resultadoImportacion.value = data
     toast.success(`Importación completada: ${data.importados} facturas`)
 

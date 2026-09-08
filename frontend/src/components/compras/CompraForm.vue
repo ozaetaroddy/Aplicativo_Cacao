@@ -172,7 +172,7 @@ import { useToast } from 'vue-toastification'
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
-const { find, findById, insertOne } = useMongoDB()
+const { find, findById, insertOne, updateOne } = useMongoDB()
 const proveedores = ref([])
 const productos = ref([])
 const cargando = ref(false)
@@ -352,8 +352,14 @@ const guardar = async () => {
       retencion_porcentaje: compra.value.retencion_porcentaje || 0,
       observaciones: compra.value.observaciones || ''
     }
-    await insertOne('compras', payload)
-    toast.success('Compra guardada exitosamente')
+
+    if (id) {
+      await updateOne('compras', id, payload)
+      toast.success('Compra actualizada exitosamente')
+    } else {
+      await insertOne('compras', payload)
+      toast.success('Compra creada exitosamente')
+    }
     router.push('/compras')
   } catch (e) {
     errorGeneral.value = 'Error al guardar compra: ' + e.message

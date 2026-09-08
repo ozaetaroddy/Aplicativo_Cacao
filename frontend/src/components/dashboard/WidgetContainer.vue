@@ -42,15 +42,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted, defineAsyncComponent } from 'vue'
+import { ref, onMounted, defineAsyncComponent, defineProps } from 'vue'
 import draggable from 'vuedraggable'
 
-// Importación estática de los widgets (para evitar problemas de carga dinámica)
+// Importación estática de los widgets
 import StatsWidget from './widgets/StatsWidget.vue'
 import VentasChartWidget from './widgets/VentasChartWidget.vue'
 import ComprasChartWidget from './widgets/ComprasChartWidget.vue'
 import TopProductosWidget from './widgets/TopProductosWidget.vue'
 import ActividadRecienteWidget from './widgets/ActividadRecienteWidget.vue'
+
+const props = defineProps({
+  initialWidgets: {
+    type: Array,
+    default: () => []
+  }
+})
 
 const componentMap = {
   StatsWidget,
@@ -83,13 +90,18 @@ const loadLayout = () => {
       return
     } catch (e) {}
   }
-  widgets.value = availableWidgets.map(w => ({
-    id: w.id,
-    title: w.label,
-    component: w.component,
-    size: w.size,
-    props: {}
-  }))
+  // Si se pasan widgets iniciales, usarlos; si no, usar los por defecto
+  if (props.initialWidgets && props.initialWidgets.length) {
+    widgets.value = props.initialWidgets
+  } else {
+    widgets.value = availableWidgets.map(w => ({
+      id: w.id,
+      title: w.label,
+      component: w.component,
+      size: w.size,
+      props: {}
+    }))
+  }
 }
 
 const saveLayout = () => {
@@ -137,6 +149,7 @@ const removeWidget = (id) => {
 
 onMounted(loadLayout)
 </script>
+
 
 <style scoped>
 .widget-container { padding: 10px 0; }
