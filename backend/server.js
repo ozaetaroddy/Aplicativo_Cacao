@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-//const rateLimit = require('express-rate-limit');
+const rateLimit = require('express-rate-limit');
 const { MongoClient } = require('mongodb');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -26,12 +26,20 @@ const retencionesRoutes = require('./routes/retenciones');
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middlewares de seguridad
+// ===== MIDDLEWARES DE SEGURIDAD =====
 app.use(helmet());
+
+// Rate limiter - Aumentado a 500 para evitar 429 en desarrollo
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 500, // límite de 500 peticiones por IP (antes 100)
+  message: { error: 'Demasiadas peticiones, intente más tarde' }
+}));
+
 app.use(cors());
 app.use(express.json());
 
-// Conexión a MongoDB
+// ===== CONEXIÓN A MONGODB =====
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME;
 let db;
@@ -57,13 +65,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware de autenticación (protege todas las rutas excepto auth y health)
-const authMiddleware = require('./middleware/auth');
+// ===== RUTAS PÚBLICAS (sin autenticación) =====
 app.use('/api/auth', authRoutes);
-app.use('/api/health', (_req, res) => res.json({ status: 'OK', timestamp: new Date() }));
+app.use('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
+
+// ===== MIDDLEWARE DE AUTENTICACIÓN =====
+const authMiddleware = require('./middleware/auth');
 app.use('/api', authMiddleware); // a partir de aquí, todo requiere token
 
-// Rutas protegidas
+// ===== RUTAS PROTEGIDAS =====
 app.use('/api/productos', productosRoutes);
 app.use('/api/categorias', categoriasRoutes);
 app.use('/api/clientes', clientesRoutes);
@@ -78,7 +88,7 @@ app.use('/api/secuencias', secuenciasRoutes);
 app.use('/api/contadores', contadoresRoutes);
 app.use('/api/retenciones', retencionesRoutes);
 
-// Middleware de manejo de errores (debe ir al final)
+// ===== MANEJO DE ERRORES (debe ir al final) =====
 const errorHandler = require('./middleware/errorHandler');
 app.use(errorHandler);
 
@@ -96,11 +106,13 @@ io.on('connection', (socket) => {
 });
 
 // Inyectar io en req para emitir eventos desde las rutas
-app.use((req, _res, next) => {
+app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
+// ===== INICIAR SERVIDOR =====
 server.listen(port, () => {
   console.log(`🚀 Servidor backend corriendo en http://localhost:${port}`);
+  console.log(`📡 Entorno: ${process.env.NODE_ENV || 'desarrollo'}`);
 });
