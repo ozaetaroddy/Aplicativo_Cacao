@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+//const rateLimit = require('express-rate-limit');
 const { MongoClient } = require('mongodb');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -28,11 +28,6 @@ const port = process.env.PORT || 5000;
 
 // Middlewares de seguridad
 app.use(helmet());
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100, // límite de 100 peticiones por IP
-  message: { error: 'Demasiadas peticiones, intente más tarde' }
-}));
 app.use(cors());
 app.use(express.json());
 
@@ -65,7 +60,7 @@ app.use((req, res, next) => {
 // Middleware de autenticación (protege todas las rutas excepto auth y health)
 const authMiddleware = require('./middleware/auth');
 app.use('/api/auth', authRoutes);
-app.use('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
+app.use('/api/health', (_req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 app.use('/api', authMiddleware); // a partir de aquí, todo requiere token
 
 // Rutas protegidas
@@ -101,7 +96,7 @@ io.on('connection', (socket) => {
 });
 
 // Inyectar io en req para emitir eventos desde las rutas
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   req.io = io;
   next();
 });
