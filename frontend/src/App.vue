@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, inject } from 'vue' // <-- usar inject
+import { computed, onMounted, ref, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'vue-toastification'
 import Navbar from './components/Navbar.vue'
@@ -33,12 +33,10 @@ import NotificationStock from './components/NotificationStock.vue'
 const route = useRoute()
 const toast = useToast()
 
-// Estado de autenticación
 const isLoginPage = computed(() => route.path === '/login')
 const isAuthenticated = computed(() => !!localStorage.getItem('token'))
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 
-// Socket.io - inyectar
 const socket = inject('socket')
 
 onMounted(() => {
@@ -52,3 +50,7 @@ onMounted(() => {
   }
 })
 </script>
+
+<style>
+/* Los estilos ya están en styles.css */
+</style>
