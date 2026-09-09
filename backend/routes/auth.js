@@ -74,5 +74,58 @@ router.post('/register', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Actualizar perfil del usuario autenticado
+router.put('/perfil', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const { nombre, email, telefono, password, passwordActual } = req.body
+
+    // Buscar usuario
+    const user = await req.db.collection('usuarios').findOne({ _id: new ObjectId(userId) })
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' })
+    }
+
+    // Preparar datos a actualizar
+    const updateData = {
+      nombre: nombre || user.nombre,
+      email: email || user.email,
+      telefono: telefono || user.telefono || '',
+      updatedAt: new Date()
+    }
+
+    // Si se quiere cambiar contraseña
+    if (password) {
+      // Verificar contraseña actual
+      const bcrypt = require('bcryptjs')
+      const passwordMatch = await bcrypt.compare(passwordActual, user.password)
+      if (!passwordMatch) {
+        return res.status(400).json({ error: 'Contraseña actual incorrecta' })
+      }
+      // Hashear nueva contraseña
+      const hashedPassword = await bcrypt.hash(password, 10)
+      updateData.password = hashedPassword
+    }
+
+    await req.db.collection('usuarios').updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: updateData }
+    )
+
+    // Devolver datos actualizados (sin password)
+    const updatedUser = await req.db.collection('usuarios').findOne(
+      { _id: new ObjectId(userId) },
+      { projection: { password: 0 } }
+    )
+
+    res.json({ 
+      message: 'Perfil actualizado correctamente',
+      user: updatedUser
+    })
+  } catch (err) {
+    console.error('Error actualizando perfil:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
 
 module.exports = router;

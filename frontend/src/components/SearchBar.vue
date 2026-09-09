@@ -26,6 +26,9 @@
           <div class="result-title">{{ result.title }}</div>
           <div class="result-subtitle">{{ result.subtitle }}</div>
         </div>
+        <div class="result-badge" v-if="result.tipo">
+          <span class="badge bg-secondary">{{ result.tipo }}</span>
+        </div>
       </div>
       <div v-if="results.length === 0 && query.length > 1" class="no-results">
         No se encontraron resultados
@@ -35,7 +38,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMongoDB } from '../composables/useMongoDB'
 import Fuse from 'fuse.js'
@@ -46,6 +49,19 @@ const query = ref('')
 const showResults = ref(false)
 const results = ref([])
 const fuseInstances = ref({})
+const searchInput = ref(null)
+
+// Escuchar atajos de teclado (Ctrl+K o Cmd+K)
+const handleKeyboard = (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault()
+    searchInput.value?.focus()
+  }
+  if (e.key === 'Escape') {
+    showResults.value = false
+    searchInput.value?.blur()
+  }
+}
 
 const loadData = async () => {
   try {
@@ -88,13 +104,14 @@ const onSearch = () => {
     const fuse = fuseInstances.value[key]
     const items = fuse.search(q).map(r => r.item)
     items.forEach(item => {
-      let icon, title, subtitle, routePath
+      let icon, title, subtitle, routePath, tipo
       switch(key) {
         case 'clientes':
           icon = 'fas fa-user'
           title = item.nombre
           subtitle = `RUC: ${item.ruc} | ${item.telefono}`
           routePath = `/clientes/editar/${item._id}`
+          tipo = 'Cliente'
           break
         case 'productos':
           icon = 'fas fa-box'
@@ -102,21 +119,25 @@ const onSearch = () => {
           const codigo = typeof item.codigo === 'object' ? Object.values(item.codigo).join('') : (item.codigo || 'N/A')
           subtitle = `Código: ${codigo} | Stock: ${item.stock}`
           routePath = `/productos/editar/${item._id}`
+          tipo = 'Producto'
           break
         case 'ventas':
           icon = 'fas fa-file-invoice'
           title = `Factura ${item.numero_factura || 'N/A'}`
           subtitle = `Cliente: ${item.cliente?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          routePath = `/ventas/editar/${item._id}`
+          // Para ventas, redirigir a consulta de documentos (solo lectura)
+          routePath = `/consultar-documentos?buscar=${item.numero_factura || item._id}`
+          tipo = 'Venta'
           break
         case 'compras':
           icon = 'fas fa-shopping-cart'
           title = `Compra ${item.numero_factura || 'N/A'}`
           subtitle = `Proveedor: ${item.proveedor?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          routePath = `/compras/editar/${item._id}`
+          routePath = `/consultar-documentos?buscar=${item.numero_factura || item._id}`
+          tipo = 'Compra'
           break
       }
-      allResults.push({ id: item._id, icon, title, subtitle, routePath })
+      allResults.push({ id: item._id, icon, title, subtitle, routePath, tipo })
     })
   })
 
@@ -135,14 +156,21 @@ const clearSearch = () => {
   query.value = ''
   results.value = []
   showResults.value = false
-  document.activeElement.blur()
+  document.activeElement?.blur()
 }
 
 const closeResults = () => {
   setTimeout(() => { showResults.value = false }, 200)
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  document.addEventListener('keydown', handleKeyboard)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeyboard)
+})
 </script>
 
 <style scoped>
@@ -203,5 +231,6 @@ onMounted(loadData)
 .result-content { flex: 1; min-width: 0; }
 .result-title { font-weight: 500; color: var(--text-primary); font-size: 0.9rem; }
 .result-subtitle { font-size: 0.8rem; color: var(--text-muted); }
+.result-badge { flex-shrink: 0; }
 .no-results { padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.9rem; }
 </style>

@@ -74,6 +74,7 @@ const routes = [
   { path: '/retenciones/nuevo', component: RetencionForm, meta: { requiresAuth: true } },
   { path: '/retenciones/editar/:id', component: RetencionForm, props: true, meta: { requiresAuth: true } },
   { path: '/importar-facturas', component: ImportarFacturas, meta: { requiresAuth: true } },
+  { path: '/mi-perfil', component: () => import('../components/PerfilUsuario.vue'), meta: { requiresAuth: true } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 

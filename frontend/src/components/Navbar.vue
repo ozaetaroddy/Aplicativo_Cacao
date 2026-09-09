@@ -1,5 +1,5 @@
 <template>
-  <nav class="navbar navbar-expand-lg navbar-cacao">
+  <nav class="navbar navbar-expand-lg navbar-cacao" ref="navbar">
     <div class="container-fluid">
       <router-link class="navbar-brand" to="/">
         <i class="fas fa-calculator"></i> Sistema Contable
@@ -115,12 +115,23 @@
           </li>
         </ul>
 
+        <!-- ===== BARRA DE BÚSQUEDA Y CONTROLES DE USUARIO ===== -->
         <div class="d-flex align-items-center gap-3">
-          <SearchBar class="search-bar-nav" />
-          <ThemeToggle />  <!-- Esto ahora apunta al componente correcto -->
-          <span class="navbar-text">
-            <i class="fas fa-database me-1"></i> MongoDB
-          </span>
+          <SearchBar class="search-bar-nav" ref="searchBar" />
+          <ThemeToggle />
+          
+          <!-- Menú de usuario -->
+          <div class="dropdown" ref="userDropdown" :class="{ show: userMenuOpen }">
+            <button class="btn btn-outline-light btn-sm dropdown-toggle" @click="toggleUserMenu">
+              <i class="fas fa-user-circle me-1"></i>
+              <span>{{ user?.nombre || 'Usuario' }}</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" :class="{ show: userMenuOpen }">
+              <li><a class="dropdown-item" href="#" @click.prevent="irPerfil"><i class="fas fa-id-card"></i> Mi Perfil</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item text-danger" href="#" @click.prevent="cerrarSesion"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a></li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -128,11 +139,21 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
-import ThemeToggle from './ThemeToggle.vue' // Asegurar que el archivo existe con este nombre
+import ThemeToggle from './ThemeToggle.vue'
+import { useAuth } from '../composables/useAuth'
+
+const router = useRouter()
+const { user, logout } = useAuth()
 
 const navbarAbierto = ref(false)
+const userMenuOpen = ref(false)
+const navbar = ref(null)
+const userDropdown = ref(null)
+const searchBar = ref(null)
+
 const dropdowns = ref({
   documentos: false,
   maestros: false,
@@ -141,27 +162,67 @@ const dropdowns = ref({
   retenciones: false
 })
 
+// ===== TOGGLES =====
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
+  if (navbarAbierto.value) {
+    // Cerrar dropdowns al abrir el navbar en móvil
+    Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
+  }
 }
 
 const toggleDropdown = (nombre) => {
-  if (dropdowns.value[nombre]) {
-    dropdowns.value[nombre] = false
-  } else {
-    Object.keys(dropdowns.value).forEach(key => {
-      dropdowns.value[key] = false
-    })
-    dropdowns.value[nombre] = true
+  // En móvil, si el navbar está abierto, no cerrar dropdowns al hacer clic en otro
+  if (navbarAbierto.value) {
+    // Comportamiento en móvil: toggle individual
+    dropdowns.value[nombre] = !dropdowns.value[nombre]
+    return
   }
+  // En desktop: cerrar todos y abrir el seleccionado
+  Object.keys(dropdowns.value).forEach(key => {
+    dropdowns.value[key] = (key === nombre) ? !dropdowns.value[nombre] : false
+  })
+}
+
+const toggleUserMenu = () => {
+  userMenuOpen.value = !userMenuOpen.value
 }
 
 const cerrarTodo = () => {
   navbarAbierto.value = false
-  Object.keys(dropdowns.value).forEach(key => {
-    dropdowns.value[key] = false
-  })
+  Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
+  userMenuOpen.value = false
 }
+
+// ===== CERRAR AL HACER CLICK FUERA =====
+const handleClickOutside = (event) => {
+  // Si el click es dentro del navbar o en el buscador, no cerrar
+  if (navbar.value && navbar.value.contains(event.target)) return
+  if (searchBar.value && searchBar.value.$el && searchBar.value.$el.contains(event.target)) return
+
+  // Cerrar todo
+  cerrarTodo()
+}
+
+// ===== ACCIONES DE USUARIO =====
+const irPerfil = () => {
+  cerrarTodo()
+  router.push('/mi-perfil')
+}
+
+const cerrarSesion = () => {
+  cerrarTodo()
+  logout()
+}
+
+// ===== MONTAJE Y LIMPIEZA =====
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <style scoped>

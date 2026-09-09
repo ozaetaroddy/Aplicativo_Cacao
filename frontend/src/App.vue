@@ -1,11 +1,8 @@
 <template>
   <div id="app">
-    <!-- Mostrar login sin navbar ni footer -->
     <div v-if="isLoginPage">
       <router-view />
     </div>
-
-    <!-- Aplicación principal (con navbar y footer) -->
     <div v-else>
       <Navbar />
       <div class="container main-container">
@@ -21,8 +18,6 @@
       <Footer />
       <NotificationStock />
     </div>
-
-    <!-- Loader Global -->
     <LoaderOverlay />
   </div>
 </template>
@@ -34,7 +29,8 @@ import { useToast } from 'vue-toastification'
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
 import NotificationStock from './components/NotificationStock.vue'
-import LoaderOverlay from './components/LoaderOverlay.vue' // <-- Importar
+import LoaderOverlay from './components/LoaderOverlay.vue'
+import { useInactivityTimeout } from './composables/useInactivityTimeout'
 
 const route = useRoute()
 const toast = useToast()
@@ -44,6 +40,9 @@ const isAuthenticated = computed(() => !!localStorage.getItem('token'))
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 
 const socket = inject('socket')
+
+// Inicializar timeout de inactividad (30 minutos)
+useInactivityTimeout(30)
 
 onMounted(() => {
   if (socket) {
