@@ -1019,3 +1019,36 @@ body {
     font-size: 0.8rem;
   }
 }
+/* ===== MEJORAS PARA NAVBAR EN MÓVIL ===== */
+@media (max-width: 992px) {
+  .navbar-cacao .navbar-collapse {
+    background: var(--bg-navbar);
+    padding: 15px;
+    border-radius: 16px;
+    margin-top: 12px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .navbar-cacao .navbar-nav .nav-item {
+    margin: 2px 0;
+  }
+  .navbar-cacao .dropdown-menu {
+    background: transparent !important;
+    padding-left: 10px;
+  }
+  .navbar-cacao .dropdown-menu .dropdown-item {
+    color: rgba(255,255,255,0.8) !important;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+  }
+  .navbar-cacao .dropdown-menu .dropdown-item:hover {
+    background: rgba(255,255,255,0.08) !important;
+  }
+  .navbar-cacao .dropdown-divider {
+    border-color: rgba(255,255,255,0.1);
+  }
+}
+
+body.dark-mode .navbar-cacao .navbar-collapse {
+  background: #1a1a2e;
+  border-color: rgba(255,255,255,0.05);
+}

@@ -8,11 +8,14 @@
         class="navbar-toggler"
         type="button"
         @click="toggleNavbar"
+        aria-controls="navbarNav"
+        :aria-expanded="navbarAbierto"
+        aria-label="Toggle navigation"
       >
         <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
       </button>
       <div class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
-        <ul class="navbar-nav me-auto">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
           <!-- ===== INICIO ===== -->
           <li class="nav-item">
             <router-link class="nav-link" to="/" exact-active-class="active" @click="cerrarTodo">
@@ -116,7 +119,7 @@
         </ul>
 
         <!-- ===== BARRA DE BÚSQUEDA Y CONTROLES DE USUARIO ===== -->
-        <div class="d-flex align-items-center gap-3">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
           <SearchBar class="search-bar-nav" ref="searchBar" />
           <ThemeToggle />
           
@@ -139,7 +142,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
 import ThemeToggle from './ThemeToggle.vue'
@@ -166,19 +169,15 @@ const dropdowns = ref({
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
   if (navbarAbierto.value) {
-    // Cerrar dropdowns al abrir el navbar en móvil
     Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
   }
 }
 
 const toggleDropdown = (nombre) => {
-  // En móvil, si el navbar está abierto, no cerrar dropdowns al hacer clic en otro
   if (navbarAbierto.value) {
-    // Comportamiento en móvil: toggle individual
     dropdowns.value[nombre] = !dropdowns.value[nombre]
     return
   }
-  // En desktop: cerrar todos y abrir el seleccionado
   Object.keys(dropdowns.value).forEach(key => {
     dropdowns.value[key] = (key === nombre) ? !dropdowns.value[nombre] : false
   })
@@ -196,11 +195,8 @@ const cerrarTodo = () => {
 
 // ===== CERRAR AL HACER CLICK FUERA =====
 const handleClickOutside = (event) => {
-  // Si el click es dentro del navbar o en el buscador, no cerrar
   if (navbar.value && navbar.value.contains(event.target)) return
   if (searchBar.value && searchBar.value.$el && searchBar.value.$el.contains(event.target)) return
-
-  // Cerrar todo
   cerrarTodo()
 }
 
@@ -227,9 +223,78 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .search-bar-nav { max-width: 280px; }
+
+/* ===== RESPONSIVE PARA TABLETS Y MÓVILES ===== */
 @media (max-width: 992px) {
-  .search-bar-nav { max-width: 100%; margin: 10px 0; }
+  .search-bar-nav {
+    max-width: 100%;
+    margin: 10px 0;
+  }
+  
+  .navbar-cacao .navbar-nav .nav-link {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+  
+  .navbar-cacao .dropdown-menu {
+    position: static;
+    float: none;
+    width: auto;
+    margin-top: 0;
+    background-color: transparent;
+    border: 0;
+    box-shadow: none;
+    padding-left: 1rem;
+  }
+  
+  .navbar-cacao .dropdown-menu .dropdown-item {
+    color: rgba(255,255,255,0.85) !important;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+  }
+  
+  .navbar-cacao .dropdown-menu .dropdown-item:hover {
+    background: rgba(255,255,255,0.1);
+  }
+  
+  .navbar-cacao .dropdown-menu.show {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+  }
+  
+  .navbar-cacao .navbar-collapse {
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--bg-navbar);
+    padding: 10px;
+    border-radius: 12px;
+    margin-top: 10px;
+  }
 }
+
+@media (max-width: 576px) {
+  .navbar-cacao .navbar-brand {
+    font-size: 1.0rem;
+  }
+  
+  .navbar-cacao .navbar-nav .nav-link {
+    font-size: 0.8rem;
+    padding: 8px 10px;
+  }
+  
+  .search-bar-nav {
+    margin: 5px 0;
+  }
+  
+  .d-flex.align-items-center.gap-3 {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+}
+
+/* ===== ESTILOS DE DROPDOWN (Desktop) ===== */
 .navbar-cacao .dropdown-menu {
   display: block;
   opacity: 0;
@@ -256,29 +321,8 @@ onBeforeUnmount(() => {
   color: #fff !important;
   border-radius: 8px;
 }
-@media (max-width: 992px) {
-  .navbar-cacao .dropdown-menu {
-    position: static;
-    float: none;
-    width: auto;
-    margin-top: 0;
-    background-color: transparent;
-    border: 0;
-    box-shadow: none;
-    padding-left: 1rem;
-  }
-  .navbar-cacao .dropdown-menu .dropdown-item {
-    color: rgba(255,255,255,0.85) !important;
-  }
-  .navbar-cacao .dropdown-menu .dropdown-item:hover {
-    background: rgba(255,255,255,0.1);
-  }
-  .navbar-cacao .dropdown-menu.show {
-    opacity: 1;
-    visibility: visible;
-    transform: none;
-  }
-}
+
+/* ===== MODO OSCURO ===== */
 body.dark-mode .navbar-cacao .dropdown-menu {
   background: #1e2a4a;
   border-color: #2d3748;
@@ -288,5 +332,8 @@ body.dark-mode .navbar-cacao .dropdown-item {
 }
 body.dark-mode .navbar-cacao .dropdown-item:hover {
   background: #2d3748;
+}
+body.dark-mode .navbar-cacao .navbar-collapse {
+  background: #1a1a2e;
 }
 </style>
