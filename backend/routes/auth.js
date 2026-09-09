@@ -4,8 +4,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
 
+// Importar el middleware de autenticación
+const authMiddleware = require('../middleware/auth');
+
 const JWT_SECRET = process.env.JWT_SECRET || 'mi-secreto-super-seguro-2026';
 
+// ===== LOGIN =====
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -34,7 +38,8 @@ router.post('/login', async (req, res) => {
         id: user._id,
         nombre: user.nombre,
         email: user.email,
-        rol: user.rol
+        rol: user.rol,
+        telefono: user.telefono || ''
       }
     });
   } catch (err) {
@@ -43,6 +48,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// ===== REGISTER (público) =====
 router.post('/register', async (req, res) => {
   try {
     const { nombre, email, password, rol } = req.body;
@@ -55,7 +61,6 @@ router.post('/register', async (req, res) => {
     }
     const hashedPassword = await bcrypt.hash(password, 10);
     // Por seguridad, siempre asignamos rol 'vendedor' en registro público
-    // Si se requiere admin, se debe crear desde un panel con autenticación.
     const assignedRol = 'vendedor';
 
     const newUser = {
@@ -64,6 +69,7 @@ router.post('/register', async (req, res) => {
       password: hashedPassword,
       rol: assignedRol,
       activo: true,
+      telefono: '',
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -74,16 +80,17 @@ router.post('/register', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-// Actualizar perfil del usuario autenticado
+
+// ===== ACTUALIZAR PERFIL (requiere autenticación) =====
 router.put('/perfil', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.userId
-    const { nombre, email, telefono, password, passwordActual } = req.body
+    const userId = req.user.userId;
+    const { nombre, email, telefono, password, passwordActual } = req.body;
 
     // Buscar usuario
-    const user = await req.db.collection('usuarios').findOne({ _id: new ObjectId(userId) })
+    const user = await req.db.collection('usuarios').findOne({ _id: new ObjectId(userId) });
     if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' })
+      return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
     // Preparar datos a actualizar
@@ -92,40 +99,39 @@ router.put('/perfil', authMiddleware, async (req, res) => {
       email: email || user.email,
       telefono: telefono || user.telefono || '',
       updatedAt: new Date()
-    }
+    };
 
     // Si se quiere cambiar contraseña
     if (password) {
       // Verificar contraseña actual
-      const bcrypt = require('bcryptjs')
-      const passwordMatch = await bcrypt.compare(passwordActual, user.password)
+      const passwordMatch = await bcrypt.compare(passwordActual, user.password);
       if (!passwordMatch) {
-        return res.status(400).json({ error: 'Contraseña actual incorrecta' })
+        return res.status(400).json({ error: 'Contraseña actual incorrecta' });
       }
       // Hashear nueva contraseña
-      const hashedPassword = await bcrypt.hash(password, 10)
-      updateData.password = hashedPassword
+      const hashedPassword = await bcrypt.hash(password, 10);
+      updateData.password = hashedPassword;
     }
 
     await req.db.collection('usuarios').updateOne(
       { _id: new ObjectId(userId) },
       { $set: updateData }
-    )
+    );
 
     // Devolver datos actualizados (sin password)
     const updatedUser = await req.db.collection('usuarios').findOne(
       { _id: new ObjectId(userId) },
       { projection: { password: 0 } }
-    )
+    );
 
-    res.json({ 
+    res.json({
       message: 'Perfil actualizado correctamente',
       user: updatedUser
-    })
+    });
   } catch (err) {
-    console.error('Error actualizando perfil:', err)
-    res.status(500).json({ error: err.message })
+    console.error('Error actualizando perfil:', err);
+    res.status(500).json({ error: err.message });
   }
-})
+});
 
 module.exports = router;
