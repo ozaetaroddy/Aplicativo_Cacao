@@ -81,7 +81,7 @@
       </div>
     </div>
 
-    <!-- MODAL DE VISTA PREVIA -->
+    <!-- MODAL DE VISTA PREVIA (igual que antes) -->
     <div class="modal fade" id="modalDocumento" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
@@ -93,6 +93,7 @@
             <button type="button" class="btn-close" @click="cerrarModal"></button>
           </div>
           <div class="modal-body" id="documentoContenido" style="overflow: auto; max-height: 70vh;">
+            <!-- ... contenido del documento (igual que antes) ... -->
             <div class="documento-preview" :class="formatoImpresion === 'ticket' ? 'ticket' : ''">
               <!-- Encabezado -->
               <div class="text-center mb-4">
@@ -228,7 +229,9 @@ import { useToast } from 'vue-toastification'
 import { printService } from '../services/printService'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
+import { useRoute } from 'vue-router'
 
+const route = useRoute()
 const toast = useToast()
 const { find } = useMongoDB()
 const tipoDocumento = ref('factura')
@@ -420,7 +423,8 @@ const guardarPDF = () => {
   }
 }
 
-onMounted(() => {
+// ===== INICIALIZACIÓN Y APERTURA AUTOMÁTICA DESDE BÚSQUEDA =====
+onMounted(async () => {
   const modalEl = document.getElementById('modalDocumento')
   if (modalEl) {
     modalInstance.value = new Modal(modalEl, {
@@ -428,7 +432,35 @@ onMounted(() => {
       keyboard: false
     })
   }
-  cargarDatos()
+
+  // Verificar si hay parámetros de búsqueda para abrir documento
+  const tipo = route.query.tipo
+  const id = route.query.id
+  if (tipo && id) {
+    // Primero cargar datos si no están cargados
+    if (documentos.value.length === 0) {
+      await cargarDatos()
+    }
+    // Buscar el documento en la lista
+    let doc = null
+    if (tipo === 'venta') {
+      doc = documentos.value.find(d => d._id === id && d.tipo_documento !== undefined)
+    } else if (tipo === 'compra') {
+      doc = documentos.value.find(d => d._id === id && d.proveedorId !== undefined)
+    }
+    if (doc) {
+      documentoActual.value = doc
+      // Abrir modal después de un pequeño retraso para asegurar que el DOM esté listo
+      setTimeout(() => abrirModal(), 300)
+    } else {
+      // Si no se encuentra, intentar cargar individualmente (opcional)
+      // Aquí podrías hacer un fetch específico, pero por simplicidad mostramos un mensaje
+      toast.warning('No se encontró el documento')
+    }
+  } else {
+    // Si no hay parámetros, cargar datos por defecto (opcional)
+    // cargarDatos()
+  }
 })
 </script>
 

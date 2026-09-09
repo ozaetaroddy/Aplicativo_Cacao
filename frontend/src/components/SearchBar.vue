@@ -122,20 +122,20 @@ const onSearch = () => {
           tipo = 'Producto'
           break
         case 'ventas':
-          icon = 'fas fa-file-invoice'
-          title = `Factura ${item.numero_factura || 'N/A'}`
-          subtitle = `Cliente: ${item.cliente?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          // Para ventas, redirigir a consulta de documentos (solo lectura)
-          routePath = `/consultar-documentos?buscar=${item.numero_factura || item._id}`
-          tipo = 'Venta'
-          break
-        case 'compras':
-          icon = 'fas fa-shopping-cart'
-          title = `Compra ${item.numero_factura || 'N/A'}`
-          subtitle = `Proveedor: ${item.proveedor?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
-          routePath = `/consultar-documentos?buscar=${item.numero_factura || item._id}`
-          tipo = 'Compra'
-          break
+  icon = 'fas fa-file-invoice'
+  title = `Factura ${item.numero_factura || 'N/A'}`
+  subtitle = `Cliente: ${item.cliente?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
+  // Redirigir a consulta con parámetros para abrir modal
+  routePath = `/consultar-documentos?tipo=venta&id=${item._id}`
+  tipo = 'Venta'
+  break
+case 'compras':
+  icon = 'fas fa-shopping-cart'
+  title = `Compra ${item.numero_factura || 'N/A'}`
+  subtitle = `Proveedor: ${item.proveedor?.nombre || 'N/A'} | Total: $${item.total?.toFixed(2)}`
+  routePath = `/consultar-documentos?tipo=compra&id=${item._id}`
+  tipo = 'Compra'
+  break
       }
       allResults.push({ id: item._id, icon, title, subtitle, routePath, tipo })
     })

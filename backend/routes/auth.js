@@ -3,9 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
-
-// Importar el middleware de autenticación
-const authMiddleware = require('../middleware/auth');
+const authMiddleware = require('../middleware/auth'); // <-- Importación necesaria
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mi-secreto-super-seguro-2026';
 
@@ -48,7 +46,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ===== REGISTER (público) =====
+// ===== REGISTER (público, solo para vendedores) =====
 router.post('/register', async (req, res) => {
   try {
     const { nombre, email, password, rol } = req.body;
@@ -60,7 +58,6 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'El email ya está registrado' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    // Por seguridad, siempre asignamos rol 'vendedor' en registro público
     const assignedRol = 'vendedor';
 
     const newUser = {
@@ -81,7 +78,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ===== ACTUALIZAR PERFIL (requiere autenticación) =====
+// ===== ACTUALIZAR PERFIL (protegido) =====
 router.put('/perfil', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
