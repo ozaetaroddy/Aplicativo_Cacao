@@ -2,7 +2,7 @@
   <div class="login-container">
     <div class="login-card">
       <div class="text-center mb-4">
-        <i class="fas fa-calculator fa-3x" style="color: #3498db;"></i>
+        <i class="fas fa-calculator fa-3x" style="color: var(--primary-color);"></i>
         <h2 class="mt-2">Sistema Contable</h2>
         <p class="text-muted">Ingresa tus credenciales</p>
       </div>
@@ -91,13 +91,11 @@ const login = async () => {
       throw new Error(data.error || 'Credenciales inválidas')
     }
 
-    // Guardar token y usuario
     localStorage.setItem('token', data.token)
     localStorage.setItem('user', JSON.stringify(data.user))
 
     toast.success(`Bienvenido ${data.user.nombre}`)
     
-    // Redirigir al dashboard sin recargar la página
     router.push('/')
   } catch (e) {
     errorGeneral.value = e.message
@@ -114,16 +112,17 @@ const login = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #f4f6f9 0%, #e9edf2 100%);
+  background: var(--bg-body);
 }
 .login-card {
-  background: #fff;
+  background: var(--bg-card);
   padding: 40px 30px;
   border-radius: 20px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+  box-shadow: 0 10px 40px var(--shadow-hover);
   width: 100%;
   max-width: 400px;
-  transition: transform 0.2s;
+  transition: var(--transition);
+  border: 1px solid var(--border-color);
 }
 .login-card:hover {
   transform: translateY(-2px);

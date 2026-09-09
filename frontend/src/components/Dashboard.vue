@@ -284,19 +284,20 @@ onMounted(async () => {
 
 <style scoped>
 .stat-card {
-  background: #fff;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 20px;
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px var(--shadow-color);
+  transition: var(--transition);
   height: 90px;
 }
 .stat-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+  box-shadow: 0 8px 24px var(--shadow-hover);
 }
 .stat-icon-wrapper {
   width: 52px;
@@ -318,12 +319,12 @@ onMounted(async () => {
 .stat-number {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #1a2a3a;
+  color: var(--text-primary);
   line-height: 1.2;
 }
 .stat-label {
   font-size: 0.75rem;
-  color: #7f8c8d;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -334,19 +335,20 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   text-decoration: none;
-  color: #2d2d2d;
+  color: var(--text-primary);
   padding: 8px 4px;
   border-radius: 12px;
-  transition: all 0.2s;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  transition: var(--transition);
+  background: var(--bg-card);
+  box-shadow: 0 1px 4px var(--shadow-color);
+  border: 1px solid var(--border-color);
 }
 .quick-access:hover {
-  background: #f8f9fa;
+  background: var(--bg-table-stripe);
   transform: translateY(-3px);
-  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+  box-shadow: 0 6px 16px var(--shadow-hover);
   text-decoration: none;
-  color: #1a2a3a;
+  color: var(--primary-dark);
 }
 .quick-access .icon-circle {
   width: 52px;
@@ -369,27 +371,12 @@ onMounted(async () => {
 .section-subtitle {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--text-primary);
   margin-bottom: 12px;
-  border-bottom: 2px solid #ecf0f1;
+  border-bottom: 2px solid var(--border-color);
   padding-bottom: 6px;
 }
 .section-subtitle i {
-  color: #3498db;
-}
-
-body.dark-mode .stat-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-}
-body.dark-mode .stat-number {
-  color: #e0e0e0;
-}
-body.dark-mode .stat-label {
-  color: #a0aec0;
-}
-body.dark-mode .section-subtitle {
-  border-bottom-color: var(--border-color);
-  color: #e0e0e0;
+  color: var(--primary-color);
 }
 </style>

@@ -14,11 +14,16 @@
           <strong>Bienvenido</strong> {{ user?.nombre || 'Usuario' }} al Sistema Global de Gestión Empresarial.
           <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
-        <router-view />
+        <transition name="fade" mode="out-in">
+          <router-view />
+        </transition>
       </div>
       <Footer />
       <NotificationStock />
     </div>
+
+    <!-- Loader Global -->
+    <LoaderOverlay />
   </div>
 </template>
 
@@ -29,6 +34,7 @@ import { useToast } from 'vue-toastification'
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
 import NotificationStock from './components/NotificationStock.vue'
+import LoaderOverlay from './components/LoaderOverlay.vue' // <-- Importar
 
 const route = useRoute()
 const toast = useToast()

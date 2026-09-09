@@ -1,17 +1,19 @@
 <template>
   <div class="theme-controls">
-    <div class="theme-toggle" @click="toggleTheme">
+    <div class="theme-toggle" @click="toggleTheme" :title="isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'">
       <i :class="isDark ? 'fas fa-sun' : 'fas fa-moon'"></i>
       <span class="toggle-label">{{ isDark ? 'Claro' : 'Oscuro' }}</span>
     </div>
     <div class="color-selector">
-      <span v-for="color in colorOptions" :key="color.value"
-            class="color-dot"
-            :class="{ active: currentColor === color.value }"
-            :style="{ backgroundColor: color.hex }"
-            @click="setColor(color.value)"
-            :title="color.label">
-      </span>
+      <span
+        v-for="color in colorOptions"
+        :key="color.value"
+        class="color-dot"
+        :class="{ active: currentColor === color.value }"
+        :style="{ backgroundColor: color.hex }"
+        @click="setColor(color.value)"
+        :title="color.label"
+      ></span>
     </div>
   </div>
 </template>
@@ -49,14 +51,22 @@ const setColor = (color) => themeStore.setThemeColor(color)
   cursor: pointer;
   padding: 6px 14px;
   border-radius: 30px;
-  background: rgba(255,255,255,0.1);
-  transition: all 0.3s ease;
-  color: rgba(255,255,255,0.85);
+  background: rgba(255, 255, 255, 0.08);
+  transition: var(--transition);
+  color: rgba(255, 255, 255, 0.85);
   font-size: 0.9rem;
   font-weight: 500;
+  border: 1px solid rgba(255,255,255,0.1);
 }
 .theme-toggle:hover {
-  background: rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.05);
+}
+.theme-toggle i {
+  transition: transform 0.5s ease;
+}
+.theme-toggle:hover i {
+  transform: rotate(30deg);
 }
 .color-selector {
   display: flex;
@@ -69,16 +79,16 @@ const setColor = (color) => themeStore.setThemeColor(color)
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid transparent;
-  transition: all 0.25s ease;
+  transition: var(--transition);
 }
 .color-dot:hover {
-  transform: scale(1.15);
+  transform: scale(1.2);
 }
 .color-dot.active {
   border-color: #fff;
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.5);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.6);
 }
 body.dark-mode .color-dot.active {
-  border-color: #f1c40f;
+  border-color: var(--accent-color);
 }
 </style>

@@ -1,5 +1,6 @@
 // services/api.js
-import router from '../router' // Importa el router
+import router from '../router'
+import { useLoaderStore } from '../stores/loaderStore'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 
@@ -14,6 +15,11 @@ export const api = {
     const url = `${API_BASE_URL}${endpoint}`
     console.log('📡 Petición a:', url, options)
 
+    // Obtener store y incrementar contador con mensaje personalizado
+    const loaderStore = useLoaderStore()
+    const mensaje = options.loaderMessage || 'Cargando...'
+    loaderStore.increment(mensaje)
+
     try {
       const response = await fetch(url, {
         ...options,
@@ -23,7 +29,6 @@ export const api = {
       const data = await response.json()
 
       if (response.status === 401) {
-        // Token expirado: limpiar y redirigir sin recargar
         localStorage.removeItem('token')
         localStorage.removeItem('user')
         router.push('/login')
@@ -39,11 +44,14 @@ export const api = {
     } catch (err) {
       console.error('❌ Error en request:', err)
       throw err
+    } finally {
+      // Decrementar contador (esto activa el ocultamiento si es la última)
+      loaderStore.decrement()
     }
   },
 
-  get: (endpoint) => api.request(endpoint, { method: 'GET' }),
-  post: (endpoint, body) => api.request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
-  put: (endpoint, body) => api.request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: (endpoint) => api.request(endpoint, { method: 'DELETE' })
+  get: (endpoint, options = {}) => api.request(endpoint, { ...options, method: 'GET' }),
+  post: (endpoint, body, options = {}) => api.request(endpoint, { ...options, method: 'POST', body: JSON.stringify(body) }),
+  put: (endpoint, body, options = {}) => api.request(endpoint, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+  delete: (endpoint, options = {}) => api.request(endpoint, { ...options, method: 'DELETE' })
 }

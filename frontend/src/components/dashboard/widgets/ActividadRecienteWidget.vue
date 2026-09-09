@@ -69,7 +69,7 @@ onMounted(cargarActividad)
   align-items: center;
   gap: 12px;
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 .actividad-item:last-child { border-bottom: none; }
 .actividad-icon {
@@ -90,22 +90,19 @@ onMounted(cargarActividad)
 .actividad-descripcion {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #2d2d2d;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .actividad-fecha {
   font-size: 0.65rem;
-  color: #7f8c8d;
+  color: var(--text-muted);
 }
 .actividad-monto {
   font-weight: 600;
-  color: #1a2a3a;
+  color: var(--text-primary);
   font-size: 0.8rem;
   white-space: nowrap;
 }
-body.dark-mode .actividad-item { border-bottom-color: var(--border-color); }
-body.dark-mode .actividad-descripcion { color: #e0e0e0; }
-body.dark-mode .actividad-monto { color: #e0e0e0; }
 </style>

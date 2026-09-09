@@ -86,7 +86,6 @@ const currentPage = ref(1)
 
 const filteredData = computed(() => {
   let result = props.data
-  // Filtro de búsqueda
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     result = result.filter(row => {
@@ -96,11 +95,9 @@ const filteredData = computed(() => {
       })
     })
   }
-  // Filtro por categoría / estado
   if (activeFilter.value && props.filterKey) {
     result = result.filter(row => row[props.filterKey] === activeFilter.value)
   }
-  // Ordenamiento
   if (sortKey.value) {
     result = [...result].sort((a, b) => {
       let va = a[sortKey.value] || ''
@@ -133,27 +130,23 @@ const sortBy = (key) => {
 const formatValue = (val) => {
   if (val === undefined || val === null) return ''
   if (typeof val === 'object' && val !== null) {
-    // Si es un objeto, intentar convertirlo a string legible
     return Object.values(val).join(' ') || '[Object]'
   }
   if (typeof val === 'number') return val.toFixed(2)
   return val
 }
 
-// Resetear página al cambiar filtros
 watch([searchQuery, activeFilter], () => { currentPage.value = 1 })
 </script>
 
 <style scoped>
 .table-toolbar {
-  background: #f8f9fa;
+  background: var(--bg-table-stripe);
   padding: 8px 12px;
   border-radius: 8px;
+  transition: var(--transition);
 }
 .table-search input {
   width: 200px;
-}
-body.dark-mode .table-toolbar {
-  background: #1e2a4a;
 }
 </style>

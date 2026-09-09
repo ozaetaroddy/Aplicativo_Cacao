@@ -9,6 +9,7 @@ import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles.css';
 import io from 'socket.io-client';
+import { useThemeStore } from './stores/themeStore'; // <-- Importar
 
 const app = createApp(App);
 const pinia = createPinia();
@@ -30,15 +31,17 @@ app.use(Toast, {
   rtl: false
 });
 
-// Socket.io - proveer globalmente
+// Socket.io
 const socket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
   transports: ['websocket'],
   upgrade: false
 });
-app.provide('socket', socket); // <-- Proveer socket
-
+app.provide('socket', socket);
 app.config.globalProperties.$socket = socket;
 
-app.mount('#app');
+// Cargar tema al inicio (importante)
+const themeStore = useThemeStore();
+themeStore.aplicarTema();
 
+app.mount('#app');
 document.title = 'Sistema Contable';

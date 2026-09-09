@@ -45,7 +45,6 @@
 import { ref, onMounted, defineAsyncComponent, defineProps } from 'vue'
 import draggable from 'vuedraggable'
 
-// Importación estática de los widgets
 import StatsWidget from './widgets/StatsWidget.vue'
 import VentasChartWidget from './widgets/VentasChartWidget.vue'
 import ComprasChartWidget from './widgets/ComprasChartWidget.vue'
@@ -90,7 +89,6 @@ const loadLayout = () => {
       return
     } catch (e) {}
   }
-  // Si se pasan widgets iniciales, usarlos; si no, usar los por defecto
   if (props.initialWidgets && props.initialWidgets.length) {
     widgets.value = props.initialWidgets
   } else {
@@ -150,31 +148,27 @@ const removeWidget = (id) => {
 onMounted(loadLayout)
 </script>
 
-
 <style scoped>
 .widget-container { padding: 10px 0; }
 .widget-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .widget-grid { display: flex; flex-wrap: wrap; margin: 0 -8px; }
-.widget-item { padding: 8px; transition: all 0.2s; }
+.widget-item { padding: 8px; transition: var(--transition); }
 .widget-item .widget-header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: #f8f9fa;
+  background: var(--bg-table-stripe);
   border-radius: 8px 8px 0 0;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--border-color);
 }
-.widget-item .drag-handle { cursor: grab; color: #bdc3c7; }
+.widget-item .drag-handle { cursor: grab; color: var(--text-muted); }
 .widget-item .drag-handle:active { cursor: grabbing; }
-.widget-item .widget-title { flex: 1; font-weight: 500; font-size: 0.9rem; }
-.widget-body { background: #fff; border-radius: 0 0 8px 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.widget-item .widget-title { flex: 1; font-weight: 500; font-size: 0.9rem; color: var(--text-primary); }
+.widget-body { background: var(--bg-card); border-radius: 0 0 8px 8px; padding: 12px; box-shadow: 0 2px 8px var(--shadow-color); }
 .col-12 { width: 100%; }
 .col-md-6 { width: 50%; }
 @media (max-width: 768px) { .col-md-6 { width: 100%; } }
-.widget-palette { margin-top: 20px; padding: 16px; border: 2px dashed #e0e0e0; border-radius: 12px; }
+.widget-palette { margin-top: 20px; padding: 16px; border: 2px dashed var(--border-color); border-radius: 12px; }
 .palette-items { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-body.dark-mode .widget-body { background: #16213e; }
-body.dark-mode .widget-item .widget-header { background: #1e2a4a; border-bottom-color: #2d3748; }
-body.dark-mode .widget-palette { border-color: #2d3748; }
 </style>

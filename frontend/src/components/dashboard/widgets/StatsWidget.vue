@@ -38,27 +38,22 @@ onMounted(() => cargarEstadisticas())
 
 <style scoped>
 .stat-mini {
-  background: #f8f9fa;
+  background: var(--bg-table-stripe);
   border-radius: 8px;
   padding: 12px;
   text-align: center;
+  transition: var(--transition);
 }
 .stat-mini-value {
   font-size: 1.2rem;
   font-weight: 700;
   display: block;
-  color: #1a2a3a;
+  color: var(--text-primary);
 }
 .stat-mini-label {
   font-size: 0.7rem;
   text-transform: uppercase;
-  color: #7f8c8d;
+  color: var(--text-muted);
   letter-spacing: 0.5px;
-}
-body.dark-mode .stat-mini {
-  background: #1e2a4a;
-}
-body.dark-mode .stat-mini-value {
-  color: #e0e0e0;
 }
 </style>

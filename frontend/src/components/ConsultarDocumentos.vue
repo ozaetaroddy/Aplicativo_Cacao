@@ -435,7 +435,8 @@ onMounted(() => {
 <style scoped>
 .documento-preview {
   font-family: 'Segoe UI', Arial, sans-serif;
-  background: white;
+  background: var(--bg-card);
+  color: var(--text-primary);
   padding: 20px;
   border-radius: 8px;
 }

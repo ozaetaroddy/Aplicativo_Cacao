@@ -19,7 +19,6 @@ import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
-// Mapeo de rutas a nombres legibles
 const routeMap = {
   '/': 'Inicio',
   '/productos': 'Productos',
@@ -77,7 +76,6 @@ const crumbs = computed(() => {
 })
 
 const getPath = (crumb) => {
-  // Lógica simple para encontrar ruta
   const entries = Object.entries(routeMap)
   const found = entries.find(([_, value]) => value === crumb)
   return found ? found[0] : '/'
@@ -95,26 +93,17 @@ const getPath = (crumb) => {
   margin: 0;
 }
 .breadcrumb-item a {
-  color: #3498db;
+  color: var(--primary-color);
   text-decoration: none;
-  transition: color 0.2s;
+  transition: var(--transition);
 }
 .breadcrumb-item a:hover {
-  color: #1a2a3a;
+  color: var(--primary-dark);
   text-decoration: underline;
 }
 .breadcrumb-item.active {
-  color: #6c757d;
+  color: var(--text-muted);
   font-weight: 500;
-}
-body.dark-mode .breadcrumb-item a {
-  color: #63b4e0;
-}
-body.dark-mode .breadcrumb-item a:hover {
-  color: #e0e0e0;
-}
-body.dark-mode .breadcrumb-item.active {
-  color: #a0aec0;
 }
 .breadcrumb-item + .breadcrumb-item::before {
   content: "›";
