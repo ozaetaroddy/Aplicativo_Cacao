@@ -26,7 +26,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { Chart, registerables } from 'chart.js'
 Chart.register(...registerables)
 
@@ -73,6 +73,9 @@ const crearGrafico = (canvas, tipo, datos, etiqueta, color, bgColor) => {
           beginAtZero: true,
           ticks: { callback: (value) => '$' + value.toFixed(2) }
         }
+      },
+      animation: {
+        duration: 300
       }
     }
   })
@@ -105,13 +108,29 @@ const renderizarGraficos = () => {
   })
 }
 
+// Renderizar solo cuando los datos cambien realmente
+let initialRender = true
+watch(
+  () => [props.ventasDiarias, props.comprasDiarias, props.dias],
+  (newVal, oldVal) => {
+    // Evita renderizar en el primer montaje porque ya lo hace onMounted
+    if (initialRender) {
+      initialRender = false
+      return
+    }
+    renderizarGraficos()
+  },
+  { deep: true }
+)
+
 onMounted(() => {
   renderizarGraficos()
 })
 
-watch(() => [props.ventasDiarias, props.comprasDiarias, props.dias], () => {
-  renderizarGraficos()
-}, { deep: true })
+onBeforeUnmount(() => {
+  if (ventasChartInstance) ventasChartInstance.destroy()
+  if (comprasChartInstance) comprasChartInstance.destroy()
+})
 </script>
 
 <style scoped>

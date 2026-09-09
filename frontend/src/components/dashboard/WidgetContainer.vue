@@ -165,7 +165,13 @@ onMounted(loadLayout)
 .widget-item .drag-handle { cursor: grab; color: var(--text-muted); }
 .widget-item .drag-handle:active { cursor: grabbing; }
 .widget-item .widget-title { flex: 1; font-weight: 500; font-size: 0.9rem; color: var(--text-primary); }
-.widget-body { background: var(--bg-card); border-radius: 0 0 8px 8px; padding: 12px; box-shadow: 0 2px 8px var(--shadow-color); }
+.widget-body {
+  background: var(--bg-card);
+  border-radius: 0 0 8px 8px;
+  padding: 12px;
+  box-shadow: 0 2px 8px var(--shadow-color);
+  min-height: 200px; /* Fija una altura mínima para evitar colapsos */
+}
 .col-12 { width: 100%; }
 .col-md-6 { width: 50%; }
 @media (max-width: 768px) { .col-md-6 { width: 100%; } }
