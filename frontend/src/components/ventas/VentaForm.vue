@@ -21,15 +21,19 @@
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
               <select class="form-select" v-model="venta.tipo_documento" @change="cambiarTipo">
-                <option value="factura">Factura</option>
-                <option value="guia_remision">Guía de Remisión</option>
-                <option value="exportacion">Factura de Exportación</option>
-                <option value="reembolso">Factura de Reembolso</option>
-                <option value="retencion">Comprobante de Retención</option>
-                <option value="liquidacion">Liquidación de Compra</option>
-                <option value="nota_credito">Nota de Crédito</option>
-                <option value="proforma">Proforma</option>
-              </select>
+  <optgroup label="Documentos de Venta">
+    <option value="factura">01 - Factura</option>
+    <option value="nota_credito">04 - Nota de Crédito</option>
+    <option value="guia_remision">06 - Guía de Remisión</option>
+    <option value="retencion">07 - Comprobante de Retención</option>
+    <option value="liquidacion">03 - Liquidación de Compra</option>
+  </optgroup>
+  <optgroup label="Documentos Especiales">
+    <option value="exportacion">42 - Factura de Exportación</option>
+    <option value="reembolso">41 - Factura de Reembolso</option>
+    <option value="proforma">Proforma (no fiscal)</option>
+  </optgroup>
+</select>
             </div>
             <div class="col-md-4">
               <label class="form-label">Nº Documento</label>
@@ -95,13 +99,21 @@
 
               <div class="col-12 mt-3"><h6>Comprobante Sustento</h6></div>
               <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
-                <select class="form-select" v-model="venta.comprobante_tipo_emision" required>
-                  <option value="">Seleccione</option>
-                  <option value="Física">Física</option>
-                  <option value="Electrónica">Electrónica</option>
-                </select>
-              </div>
+  <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
+  <select class="form-select" v-model="venta.comprobante_tipo_emision" required>
+    <option value="">Seleccione</option>
+    <option value="Física">Física</option>
+    <option value="Electrónica">Electrónica</option>
+  </select>
+</div>
+<div class="col-md-3">
+  <label class="form-label"><span class="text-danger">*</span> Tipo Comprobante</label>
+  <SelectSRI
+    v-model="venta.comprobante_documento"
+    :lista="catalogos.DOCUMENTO_SUSTENTO || []"
+    placeholder="Seleccione tipo..."
+  />
+</div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Documento</label>
                 <input type="text" class="form-control" v-model="venta.comprobante_documento" required />
@@ -281,6 +293,22 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
+import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
+import SelectSRI from '../shared/SelectSRI.vue'
+
+const { catalogos, cargarCatalogos } = useCatalogosSRI()
+
+// En onMounted, agregar al inicio:
+onMounted(async () => {
+  // Cargar catálogos SRI primero
+  try {
+    await cargarCatalogos()
+  } catch (e) {
+    console.error('No se pudieron cargar los catálogos SRI', e)
+  }
+
+  // ... resto del código existente ...
+})
 
 const toast = useToast()
 const route = useRoute()
@@ -431,14 +459,19 @@ const subtotal = computed(() => {
 })
 
 const iva = computed(() => {
-  let baseImponible = 0
+  let totalIva = 0
+  const tarifas = catalogos.value.TARIFA_IVA || []
   venta.value.detalles.forEach(d => {
     const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
     if (aplicaIVA) {
-      baseImponible += (d.cantidad || 0) * (d.precio_unitario || 0)
+      const tarifaIva = d.tarifa_iva || '15' // por defecto 15%
+      const tarifa = tarifas.find(t => t.codigo === tarifaIva)
+      const porcentaje = tarifa ? tarifa.porcentaje : 15
+      const base = (d.cantidad || 0) * (d.precio_unitario || 0)
+      totalIva += base * (porcentaje / 100)
     }
   })
-  return roundTo2(baseImponible * 0.15)
+  return roundTo2(totalIva)
 })
 
 const total = computed(() => {

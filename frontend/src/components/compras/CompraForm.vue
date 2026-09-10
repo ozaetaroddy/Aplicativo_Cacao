@@ -121,13 +121,11 @@
             </div>
             <div class="col-md-3">
               <label class="form-label">Forma de Pago</label>
-              <select class="form-select" v-model="compra.forma_pago">
-                <option value="">Seleccionar</option>
-                <option value="efectivo">Efectivo</option>
-                <option value="transferencia">Transferencia Bancaria</option>
-                <option value="cheque">Cheque</option>
-                <option value="credito">Crédito</option>
-              </select>
+              <SelectSRI
+  v-model="compra.forma_pago"
+  :lista="catalogos.FORMA_PAGO || []"
+  placeholder="Seleccione forma de pago..."
+/>
             </div>
             <div class="col-md-3">
               <label class="form-label">Fecha de Pago</label>
@@ -168,6 +166,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
+import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
+import SelectSRI from '../shared/SelectSRI.vue'
+
+const { catalogos, cargarCatalogos } = useCatalogosSRI()
 
 const toast = useToast()
 const route = useRoute()
@@ -284,6 +286,11 @@ const formularioValido = computed(() => {
 
 // ===== CARGAR DATOS SI ES EDICIÓN =====
 onMounted(async () => {
+  try {
+  await cargarCatalogos()
+} catch (e) {
+  console.error('No se pudieron cargar los catálogos SRI', e)
+}
   try {
     const [provs, prods] = await Promise.all([
       find('proveedores'),

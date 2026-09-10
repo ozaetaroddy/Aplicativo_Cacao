@@ -29,6 +29,30 @@
               <label class="form-label">Porcentaje (%)</label>
               <input type="number" step="0.01" class="form-control" v-model.number="retencion.porcentaje" min="0" max="100" />
             </div>
+            <div class="col-md-4">
+  <label class="form-label">Tipo de Retención</label>
+  <select class="form-select" v-model="retencion.tipo_retencion" @change="aplicarPorcentaje">
+    <option value="">Seleccione tipo...</option>
+    <optgroup label="Impuesto a la Renta">
+      <option
+        v-for="t in (catalogos.TIPO_RETENCION || []).filter(x => x.impuesto === 'RENTA')"
+        :key="t.codigo"
+        :value="t.codigo"
+      >
+        {{ t.codigo }} - {{ t.nombre }}
+      </option>
+    </optgroup>
+    <optgroup label="IVA">
+      <option
+        v-for="t in (catalogos.TIPO_RETENCION || []).filter(x => x.impuesto === 'IVA')"
+        :key="t.codigo"
+        :value="t.codigo"
+      >
+        {{ t.codigo }} - {{ t.nombre }}
+      </option>
+    </optgroup>
+  </select>
+</div>
           </div>
 
           <div v-if="errorGeneral" class="alert alert-danger mt-3">
@@ -53,6 +77,10 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
+import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
+import SelectSRI from '../shared/SelectSRI.vue'
+
+const { catalogos, cargarCatalogos } = useCatalogosSRI()
 
 const toast = useToast()
 const router = useRouter()
@@ -67,10 +95,12 @@ const retencion = ref({
   fecha_emision: new Date().toISOString().split('T')[0],
   valor_retenido: 0,
   porcentaje: 0,
-  tipo: 'manual'
+  tipo: 'manual',
+  tipo_retencion: ''
 })
 
 onMounted(async () => {
+  await cargarCatalogos()
   try {
     proveedores.value = await find('proveedores')
   } catch (e) {
@@ -102,6 +132,17 @@ const guardar = async () => {
     toast.error('Error al guardar: ' + e.message)
   } finally {
     cargando.value = false
+  }
+}
+const aplicarPorcentaje = () => {
+  if (!retencion.value.tipo_retencion || !catalogos.value.TIPO_RETENCION) return
+  const tipo = catalogos.value.TIPO_RETENCION.find(t => t.codigo === retencion.value.tipo_retencion)
+  if (tipo) {
+    retencion.value.porcentaje = tipo.porcentaje
+    // Si ya hay valor retenido, recalcular
+    if (retencion.value.valor_retenido) {
+      // Opcional: recalcular basado en base imponible
+    }
   }
 }
 </script>

@@ -110,11 +110,10 @@
             <div class="col-md-3">
               <label class="form-label">Tipo de Medida</label>
               <select class="form-select" v-model="form.tipo_medida">
-                <option value="unidad">Unidad (sin decimales)</option>
-                <option value="peso">Peso (permite decimales)</option>
-                <option value="volumen">Volumen (permite decimales)</option>
-                <option value="longitud">Longitud (permite decimales)</option>
-              </select>
+  <option v-for="t in (catalogos.TIPO_MEDIDA || [])" :key="t.codigo" :value="t.codigo">
+    {{ t.nombre }}
+  </option>
+</select>
             </div>
 
             <!-- Aplica IVA -->
@@ -198,6 +197,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { Modal } from 'bootstrap'
 import { useToast } from 'vue-toastification'
+import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
+
+const { catalogos, cargarCatalogos } = useCatalogosSRI()
 
 const toast = useToast()
 const route = useRoute()
@@ -329,6 +331,7 @@ const generarCodigoProducto = () => {
 
 // ===== CARGAR DATOS =====
 onMounted(async () => {
+  await cargarCatalogos()
   try {
     const cats = await find('categorias')
     categorias.value = cats
