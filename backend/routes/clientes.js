@@ -2,19 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { body, validationResult } = require('express-validator');
+const { validarIdentificacion } = require('../utils/validators');
 
 const validarCliente = [
   body('nombre').trim().notEmpty().withMessage('El nombre es obligatorio')
     .matches(/^[A-Za-zÁÉÍÓÚÑáéíóúñ\s.]+$/).withMessage('Solo letras, espacios y puntos'),
   body('ruc').trim().notEmpty().withMessage('El RUC/Cédula es obligatorio')
-    .isLength({ min: 10, max: 13 }).withMessage('Debe tener entre 10 y 13 dígitos')
-    .matches(/^\d+$/).withMessage('Solo dígitos numéricos')
-    .custom((value) => {
-      if (value.length === 13 && !value.endsWith('001')) {
-        throw new Error('RUC debe terminar en 001');
-      }
-      return true;
-    }),
+  .custom((value) => {
+    const { validarIdentificacion } = require('../utils/validators');
+    const resultado = validarIdentificacion(value);
+    if (!resultado.valido) {
+      throw new Error(resultado.mensaje);
+    }
+    return true;
+  }),
   body('telefono').trim().notEmpty().withMessage('El teléfono es obligatorio')
     .matches(/^09\d{8}$/).withMessage('Debe comenzar con 09 y tener 10 dígitos'),
   body('email').trim().notEmpty().withMessage('El email es obligatorio')

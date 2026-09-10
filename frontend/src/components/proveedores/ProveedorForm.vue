@@ -114,6 +114,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
+import { validarIdentificacion } from '../../utils/validators'
 
 const toast = useToast()
 const route = useRoute()
@@ -141,31 +142,9 @@ const errores = ref({
 
 // ===== VALIDACIONES =====
 const validarRuc = () => {
-  const ruc = form.value.ruc?.trim() || ''
-  if (!ruc) {
-    errores.value.ruc = 'El RUC/Cédula es obligatorio'
-    return false
-  }
-  if (!/^\d+$/.test(ruc)) {
-    errores.value.ruc = 'Solo dígitos numéricos'
-    return false
-  }
-  if (ruc.length === 10) {
-    // Cédula: 10 dígitos (sin validación de dígito verificador por simplicidad)
-    errores.value.ruc = ''
-    return true
-  } else if (ruc.length === 13) {
-    // RUC: 13 dígitos, debe terminar en 001 (para persona jurídica)
-    if (!ruc.endsWith('001')) {
-      errores.value.ruc = 'RUC debe terminar en 001'
-      return false
-    }
-    errores.value.ruc = ''
-    return true
-  } else {
-    errores.value.ruc = 'Debe tener 10 (cédula) o 13 (RUC) dígitos'
-    return false
-  }
+  const resultado = validarIdentificacion(form.value.ruc)
+  errores.value.ruc = resultado.valido ? '' : resultado.mensaje
+  return resultado.valido
 }
 
 const validarNombre = () => {
@@ -206,8 +185,7 @@ const validarEmail = () => {
     errores.value.email = 'El email es obligatorio'
     return false
   }
-  // Permitir dominios comunes
-  if (!/^[^\s@]+@[^\s@]+\.(com|es|ec|org|net|edu|info|gob|mil)$/i.test(email)) {
+  if (!/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(email)) {
     errores.value.email = 'Email inválido (ej: usuario@dominio.com)'
     return false
   }
@@ -215,7 +193,6 @@ const validarEmail = () => {
   return true
 }
 
-// ===== ESTADO DE VALIDEZ =====
 const formularioValido = computed(() => {
   return validarRuc() && validarNombre() && validarTelefono() && validarEmail()
 })
@@ -227,7 +204,6 @@ onMounted(async () => {
       const data = await findById('proveedores', id)
       if (data) {
         form.value = data
-        // Forzar validación para mostrar errores si los hay
         validarRuc()
         validarNombre()
         validarTelefono()
@@ -268,7 +244,6 @@ const buscarPorIdentificacion = async () => {
 
 // ===== GUARDAR =====
 const guardar = async () => {
-  // Forzar validación de todos los campos
   const rucOk = validarRuc()
   const nombreOk = validarNombre()
   const telefonoOk = validarTelefono()

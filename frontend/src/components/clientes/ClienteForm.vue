@@ -117,6 +117,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
+import { validarIdentificacion } from '../../utils/validators'
 
 const toast = useToast()
 const route = useRoute()
@@ -126,6 +127,12 @@ const id = route.params.id
 const buscando = ref(false)
 const cargando = ref(false)
 const errorGeneral = ref('')
+
+
+
+// ... (resto del código se mantiene igual)
+
+
 
 const form = ref({
   ruc: '',
@@ -311,5 +318,10 @@ const guardar = async () => {
   } finally {
     cargando.value = false
   }
+}
+const validarRuc = () => {
+  const resultado = validarIdentificacion(form.value.ruc)
+  errores.value.ruc = resultado.valido ? '' : resultado.mensaje
+  return resultado.valido
 }
 </script>
