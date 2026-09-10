@@ -21,19 +21,19 @@
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
               <select class="form-select" v-model="venta.tipo_documento" @change="cambiarTipo">
-  <optgroup label="Documentos de Venta">
-    <option value="factura">01 - Factura</option>
-    <option value="nota_credito">04 - Nota de Crédito</option>
-    <option value="guia_remision">06 - Guía de Remisión</option>
-    <option value="retencion">07 - Comprobante de Retención</option>
-    <option value="liquidacion">03 - Liquidación de Compra</option>
-  </optgroup>
-  <optgroup label="Documentos Especiales">
-    <option value="exportacion">42 - Factura de Exportación</option>
-    <option value="reembolso">41 - Factura de Reembolso</option>
-    <option value="proforma">Proforma (no fiscal)</option>
-  </optgroup>
-</select>
+                <optgroup label="Documentos de Venta">
+                  <option value="factura">01 - Factura</option>
+                  <option value="nota_credito">04 - Nota de Crédito</option>
+                  <option value="guia_remision">06 - Guía de Remisión</option>
+                  <option value="retencion">07 - Comprobante de Retención</option>
+                  <option value="liquidacion">03 - Liquidación de Compra</option>
+                </optgroup>
+                <optgroup label="Documentos Especiales">
+                  <option value="exportacion">42 - Factura de Exportación</option>
+                  <option value="reembolso">41 - Factura de Reembolso</option>
+                  <option value="proforma">Proforma (no fiscal)</option>
+                </optgroup>
+              </select>
             </div>
             <div class="col-md-4">
               <label class="form-label">Nº Documento</label>
@@ -69,12 +69,11 @@
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
-                <select class="form-select" v-model="venta.destinatario_tipo" required>
-                  <option value="">Seleccione</option>
-                  <option value="RUC">RUC</option>
-                  <option value="CI">CI</option>
-                  <option value="Pasaporte">Pasaporte</option>
-                </select>
+                <SelectSRI
+                  v-model="venta.destinatario_tipo"
+                  :lista="catalogos.TIPO_IDENTIFICACION || []"
+                  placeholder="Seleccione..."
+                />
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
@@ -99,24 +98,20 @@
 
               <div class="col-12 mt-3"><h6>Comprobante Sustento</h6></div>
               <div class="col-md-3">
-  <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
-  <select class="form-select" v-model="venta.comprobante_tipo_emision" required>
-    <option value="">Seleccione</option>
-    <option value="Física">Física</option>
-    <option value="Electrónica">Electrónica</option>
-  </select>
-</div>
-<div class="col-md-3">
-  <label class="form-label"><span class="text-danger">*</span> Tipo Comprobante</label>
-  <SelectSRI
-    v-model="venta.comprobante_documento"
-    :lista="catalogos.DOCUMENTO_SUSTENTO || []"
-    placeholder="Seleccione tipo..."
-  />
-</div>
+                <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
+                <select class="form-select" v-model="venta.comprobante_tipo_emision" required>
+                  <option value="">Seleccione</option>
+                  <option value="Física">Física</option>
+                  <option value="Electrónica">Electrónica</option>
+                </select>
+              </div>
               <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Documento</label>
-                <input type="text" class="form-control" v-model="venta.comprobante_documento" required />
+                <label class="form-label"><span class="text-danger">*</span> Tipo Comprobante</label>
+                <SelectSRI
+                  v-model="venta.comprobante_documento"
+                  :lista="catalogos.DOCUMENTO_SUSTENTO || []"
+                  placeholder="Seleccione tipo..."
+                />
               </div>
               <div class="col-md-3">
                 <label class="form-label">Buscar por:</label>
@@ -146,12 +141,11 @@
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
-                <select class="form-select" v-model="venta.transportista_tipo" required>
-                  <option value="">Seleccione</option>
-                  <option value="RUC">RUC</option>
-                  <option value="CI">CI</option>
-                  <option value="Pasaporte">Pasaporte</option>
-                </select>
+                <SelectSRI
+                  v-model="venta.transportista_tipo"
+                  :lista="catalogos.TIPO_IDENTIFICACION || []"
+                  placeholder="Seleccione..."
+                />
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
@@ -252,6 +246,7 @@
             </router-link>
           </div>
 
+          <!-- Totales -->
           <hr />
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
@@ -267,6 +262,39 @@
             <div class="col-md-3 offset-md-6">
               <label class="form-label">Total</label>
               <input type="text" class="form-control" :value="formatCurrency(total)" readonly style="font-weight:700;" />
+            </div>
+          </div>
+
+          <!-- ===== FORMA DE PAGO (NUEVO) ===== -->
+          <hr />
+          <h5><i class="fas fa-credit-card me-2"></i>Información de Pago</h5>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Forma de Pago</label>
+              <SelectSRI
+                v-model="venta.forma_pago"
+                :lista="catalogos.FORMA_PAGO || []"
+                placeholder="Seleccione forma de pago..."
+              />
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Estado de Pago</label>
+              <select class="form-select" v-model="venta.estado_pago">
+                <option value="pendiente">Pendiente</option>
+                <option value="pagado">Pagado</option>
+                <option value="parcial">Pago Parcial</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Fecha de Pago</label>
+              <input type="date" class="form-control" v-model="venta.fecha_pago" />
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-md-12">
+              <label class="form-label">Observaciones</label>
+              <textarea class="form-control" v-model="venta.observaciones" rows="2" placeholder="Notas adicionales sobre el pago, referencias, etc."></textarea>
             </div>
           </div>
 
@@ -296,31 +324,19 @@ import { useToast } from 'vue-toastification'
 import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
 import SelectSRI from '../shared/SelectSRI.vue'
 
-const { catalogos, cargarCatalogos } = useCatalogosSRI()
-
-// En onMounted, agregar al inicio:
-onMounted(async () => {
-  // Cargar catálogos SRI primero
-  try {
-    await cargarCatalogos()
-  } catch (e) {
-    console.error('No se pudieron cargar los catálogos SRI', e)
-  }
-
-  // ... resto del código existente ...
-})
-
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const { find, findById, insertOne, updateOne } = useMongoDB()
+const { catalogos, cargarCatalogos } = useCatalogosSRI()
+
 const clientes = ref([])
 const productos = ref([])
 const cargando = ref(false)
 const errorGeneral = ref('')
 
 const tipoInicial = route.query.tipo || 'factura'
-const id = route.params.id // Para edición
+const id = route.params.id
 
 const venta = ref({
   clienteId: '',
@@ -359,7 +375,12 @@ const venta = ref({
   comprobante_clave_acceso: '',
   comprobante_numero_autorizacion: '',
   comprobante_numero: '',
-  comprobante_fecha_emision: ''
+  comprobante_fecha_emision: '',
+  // ===== NUEVOS CAMPOS DE PAGO =====
+  forma_pago: '',
+  estado_pago: 'pendiente',
+  fecha_pago: '',
+  observaciones: ''
 })
 
 const errores = ref({
@@ -459,19 +480,14 @@ const subtotal = computed(() => {
 })
 
 const iva = computed(() => {
-  let totalIva = 0
-  const tarifas = catalogos.value.TARIFA_IVA || []
+  let baseImponible = 0
   venta.value.detalles.forEach(d => {
     const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
     if (aplicaIVA) {
-      const tarifaIva = d.tarifa_iva || '15' // por defecto 15%
-      const tarifa = tarifas.find(t => t.codigo === tarifaIva)
-      const porcentaje = tarifa ? tarifa.porcentaje : 15
-      const base = (d.cantidad || 0) * (d.precio_unitario || 0)
-      totalIva += base * (porcentaje / 100)
+      baseImponible += (d.cantidad || 0) * (d.precio_unitario || 0)
     }
   })
-  return roundTo2(totalIva)
+  return roundTo2(baseImponible * 0.15)
 })
 
 const total = computed(() => {
@@ -515,6 +531,13 @@ const formularioValido = computed(() => {
 // ===== CARGAR DATOS SI ES EDICIÓN =====
 onMounted(async () => {
   try {
+    // Cargar catálogos SRI
+    try {
+      await cargarCatalogos()
+    } catch (e) {
+      console.error('No se pudieron cargar los catálogos SRI', e)
+    }
+
     const [clis, prods] = await Promise.all([
       find('clientes'),
       find('productos')
@@ -525,9 +548,11 @@ onMounted(async () => {
     if (id) {
       console.log('🔍 Cargando venta con ID:', id)
       const data = await findById('ventas', id)
-      console.log('📦 Datos recibidos:', data)
       if (data) {
-        venta.value = data
+        venta.value = { ...venta.value, ...data }
+        // Asegurar valores por defecto
+        if (!venta.value.forma_pago) venta.value.forma_pago = ''
+        if (!venta.value.estado_pago) venta.value.estado_pago = 'pendiente'
         if (venta.value.detalles.length === 0) agregarDetalle()
         if (!venta.value.numero_factura) asignarCodigos()
       } else {
@@ -602,7 +627,12 @@ const guardar = async () => {
       comprobante_clave_acceso: venta.value.comprobante_clave_acceso,
       comprobante_numero_autorizacion: venta.value.comprobante_numero_autorizacion,
       comprobante_numero: venta.value.comprobante_numero,
-      comprobante_fecha_emision: venta.value.comprobante_fecha_emision
+      comprobante_fecha_emision: venta.value.comprobante_fecha_emision,
+      // ===== NUEVOS CAMPOS DE PAGO =====
+      forma_pago: venta.value.forma_pago || '',
+      estado_pago: venta.value.estado_pago || 'pendiente',
+      fecha_pago: venta.value.fecha_pago || null,
+      observaciones: venta.value.observaciones || ''
     }
 
     if (id) {
