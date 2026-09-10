@@ -4,7 +4,12 @@
 
     <div class="card card-cacao">
       <div class="card-body">
-        <form @submit.prevent="guardarPerfil">
+        <div v-if="cargandoInicial" class="text-center p-4">
+          <i class="fas fa-spinner fa-spin fa-2x"></i>
+          <p>Cargando datos...</p>
+        </div>
+
+        <form v-else @submit.prevent="guardarPerfil">
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Nombre</label>
@@ -22,6 +27,7 @@
               <label class="form-label">Rol</label>
               <input type="text" class="form-control" :value="form.rol" disabled />
             </div>
+
             <div class="col-12">
               <hr />
               <h6>Cambiar contraseña (opcional)</h6>
@@ -64,17 +70,15 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
-import { useMongoDB } from '../composables/useMongoDB'
+import { api } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 
-const router = useRouter()
 const toast = useToast()
 const { user, updateUser } = useAuth()
-const { findById, updateOne } = useMongoDB()
 
 const cargando = ref(false)
+const cargandoInicial = ref(true)
 const errorGeneral = ref('')
 const mensajeExito = ref('')
 
@@ -91,40 +95,43 @@ const passwords = ref({
   confirmar: ''
 })
 
-// Cargar datos del usuario
+// ===== CARGAR DATOS DEL USUARIO DESDE /auth/perfil =====
 onMounted(async () => {
-  if (user.value) {
-    try {
-      // Obtener datos completos del usuario desde la base de datos
-      const usuarioDB = await findById('usuarios', user.value.id)
-      if (usuarioDB) {
-        form.value = {
-          nombre: usuarioDB.nombre || '',
-          email: usuarioDB.email || '',
-          telefono: usuarioDB.telefono || '',
-          rol: usuarioDB.rol || 'vendedor'
-        }
-      } else {
-        // Fallback: usar datos del localStorage
-        form.value = {
-          nombre: user.value.nombre || '',
-          email: user.value.email || '',
-          telefono: user.value.telefono || '',
-          rol: user.value.rol || 'vendedor'
-        }
-      }
-    } catch (e) {
-      console.error('Error cargando perfil:', e)
-      toast.error('Error al cargar datos del perfil')
+  try {
+    const usuarioDB = await api.request('/auth/perfil', {
+      method: 'GET',
+      loaderMessage: 'Cargando perfil...'
+    })
+
+    form.value = {
+      nombre: usuarioDB.nombre || '',
+      email: usuarioDB.email || '',
+      telefono: usuarioDB.telefono || '',
+      rol: usuarioDB.rol || 'vendedor'
     }
+  } catch (e) {
+    console.error('Error cargando perfil:', e)
+    // Fallback: usar datos del localStorage
+    if (user.value) {
+      form.value = {
+        nombre: user.value.nombre || '',
+        email: user.value.email || '',
+        telefono: user.value.telefono || '',
+        rol: user.value.rol || 'vendedor'
+      }
+    }
+    // No mostramos toast si el fallback funciona
+  } finally {
+    cargandoInicial.value = false
   }
 })
 
+// ===== GUARDAR PERFIL =====
 const guardarPerfil = async () => {
   errorGeneral.value = ''
   mensajeExito.value = ''
 
-  // Validar contraseña si se está cambiando
+  // Validar cambio de contraseña
   if (passwords.value.nueva || passwords.value.confirmar || passwords.value.actual) {
     if (!passwords.value.actual) {
       errorGeneral.value = 'Debe ingresar la contraseña actual para cambiarla'
@@ -152,31 +159,20 @@ const guardarPerfil = async () => {
       telefono: form.value.telefono || ''
     }
 
-    // Si se está cambiando contraseña, incluirla
     if (passwords.value.nueva) {
       payload.password = passwords.value.nueva
       payload.passwordActual = passwords.value.actual
     }
 
-    // Llamar al endpoint de actualización de perfil
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/perfil`, {
+    const data = await api.request('/auth/perfil', {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      loaderMessage: 'Guardando cambios...'
     })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Error al actualizar perfil')
-    }
 
     // Actualizar datos en localStorage
     const userData = {
-      id: user.value.id,
+      id: user.value?.id,
       nombre: form.value.nombre,
       email: form.value.email,
       telefono: form.value.telefono || '',
@@ -188,9 +184,7 @@ const guardarPerfil = async () => {
     mensajeExito.value = 'Perfil actualizado correctamente'
     toast.success('Perfil actualizado correctamente')
 
-    // Limpiar campos de contraseña
     passwords.value = { actual: '', nueva: '', confirmar: '' }
-
   } catch (e) {
     errorGeneral.value = e.message
     toast.error(e.message)

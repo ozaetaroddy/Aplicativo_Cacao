@@ -25,7 +25,7 @@ export function useAuth() {
   }
 
   const updateUser = (newUserData) => {
-    const updated = { ...user.value, ...newUserData }
+    const updated = { ...(user.value || {}), ...newUserData }
     localStorage.setItem('user', JSON.stringify(updated))
     user.value = updated
   }

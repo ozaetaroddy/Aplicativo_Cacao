@@ -3,7 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
-const authMiddleware = require('../middleware/auth'); // <-- Importación necesaria
+const authMiddleware = require('../middleware/auth');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mi-secreto-super-seguro-2026';
 
@@ -49,7 +49,7 @@ router.post('/login', async (req, res) => {
 // ===== REGISTER (público, solo para vendedores) =====
 router.post('/register', async (req, res) => {
   try {
-    const { nombre, email, password, rol } = req.body;
+    const { nombre, email, password } = req.body;
     if (!nombre || !email || !password) {
       return res.status(400).json({ error: 'Faltan campos obligatorios' });
     }
@@ -78,19 +78,35 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ===== ACTUALIZAR PERFIL (protegido) =====
+// ===== OBTENER PERFIL DEL USUARIO AUTENTICADO =====
+router.get('/perfil', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const user = await req.db.collection('usuarios').findOne(
+      { _id: new ObjectId(userId) },
+      { projection: { password: 0 } }
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    res.json(user);
+  } catch (err) {
+    console.error('Error obteniendo perfil:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== ACTUALIZAR PERFIL =====
 router.put('/perfil', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { nombre, email, telefono, password, passwordActual } = req.body;
 
-    // Buscar usuario
     const user = await req.db.collection('usuarios').findOne({ _id: new ObjectId(userId) });
     if (!user) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // Preparar datos a actualizar
     const updateData = {
       nombre: nombre || user.nombre,
       email: email || user.email,
@@ -98,14 +114,11 @@ router.put('/perfil', authMiddleware, async (req, res) => {
       updatedAt: new Date()
     };
 
-    // Si se quiere cambiar contraseña
     if (password) {
-      // Verificar contraseña actual
       const passwordMatch = await bcrypt.compare(passwordActual, user.password);
       if (!passwordMatch) {
         return res.status(400).json({ error: 'Contraseña actual incorrecta' });
       }
-      // Hashear nueva contraseña
       const hashedPassword = await bcrypt.hash(password, 10);
       updateData.password = hashedPassword;
     }
@@ -115,7 +128,6 @@ router.put('/perfil', authMiddleware, async (req, res) => {
       { $set: updateData }
     );
 
-    // Devolver datos actualizados (sin password)
     const updatedUser = await req.db.collection('usuarios').findOne(
       { _id: new ObjectId(userId) },
       { projection: { password: 0 } }
