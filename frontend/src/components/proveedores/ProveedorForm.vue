@@ -7,11 +7,10 @@
         <form @submit.prevent="guardar" novalidate>
           <div class="alert alert-info">
             <i class="fas fa-info-circle"></i>
-            Ingrese RUC (13 dígitos, terminado en 001) o Cédula (10 dígitos).
+            Ingrese RUC (13 dígitos) o Cédula (10 dígitos) válidos según el SRI.
           </div>
 
           <div class="row g-3">
-            <!-- RUC / Cédula -->
             <div class="col-md-8">
               <label class="form-label"><span class="text-danger">*</span> RUC / Cédula</label>
               <input
@@ -38,7 +37,6 @@
               </button>
             </div>
 
-            <!-- Nombre -->
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Nombre / Razón Social</label>
               <input
@@ -53,7 +51,6 @@
               <div v-if="errores.nombre" class="invalid-feedback">{{ errores.nombre }}</div>
             </div>
 
-            <!-- Teléfono -->
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Teléfono</label>
               <input
@@ -69,7 +66,6 @@
               <div v-if="errores.telefono" class="invalid-feedback">{{ errores.telefono }}</div>
             </div>
 
-            <!-- Email -->
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Email</label>
               <input
@@ -85,7 +81,6 @@
               <div v-if="errores.email" class="invalid-feedback">{{ errores.email }}</div>
             </div>
 
-            <!-- Dirección -->
             <div class="col-md-6">
               <label class="form-label">Dirección</label>
               <input type="text" class="form-control" v-model="form.direccion" />

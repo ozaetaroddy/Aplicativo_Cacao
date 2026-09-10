@@ -7,7 +7,7 @@
         <form @submit.prevent="guardar" novalidate>
           <div class="alert alert-info">
             <i class="fas fa-info-circle"></i>
-            Ingrese RUC (13 dígitos) o Cédula (10 dígitos). Si es RUC, debe terminar en 001.
+            Ingrese RUC (13 dígitos) o Cédula (10 dígitos) válidos según el SRI.
           </div>
 
           <div class="row g-3">
@@ -128,12 +128,6 @@ const buscando = ref(false)
 const cargando = ref(false)
 const errorGeneral = ref('')
 
-
-
-// ... (resto del código se mantiene igual)
-
-
-
 const form = ref({
   ruc: '',
   nombre: '',
@@ -152,29 +146,9 @@ const errores = ref({
 
 // ===== VALIDACIONES =====
 const validarRuc = () => {
-  const ruc = form.value.ruc?.trim() || ''
-  if (!ruc) {
-    errores.value.ruc = 'El RUC/Cédula es obligatorio'
-    return false
-  }
-  if (!/^\d+$/.test(ruc)) {
-    errores.value.ruc = 'Solo dígitos numéricos'
-    return false
-  }
-  if (ruc.length === 10) {
-    errores.value.ruc = ''
-    return true
-  } else if (ruc.length === 13) {
-    if (!ruc.endsWith('001')) {
-      errores.value.ruc = 'RUC debe terminar en 001'
-      return false
-    }
-    errores.value.ruc = ''
-    return true
-  } else {
-    errores.value.ruc = 'Debe tener 10 (cédula) o 13 (RUC) dígitos'
-    return false
-  }
+  const resultado = validarIdentificacion(form.value.ruc)
+  errores.value.ruc = resultado.valido ? '' : resultado.mensaje
+  return resultado.valido
 }
 
 const validarNombre = () => {
@@ -215,7 +189,7 @@ const validarEmail = () => {
     errores.value.email = 'El email es obligatorio'
     return false
   }
-  if (!/^[^\s@]+@[^\s@]+\.(com|es|ec|org|net|edu|info|gob|mil)$/i.test(email)) {
+  if (!/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(email)) {
     errores.value.email = 'Email inválido (ej: usuario@dominio.com)'
     return false
   }
@@ -231,12 +205,9 @@ const formularioValido = computed(() => {
 onMounted(async () => {
   if (id) {
     try {
-      console.log('🔍 Cargando cliente con ID:', id)
       const data = await findById('clientes', id)
-      console.log('📦 Datos recibidos:', data)
       if (data) {
         form.value = data
-        // Forzar validación para mostrar errores si los hay
         validarRuc()
         validarNombre()
         validarTelefono()
@@ -280,7 +251,6 @@ const buscarPorIdentificacion = async () => {
 
 // ===== GUARDAR =====
 const guardar = async () => {
-  // Forzar validación de todos los campos
   const rucOk = validarRuc()
   const nombreOk = validarNombre()
   const telefonoOk = validarTelefono()
@@ -318,10 +288,5 @@ const guardar = async () => {
   } finally {
     cargando.value = false
   }
-}
-const validarRuc = () => {
-  const resultado = validarIdentificacion(form.value.ruc)
-  errores.value.ruc = resultado.valido ? '' : resultado.mensaje
-  return resultado.valido
 }
 </script>
