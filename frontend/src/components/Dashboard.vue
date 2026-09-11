@@ -27,10 +27,29 @@
       </div>
       <div class="col-md-2 col-4">
         <router-link to="/compras/nuevo" class="quick-access">
-          <div class="icon-circle" style="background: #27ae60;"><i class="fas fa-shopping-cart"></i></div>
-          <span>Compra</span>
+          <div class="icon-circle" style="background: #27ae60;"><i class="fas fa-cart-plus"></i></div>
+          <span>Nueva Compra</span>
         </router-link>
       </div>
+
+      <!-- ===== NUEVOS ACCESOS A BANDEJAS ===== -->
+      <div class="col-md-2 col-4">
+        <router-link to="/ventas" class="quick-access quick-access-bandeja">
+          <div class="icon-circle" style="background: linear-gradient(135deg, #3498db, #2980b9);">
+            <i class="fas fa-hand-holding-usd"></i>
+          </div>
+          <span>Bandeja Ventas</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/compras" class="quick-access quick-access-bandeja">
+          <div class="icon-circle" style="background: linear-gradient(135deg, #e67e22, #d35400);">
+            <i class="fas fa-inbox"></i>
+          </div>
+          <span>Bandeja Compras</span>
+        </router-link>
+      </div>
+
       <div class="col-md-2 col-4">
         <router-link to="/clientes/nuevo" class="quick-access">
           <div class="icon-circle" style="background: #8e44ad;"><i class="fas fa-user-plus"></i></div>
@@ -77,6 +96,12 @@
         <router-link to="/reportes/compras" class="quick-access">
           <div class="icon-circle" style="background: #d35400;"><i class="fas fa-chart-bar"></i></div>
           <span>Reporte Compras</span>
+        </router-link>
+      </div>
+      <div class="col-md-2 col-4">
+        <router-link to="/retenciones" class="quick-access">
+          <div class="icon-circle" style="background: #9b59b6;"><i class="fas fa-percent"></i></div>
+          <span>Retenciones</span>
         </router-link>
       </div>
     </div>
@@ -184,9 +209,14 @@
       </div>
       <div class="col-lg-6">
         <div class="card card-cacao h-100">
-          <div class="card-header">
-            <i class="fas fa-hand-holding-usd me-2" style="color: #3498db;"></i>
-            Bandeja de Ventas
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>
+              <i class="fas fa-hand-holding-usd me-2" style="color: #3498db;"></i>
+              Bandeja de Ventas
+            </span>
+            <router-link to="/ventas" class="btn btn-sm btn-outline-primary">
+              <i class="fas fa-list"></i> Ver todas
+            </router-link>
           </div>
           <div class="card-body">
             <BandejaVentasWidget />
@@ -195,9 +225,14 @@
       </div>
       <div class="col-lg-6">
         <div class="card card-cacao h-100">
-          <div class="card-header">
-            <i class="fas fa-shopping-cart me-2" style="color: #e67e22;"></i>
-            Bandeja de Compras
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>
+              <i class="fas fa-shopping-cart me-2" style="color: #e67e22;"></i>
+              Bandeja de Compras
+            </span>
+            <router-link to="/compras" class="btn btn-sm btn-outline-primary">
+              <i class="fas fa-list"></i> Ver todas
+            </router-link>
           </div>
           <div class="card-body">
             <BandejaComprasWidget />
@@ -391,6 +426,16 @@ onMounted(async () => {
   line-height: 1.2;
 }
 
+/* Estilo especial para los accesos a bandejas */
+.quick-access-bandeja {
+  background: linear-gradient(135deg, rgba(52,152,219,0.08), rgba(230,126,34,0.05));
+  border: 1.5px solid rgba(52,152,219,0.3);
+}
+.quick-access-bandeja:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 6px 16px rgba(52,152,219,0.2);
+}
+
 .section-subtitle {
   font-size: 0.95rem;
   font-weight: 700;
@@ -401,5 +446,10 @@ onMounted(async () => {
 }
 .section-subtitle i {
   color: var(--primary-color);
+}
+
+.card-cacao .card-header {
+  display: flex;
+  align-items: center;
 }
 </style>
