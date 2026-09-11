@@ -116,12 +116,11 @@
             </ul>
           </li>
 
-          <!-- ===== ADMINISTRACIÓN ===== -->
+          <!-- ===== ADMINISTRACIÓN / SRI ===== -->
           <li v-if="puedeVerAuditoria || puedeVerUsuarios" class="nav-item dropdown" :class="{ show: dropdowns.admin }">
             <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('admin')">
               <i class="fas fa-cog"></i>
               <span class="nav-text">Administración</span>
-              <!-- Badge de advertencia si certificado por vencer -->
               <span v-if="certificadoPorVencer" class="nav-badge-warning" title="Certificado próximo a vencer">
                 <i class="fas fa-exclamation"></i>
               </span>
@@ -140,6 +139,15 @@
                   </span>
                 </router-link>
               </li>
+              <li v-if="puedeVerUsuarios">
+                <router-link class="dropdown-item" to="/envio-sri" @click="cerrarTodo">
+                  <i class="fas fa-cloud-upload-alt"></i> Envío al SRI
+                  <span v-if="documentosFirmados > 0" class="badge bg-info ms-auto small">
+                    {{ documentosFirmados }}
+                  </span>
+                </router-link>
+              </li>
+              <li><hr class="dropdown-divider"></li>
               <li v-if="puedeVerUsuarios"><router-link class="dropdown-item" to="/usuarios" @click="cerrarTodo"><i class="fas fa-user-cog"></i> Usuarios</router-link></li>
               <li v-if="puedeVerAuditoria"><router-link class="dropdown-item" to="/auditoria" @click="cerrarTodo"><i class="fas fa-history"></i> Auditoría</router-link></li>
               <li v-if="puedeVerUsuarios"><router-link class="dropdown-item" to="/backups" @click="cerrarTodo"><i class="fas fa-database"></i> Backups</router-link></li>
@@ -147,12 +155,11 @@
           </li>
         </ul>
 
-        <!-- ===== BARRA DE BÚSQUEDA Y USUARIO ===== -->
+        <!-- ===== CONTROLES DERECHA ===== -->
         <div class="nav-user-controls d-flex align-items-center gap-2 flex-wrap">
           <SearchBar class="search-bar-nav" ref="searchBar" />
           <ThemeToggle />
 
-          <!-- Botón de usuario -->
           <div class="dropdown user-dropdown" ref="userDropdown" :class="{ show: userMenuOpen }">
             <button class="user-btn dropdown-toggle" @click="toggleUserMenu">
               <div class="user-avatar-small">{{ getInitials(user?.nombre) }}</div>
@@ -174,9 +181,13 @@
               <li v-if="puedeVerUsuarios">
                 <a class="dropdown-item" href="#" @click.prevent="irCertificado">
                   <i class="fas fa-shield-alt"></i> Certificado Firma
-                  <span v-if="certificadoPorVencer" class="badge bg-warning text-dark ms-auto small">
-                    ⚠
-                  </span>
+                  <span v-if="certificadoPorVencer" class="badge bg-warning text-dark ms-auto small">⚠</span>
+                </a>
+              </li>
+              <li v-if="puedeVerUsuarios">
+                <a class="dropdown-item" href="#" @click.prevent="irEnvioSri">
+                  <i class="fas fa-cloud-upload-alt"></i> Envío al SRI
+                  <span v-if="documentosFirmados > 0" class="badge bg-info ms-auto small">{{ documentosFirmados }}</span>
                 </a>
               </li>
               <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irUsuarios"><i class="fas fa-user-cog"></i> Gestionar Usuarios</a></li>
@@ -220,6 +231,7 @@ const userDropdown = ref(null)
 const searchBar = ref(null)
 
 const certificadoInfo = ref(null)
+const estadoSri = ref(null)
 
 const dropdowns = ref({
   documentos: false,
@@ -255,12 +267,22 @@ const certificadoDiasRestantes = computed(() => {
   return certificadoInfo.value?.dias_restantes || 0
 })
 
-const cargarInfoCertificado = async () => {
+// ===== DOCUMENTOS SRI =====
+const documentosFirmados = computed(() => {
+  return estadoSri.value?.documentos?.firmados || 0
+})
+
+const cargarInfoSistema = async () => {
   if (!puedeVerUsuarios.value) return
   try {
-    certificadoInfo.value = await api.request('/certificado/info', { method: 'GET' })
+    const [cert, sri] = await Promise.all([
+      api.request('/certificado/info', { method: 'GET' }).catch(() => null),
+      api.request('/sri/estado', { method: 'GET' }).catch(() => null)
+    ])
+    certificadoInfo.value = cert
+    estadoSri.value = sri
   } catch (e) {
-    // Silencioso: el certificado puede no estar configurado aún
+    // Silencioso
   }
 }
 
@@ -301,7 +323,6 @@ const handleClickOutside = (event) => {
 
 // ===== ATAJOS DE TECLADO =====
 const handleKeyboard = (e) => {
-  // Ctrl + K para enfocar el buscador
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault()
     if (searchBar.value && searchBar.value.$el) {
@@ -309,7 +330,6 @@ const handleKeyboard = (e) => {
       if (input) input.focus()
     }
   }
-  // Esc cierra todo
   if (e.key === 'Escape') {
     cerrarTodo()
   }
@@ -322,6 +342,7 @@ const irUsuarios = () => { cerrarTodo(); router.push('/usuarios') }
 const irBackups = () => { cerrarTodo(); router.push('/backups') }
 const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
 const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
+const irEnvioSri = () => { cerrarTodo(); router.push('/envio-sri') }
 const cerrarSesion = () => { cerrarTodo(); logout() }
 
 // ===== HELPERS =====
@@ -333,7 +354,7 @@ const getInitials = (nombre) => {
 // ===== CICLO DE VIDA =====
 onMounted(async () => {
   try { await cargarPermisos() } catch (e) { console.warn(e) }
-  await cargarInfoCertificado()
+  await cargarInfoSistema()
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeyboard)
 })
@@ -348,9 +369,7 @@ onBeforeUnmount(() => {
 /* ============================================
    NAVBAR BASE
    ============================================ */
-.navbar-cacao {
-  padding: 10px 0;
-}
+.navbar-cacao { padding: 10px 0; }
 
 /* ===== BRAND ===== */
 .navbar-brand {
@@ -365,16 +384,9 @@ onBeforeUnmount(() => {
   transition: all 0.25s ease;
   margin-right: 20px;
 }
-.navbar-brand:hover {
-  background: rgba(255,255,255,0.08);
-}
-.navbar-brand i {
-  font-size: 1.5rem;
-  color: var(--accent-color);
-}
-.brand-text {
-  letter-spacing: 0.3px;
-}
+.navbar-brand:hover { background: rgba(255,255,255,0.08); }
+.navbar-brand i { font-size: 1.5rem; color: var(--accent-color); }
+.brand-text { letter-spacing: 0.3px; }
 .brand-version {
   font-size: 0.65rem;
   padding: 2px 6px;
@@ -387,9 +399,7 @@ onBeforeUnmount(() => {
 }
 
 /* ===== NAV LINKS ===== */
-.navbar-cacao .navbar-nav .nav-item {
-  margin: 0 2px;
-}
+.navbar-cacao .navbar-nav .nav-item { margin: 0 2px; }
 .navbar-cacao .nav-link {
   display: flex;
   align-items: center;
@@ -403,14 +413,8 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   position: relative;
 }
-.navbar-cacao .nav-link i {
-  font-size: 0.95rem;
-  opacity: 0.9;
-}
-.navbar-cacao .nav-link:hover {
-  background: rgba(255,255,255,0.1);
-  color: #fff !important;
-}
+.navbar-cacao .nav-link i { font-size: 0.95rem; opacity: 0.9; }
+.navbar-cacao .nav-link:hover { background: rgba(255,255,255,0.1); color: #fff !important; }
 .navbar-cacao .nav-link.active {
   background: var(--primary-color);
   color: #fff !important;
@@ -466,36 +470,21 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
 }
-.navbar-cacao .dropdown-item i {
-  width: 16px;
-  opacity: 0.9;
-  color: var(--accent-color);
-}
+.navbar-cacao .dropdown-item i { width: 16px; opacity: 0.9; color: var(--accent-color); }
 .navbar-cacao .dropdown-item:hover {
   background: var(--primary-color);
   color: #fff !important;
   transform: translateX(3px);
 }
-.navbar-cacao .dropdown-item:hover i {
-  color: #fff;
-}
-.navbar-cacao .dropdown-divider {
-  border-color: rgba(255,255,255,0.1);
-  margin: 6px 4px;
-}
+.navbar-cacao .dropdown-item:hover i { color: #fff; }
+.navbar-cacao .dropdown-divider { border-color: rgba(255,255,255,0.1); margin: 6px 4px; }
 
 /* ===== CONTROLES DERECHA ===== */
-.nav-user-controls {
-  gap: 10px;
-}
-.search-bar-nav {
-  max-width: 260px;
-}
+.nav-user-controls { gap: 10px; }
+.search-bar-nav { max-width: 260px; }
 
 /* ===== BOTÓN DE USUARIO ===== */
-.user-dropdown {
-  position: relative;
-}
+.user-dropdown { position: relative; }
 .user-btn {
   display: flex;
   align-items: center;
@@ -511,10 +500,7 @@ onBeforeUnmount(() => {
   transition: all 0.25s ease;
   max-width: 220px;
 }
-.user-btn:hover {
-  background: rgba(255,255,255,0.15);
-  border-color: rgba(255,255,255,0.25);
-}
+.user-btn:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.25); }
 .user-avatar-small {
   width: 30px;
   height: 30px;
@@ -528,12 +514,7 @@ onBeforeUnmount(() => {
   color: #fff;
   flex-shrink: 0;
 }
-.user-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 110px;
-}
+.user-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
 .user-rol-badge {
   font-size: 0.65rem;
   padding: 2px 8px;
@@ -546,15 +527,8 @@ onBeforeUnmount(() => {
 }
 
 /* ===== MENÚ DE USUARIO ===== */
-.user-menu {
-  min-width: 280px;
-}
-.user-menu-header {
-  display: flex;
-  gap: 12px;
-  padding: 10px 12px;
-  align-items: flex-start;
-}
+.user-menu { min-width: 280px; }
+.user-menu-header { display: flex; gap: 12px; padding: 10px 12px; align-items: flex-start; }
 .user-avatar-large {
   width: 44px;
   height: 44px;
@@ -587,8 +561,6 @@ onBeforeUnmount(() => {
 /* ============================================
    RESPONSIVE
    ============================================ */
-
-/* Tablets y pantallas medianas */
 @media (max-width: 1200px) {
   .nav-text { display: none; }
   .navbar-cacao .nav-link { padding: 8px 12px !important; }
@@ -597,7 +569,6 @@ onBeforeUnmount(() => {
   .search-bar-nav { max-width: 180px; }
 }
 
-/* Móvil */
 @media (max-width: 992px) {
   .navbar-cacao .navbar-collapse {
     max-height: 80vh;
@@ -609,14 +580,8 @@ onBeforeUnmount(() => {
   }
   .navbar-cacao .navbar-nav { width: 100%; }
   .nav-text { display: inline !important; }
-
-  .navbar-cacao .nav-item {
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-  }
-  .navbar-cacao .nav-item:last-child {
-    border-bottom: none;
-  }
-
+  .navbar-cacao .nav-item { border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .navbar-cacao .nav-item:last-child { border-bottom: none; }
   .navbar-cacao .nav-link {
     display: flex;
     align-items: center;
@@ -626,7 +591,6 @@ onBeforeUnmount(() => {
     font-size: 0.95rem;
   }
   .navbar-cacao .nav-link.active::after { display: none; }
-
   .navbar-cacao .dropdown-menu {
     position: static !important;
     float: none !important;
@@ -653,13 +617,8 @@ onBeforeUnmount(() => {
     padding: 10px 14px !important;
     font-size: 0.85rem !important;
   }
-  .navbar-cacao .dropdown-item:hover {
-    background: rgba(255,255,255,0.08) !important;
-  }
-  .navbar-cacao .dropdown-item i {
-    color: var(--accent-color);
-  }
-
+  .navbar-cacao .dropdown-item:hover { background: rgba(255,255,255,0.08) !important; }
+  .navbar-cacao .dropdown-item i { color: var(--accent-color); }
   .nav-user-controls {
     flex-direction: column;
     align-items: stretch !important;
@@ -674,7 +633,6 @@ onBeforeUnmount(() => {
   .user-rol-badge { display: inline-block !important; }
 }
 
-/* Móviles pequeños */
 @media (max-width: 576px) {
   .navbar-brand { font-size: 1rem; }
   .navbar-brand i { font-size: 1.2rem; }
@@ -682,19 +640,9 @@ onBeforeUnmount(() => {
   .navbar-cacao .nav-link { font-size: 0.9rem; }
 }
 
-/* ============================================
-   MODO OSCURO
-   ============================================ */
-body.dark-mode .navbar-cacao .navbar-collapse {
-  background: #1a1a2e;
-}
-body.dark-mode .navbar-cacao .dropdown-menu {
-  background: #1e2a4a;
-}
-body.dark-mode .navbar-cacao .user-btn {
-  background: rgba(255,255,255,0.05);
-}
-body.dark-mode .navbar-cacao .nav-item {
-  border-bottom-color: rgba(255,255,255,0.05);
-}
+/* MODO OSCURO */
+body.dark-mode .navbar-cacao .navbar-collapse { background: #1a1a2e; }
+body.dark-mode .navbar-cacao .dropdown-menu { background: #1e2a4a; }
+body.dark-mode .navbar-cacao .user-btn { background: rgba(255,255,255,0.05); }
+body.dark-mode .navbar-cacao .nav-item { border-bottom-color: rgba(255,255,255,0.05); }
 </style>

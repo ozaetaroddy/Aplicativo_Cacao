@@ -40,6 +40,7 @@ const CarteraGeneral = () => import('../components/reportes/CarteraGeneral.vue')
 const EstadosFinancieros = () => import('../components/reportes/EstadosFinancieros.vue')
 const AnexoATS = () => import('../components/reportes/AnexoATS.vue')
 const CertificadoFirma = () => import('../components/admin/CertificadoFirma.vue')
+const EnvioSri = () => import('../components/admin/EnvioSri.vue')
 
 const routes = [
   { path: '/login', component: Login },
@@ -104,6 +105,7 @@ const routes = [
   { path: '/backups', component: BackupsAdmin, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
   { path: '/configuracion-empresa', component: ConfiguracionEmpresa, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
   { path: '/certificado-firma', component: CertificadoFirma, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
+{ path: '/envio-sri', component: EnvioSri, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
 
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
