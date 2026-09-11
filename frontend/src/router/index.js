@@ -39,6 +39,7 @@ const EstadoCuentaCliente = () => import('../components/reportes/EstadoCuentaCli
 const CarteraGeneral = () => import('../components/reportes/CarteraGeneral.vue')
 const EstadosFinancieros = () => import('../components/reportes/EstadosFinancieros.vue')
 const AnexoATS = () => import('../components/reportes/AnexoATS.vue')
+const CertificadoFirma = () => import('../components/admin/CertificadoFirma.vue')
 
 const routes = [
   { path: '/login', component: Login },
@@ -102,6 +103,7 @@ const routes = [
   { path: '/periodos-cerrados', component: PeriodosCerrados, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/backups', component: BackupsAdmin, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
   { path: '/configuracion-empresa', component: ConfiguracionEmpresa, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
+  { path: '/certificado-firma', component: CertificadoFirma, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
 
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]

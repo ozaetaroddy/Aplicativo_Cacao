@@ -30,6 +30,7 @@ const estadoCuentaRoutes = require('./routes/estadoCuenta');
 const estadosFinancierosRoutes = require('./routes/estadosFinancieros');
 const anexosRoutes = require('./routes/anexos');
 const configuracionRoutes = require('./routes/configuracion');
+const certificadoRoutes = require('./routes/certificado');
 
 const { iniciarScheduler } = require('./utils/backupScheduler');
 
@@ -115,6 +116,7 @@ app.use('/api/estado-cuenta', estadoCuentaRoutes);
 app.use('/api/estados-financieros', estadosFinancierosRoutes);
 app.use('/api/configuracion', configuracionRoutes);
 app.use('/api/anexos', anexosRoutes);
+app.use('/api/certificado', certificadoRoutes);
 
 app.get('/api/auth/permisos', (req, res) => {
   const { PERMISOS } = require('./utils/permisos');

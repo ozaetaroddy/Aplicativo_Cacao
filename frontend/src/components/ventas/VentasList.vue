@@ -27,12 +27,6 @@
           <template #tipo_documento="{ row }">
             <span class="badge bg-secondary">{{ row.tipo_documento || 'N/A' }}</span>
           </template>
-          <template #subtotal="{ value }">
-            ${{ (value || 0).toFixed(2) }}
-          </template>
-          <template #iva="{ value }">
-            ${{ (value || 0).toFixed(2) }}
-          </template>
           <template #total="{ value }">
             <strong>${{ (value || 0).toFixed(2) }}</strong>
           </template>
@@ -42,15 +36,7 @@
             </span>
           </template>
           <template #estado_sri="{ row }">
-            <span
-              class="badge"
-              :class="{
-                'bg-success': row.estado_sri === 'AUTORIZADO',
-                'bg-info': row.estado_sri === 'PENDIENTE' || row.estado_sri === 'RECIBIDA',
-                'bg-danger': row.estado_sri === 'RECHAZADA' || row.estado_sri === 'DEVUELTA',
-                'bg-secondary': !row.estado_sri || row.estado_sri === 'NO_APLICA'
-              }"
-            >
+            <span class="badge" :class="getEstadoSriClass(row.estado_sri)">
               {{ row.estado_sri || 'N/A' }}
             </span>
           </template>
@@ -63,26 +49,33 @@
         </DataTablePaged>
       </div>
     </div>
-
-    <!-- Modal XML -->
-    <XmlPreviewModal ref="xmlModalRef" :venta="ventaParaXml" />
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Modal } from 'bootstrap'
 import DataTablePaged from '../shared/DataTablePaged.vue'
-import XmlPreviewModal from './XmlPreviewModal.vue'
+import { useMongoDB } from '../../composables/useMongoDB'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 
 const router = useRouter()
 const toast = useToast()
+const { deleteOne } = useMongoDB()
 const tablaRef = ref(null)
-const xmlModalRef = ref(null)
-const ventaParaXml = ref(null)
+
+const getEstadoSriClass = (estado) => {
+  switch (estado) {
+    case 'AUTORIZADO': return 'bg-success'
+    case 'FIRMADO':
+    case 'RECIBIDA':
+    case 'PENDIENTE': return 'bg-info'
+    case 'RECHAZADA':
+    case 'DEVUELTA': return 'bg-danger'
+    default: return 'bg-secondary'
+  }
+}
 
 const columnas = [
   { key: 'fecha_emision', label: 'Fecha', sortable: true, width: '100px' },
@@ -97,17 +90,70 @@ const columnas = [
 
 const acciones = [
   {
+    key: 'firmar',
+    icon: 'fas fa-signature',
+    class: 'btn-outline-warning',
+    title: 'Firmar electrónicamente',
+    handler: async (row) => {
+      if (!row.clave_acceso) {
+        toast.warning('Este documento no tiene clave de acceso')
+        return
+      }
+      if (row.estado_sri === 'FIRMADO') {
+        toast.info('Este documento ya está firmado')
+        return
+      }
+      if (row.estado_sri === 'AUTORIZADO') {
+        toast.info('Ya está autorizado por el SRI')
+        return
+      }
+      if (!confirm('¿Firmar electrónicamente este documento?')) return
+      try {
+        await api.request(`/ventas/${row._id}/firmar`, {
+          method: 'POST',
+          loaderMessage: 'Firmando documento...'
+        })
+        toast.success('Documento firmado correctamente')
+        tablaRef.value?.reload()
+      } catch (e) {
+        toast.error('Error: ' + e.message)
+      }
+    }
+  },
+  {
     key: 'xml',
     icon: 'fas fa-file-code',
     class: 'btn-outline-success',
-    title: 'Ver/Descargar XML',
+    title: 'Descargar XML',
     handler: async (row) => {
-      ventaParaXml.value = row
-      const modalEl = document.getElementById('modalXmlPreview')
-      let modal = Modal.getInstance(modalEl)
-      if (!modal) modal = new Modal(modalEl)
-      modal.show()
-      await xmlModalRef.value?.cargar(row)
+      if (!row.clave_acceso) {
+        toast.warning('Este documento no tiene clave de acceso')
+        return
+      }
+      try {
+        const token = localStorage.getItem('token')
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
+        const url = row.estado_sri === 'FIRMADO'
+          ? `${baseUrl}/ventas/${row._id}/xml-firmado`
+          : `${baseUrl}/ventas/${row._id}/xml`
+        const response = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (!response.ok) throw new Error('Error al descargar')
+        const blob = await response.blob()
+        const objectUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = objectUrl
+        const sufijo = row.estado_sri === 'FIRMADO' ? '_firmado' : ''
+        a.download = `${row.clave_acceso}${sufijo}.xml`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(objectUrl)
+        toast.success('XML descargado')
+      } catch (e) {
+        toast.error('Error: ' + e.message)
+      }
     }
   },
   {
@@ -124,7 +170,7 @@ const acciones = [
     title: 'Editar',
     handler: (row) => {
       if (row.estado_sri === 'AUTORIZADO') {
-        toast.warning('Esta factura ya fue autorizada por el SRI. No se puede editar.')
+        toast.warning('Esta factura ya fue autorizada. No se puede editar.')
         return
       }
       router.push(`/ventas/editar/${row._id}`)
