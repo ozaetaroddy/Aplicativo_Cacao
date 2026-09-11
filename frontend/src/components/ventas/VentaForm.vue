@@ -71,7 +71,7 @@
           </div>
 
           <!-- SECCIÓN: CLIENTE -->
-          <div class="card card-cacao mb-3" v-if="venta.tipo_documento !== 'guia_remision'">
+          <div class="card card-cacao mb-3 card-with-dropdown" v-if="venta.tipo_documento !== 'guia_remision'">
             <div class="card-header d-flex justify-content-between align-items-center">
               <span><i class="fas fa-user me-2"></i> Cliente</span>
               <router-link to="/clientes/nuevo" class="btn btn-sm btn-outline-primary">
@@ -146,7 +146,7 @@
           </div>
 
           <!-- SECCIÓN: PRODUCTOS -->
-          <div class="card card-cacao mb-3">
+          <div class="card card-cacao mb-3 card-with-dropdown">
             <div class="card-header d-flex justify-content-between align-items-center">
               <span><i class="fas fa-boxes me-2"></i> Productos <span class="badge bg-primary ms-1">{{ venta.detalles.length }}</span></span>
               <button type="button" class="btn btn-sm btn-success" @click="focusBusquedaProducto">
@@ -490,9 +490,9 @@
                   Cancelar
                 </button>
 
-                <div v-if="errores.cliente || venta.detalles.length === 0" class="alert alert-warning mt-3 mb-0 small">
+                <div v-if="(!venta.clienteId && venta.tipo_documento !== 'guia_remision') || venta.detalles.length === 0" class="alert alert-warning mt-3 mb-0 small">
                   <i class="fas fa-exclamation-triangle me-1"></i>
-                  <span v-if="!venta.clienteId">Selecciona un cliente</span>
+                  <span v-if="!venta.clienteId && venta.tipo_documento !== 'guia_remision'">Selecciona un cliente</span>
                   <span v-else-if="venta.detalles.length === 0">Agrega al menos un producto</span>
                 </div>
               </div>
@@ -520,13 +520,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
 import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
-import { usePermisos } from '../../composables/usePermisos'
 import SelectSRI from '../shared/SelectSRI.vue'
 import AlertaPeriodoCerrado from '../shared/AlertaPeriodoCerrado.vue'
 import { api } from '../../services/api'
@@ -537,8 +536,8 @@ const route = useRoute()
 const router = useRouter()
 const { find, findById, insertOne, updateOne } = useMongoDB()
 const { catalogos, cargarCatalogos } = useCatalogosSRI()
-const { puede } = usePermisos()
 
+// ===== ESTADO =====
 const clientes = ref([])
 const productos = ref([])
 const cargando = ref(false)
@@ -567,6 +566,7 @@ const seccionesExpandidas = ref({
   pago: true
 })
 
+// ===== FORM =====
 const venta = ref({
   clienteId: '',
   numero_factura: '',
@@ -625,32 +625,50 @@ const tituloDocumento = computed(() => {
     nota_credito: 'Nota de Crédito',
     proforma: 'Proforma'
   }
-  return id ? `Editar ${titulos[venta.value.tipo_documento] || 'Documento'}` : (titulos[venta.value.tipo_documento] || 'Nuevo Documento')
+  const base = titulos[venta.value.tipo_documento] || 'Documento'
+  return id ? `Editar ${base}` : base
 })
 
 const clienteActual = computed(() => {
   if (!venta.value.clienteId) return null
-  return clientes.value.find(c => c._id === venta.value.clienteId)
+  if (!Array.isArray(clientes.value)) return null
+  return clientes.value.find(c => c._id === venta.value.clienteId) || null
 })
 
 const clientesFiltrados = computed(() => {
-  if (!busquedaCliente.value.trim()) return clientes.value.slice(0, 20)
-  if (!fuseClientes) return []
-  return fuseClientes.search(busquedaCliente.value.trim()).map(r => r.item)
+  try {
+    if (!busquedaCliente.value.trim()) {
+      return Array.isArray(clientes.value) ? clientes.value.slice(0, 20) : []
+    }
+    if (!fuseClientes) return []
+    return fuseClientes.search(busquedaCliente.value.trim()).map(r => r.item)
+  } catch (e) {
+    console.error('Error filtrando clientes:', e)
+    return []
+  }
 })
 
 const productosFiltrados = computed(() => {
-  if (!busquedaProducto.value.trim()) return productos.value.slice(0, 20)
-  if (!fuseProductos) return []
-  return fuseProductos.search(busquedaProducto.value.trim()).map(r => r.item)
+  try {
+    if (!busquedaProducto.value.trim()) {
+      return Array.isArray(productos.value) ? productos.value.slice(0, 20) : []
+    }
+    if (!fuseProductos) return []
+    return fuseProductos.search(busquedaProducto.value.trim()).map(r => r.item)
+  } catch (e) {
+    console.error('Error filtrando productos:', e)
+    return []
+  }
 })
 
 const subtotal = computed(() => {
+  if (!Array.isArray(venta.value.detalles)) return 0
   const total = venta.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.precio_unitario || 0)), 0)
   return roundTo2(total)
 })
 
 const iva = computed(() => {
+  if (!Array.isArray(venta.value.detalles)) return 0
   let baseImponible = 0
   venta.value.detalles.forEach(d => {
     if (d.aplica_iva !== false) {
@@ -664,7 +682,7 @@ const total = computed(() => roundTo2(subtotal.value + iva.value))
 
 const formularioValido = computed(() => {
   if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) return false
-  if (venta.value.detalles.length === 0) return false
+  if (!Array.isArray(venta.value.detalles) || venta.value.detalles.length === 0) return false
   return venta.value.detalles.every(d => d.productoId && d.cantidad > 0 && d.precio_unitario >= 0)
 })
 
@@ -675,7 +693,7 @@ const puedeGenerarClave = computed(() => {
 // ===== HELPERS =====
 const getInitials = (nombre) => {
   if (!nombre) return '?'
-  return nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  return String(nombre).split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 }
 
 const generarCodigoLocal = (tipo) => {
@@ -688,12 +706,9 @@ const generarCodigoLocal = (tipo) => {
   return `${prefijo}-${numero}`
 }
 
-// ===== BÚSQUEDA DE CLIENTES =====
+// ===== BÚSQUEDA CLIENTES =====
 const filtrarClientes = () => { mostrarListaClientes.value = true }
-
-const cerrarListaClientes = () => {
-  setTimeout(() => { mostrarListaClientes.value = false }, 200)
-}
+const cerrarListaClientes = () => { setTimeout(() => { mostrarListaClientes.value = false }, 200) }
 
 const seleccionarCliente = (c) => {
   venta.value.clienteId = c._id
@@ -708,21 +723,11 @@ const limpiarCliente = () => {
   nextTick(() => inputCliente.value?.focus())
 }
 
-// ===== BÚSQUEDA DE PRODUCTOS =====
+// ===== BÚSQUEDA PRODUCTOS =====
 const filtrarProductos = () => { mostrarListaProductos.value = true }
-
-const cerrarListaProductos = () => {
-  setTimeout(() => { mostrarListaProductos.value = false }, 200)
-}
-
-const limpiarBusquedaProducto = () => {
-  busquedaProducto.value = ''
-  mostrarListaProductos.value = false
-}
-
-const focusBusquedaProducto = () => {
-  inputProducto.value?.focus()
-}
+const cerrarListaProductos = () => { setTimeout(() => { mostrarListaProductos.value = false }, 200) }
+const limpiarBusquedaProducto = () => { busquedaProducto.value = ''; mostrarListaProductos.value = false }
+const focusBusquedaProducto = () => { inputProducto.value?.focus() }
 
 const agregarPrimerProducto = () => {
   if (productosFiltrados.value.length > 0) {
@@ -731,7 +736,7 @@ const agregarPrimerProducto = () => {
 }
 
 const agregarProducto = (p) => {
-  // Verificar si ya existe
+  if (!p || !p._id) return
   const existente = venta.value.detalles.find(d => d.productoId === p._id)
   if (existente) {
     existente.cantidad = (existente.cantidad || 1) + 1
@@ -739,8 +744,8 @@ const agregarProducto = (p) => {
   } else {
     venta.value.detalles.push({
       productoId: p._id,
-      codigo: p.codigo,
-      nombre: p.nombre,
+      codigo: p.codigo || '',
+      nombre: p.nombre || 'Producto',
       cantidad: 1,
       precio_unitario: roundTo2(p.precio_venta || 0),
       aplica_iva: p.aplica_iva !== undefined ? p.aplica_iva : true,
@@ -758,14 +763,11 @@ const cambiarCantidad = (index, delta) => {
   const nueva = (item.cantidad || 0) + delta
   if (nueva < 0.01) return
   item.cantidad = roundTo2(nueva)
-  validarCantidad(index)
 }
 
 const validarCantidad = (index) => {
   const item = venta.value.detalles[index]
-  if (!item.cantidad || item.cantidad <= 0) {
-    item.cantidad = 1
-  }
+  if (!item.cantidad || item.cantidad <= 0) item.cantidad = 1
 }
 
 const eliminarDetalle = (index) => {
@@ -815,7 +817,7 @@ const verificarPeriodo = async () => {
   }
 }
 
-// ===== ATAJOS DE TECLADO =====
+// ===== ATAJOS =====
 const handleKeydown = (e) => {
   if (e.key === 'F2') {
     e.preventDefault()
@@ -829,32 +831,39 @@ const handleKeydown = (e) => {
   }
 }
 
-// ===== CARGAR DATOS =====
+// ===== CARGAR =====
 onMounted(async () => {
   try {
-    try { await cargarCatalogos() } catch (e) { console.error(e) }
+    try { await cargarCatalogos() } catch (e) { console.warn('No se pudieron cargar catálogos:', e) }
 
     const [clis, prods] = await Promise.all([find('clientes'), find('productos')])
-    clientes.value = clis
-    productos.value = prods
+    clientes.value = Array.isArray(clis) ? clis : []
+    productos.value = Array.isArray(prods) ? prods : []
 
-    // Configurar Fuse para búsqueda inteligente
-    fuseClientes = new Fuse(clis, {
-      keys: ['nombre', 'ruc', 'telefono', 'email'],
-      threshold: 0.3
-    })
-    fuseProductos = new Fuse(prods, {
-      keys: ['nombre', 'codigo', 'codigo_barras'],
-      threshold: 0.3
-    })
+    // Inicializar Fuse de forma segura
+    try {
+      if (clientes.value.length > 0) {
+        fuseClientes = new Fuse(clientes.value, {
+          keys: ['nombre', 'ruc', 'telefono', 'email'],
+          threshold: 0.3
+        })
+      }
+      if (productos.value.length > 0) {
+        fuseProductos = new Fuse(productos.value, {
+          keys: ['nombre', 'codigo', 'codigo_barras'],
+          threshold: 0.3
+        })
+      }
+    } catch (e) {
+      console.warn('Error inicializando Fuse:', e)
+    }
 
     if (id) {
       const data = await findById('ventas', id)
       if (data) {
-        // Preservar nombre y código en cada detalle
         if (data.detalles) {
           data.detalles = data.detalles.map(d => {
-            const prod = prods.find(p => p._id === d.productoId)
+            const prod = productos.value.find(p => p._id === d.productoId)
             return {
               ...d,
               codigo: prod?.codigo || d.codigo || '',
@@ -864,7 +873,6 @@ onMounted(async () => {
           })
         }
         venta.value = { ...venta.value, ...data }
-        if (venta.value.detalles.length === 0) venta.value.detalles = []
       } else {
         errorGeneral.value = 'No se encontró el documento'
       }
@@ -874,13 +882,11 @@ onMounted(async () => {
 
     document.addEventListener('keydown', handleKeydown)
   } catch (e) {
-    console.error(e)
-    toast.error('Error al cargar datos: ' + e.message)
+    console.error('Error en onMounted:', e)
+    errorGeneral.value = 'Error al cargar datos: ' + e.message
   }
 })
 
-// Remover listener al desmontar
-import { onBeforeUnmount } from 'vue'
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeydown)
 })
@@ -917,21 +923,42 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
-      ...Object.fromEntries(
-        [
-          'numero_guia', 'transportista', 'placa', 'numero_exportacion', 'pais_destino',
-          'numero_retencion', 'porcentaje_retencion', 'establecimiento', 'nombre_comercial',
-          'punto_emision', 'transportista_identificacion', 'transportista_tipo',
-          'transportista_razon_social', 'transportista_correo', 'direccion_partida',
-          'inicio_transporte', 'fin_transporte', 'placa_transporte',
-          'destinatario_identificacion', 'destinatario_tipo', 'destinatario_razon_social',
-          'destinatario_direccion', 'ruta', 'motivo', 'documento_aduana',
-          'comprobante_tipo_emision', 'comprobante_documento', 'comprobante_buscar',
-          'comprobante_clave_acceso', 'comprobante_numero_autorizacion', 'comprobante_numero',
-          'comprobante_fecha_emision', 'forma_pago', 'estado_pago', 'observaciones'
-        ].map(k => [k, venta.value[k] || ''])
-      ),
-      fecha_pago: venta.value.fecha_pago || null
+      numero_guia: venta.value.numero_guia || '',
+      transportista: venta.value.transportista || '',
+      placa: venta.value.placa || '',
+      numero_exportacion: venta.value.numero_exportacion || '',
+      pais_destino: venta.value.pais_destino || '',
+      numero_retencion: venta.value.numero_retencion || '',
+      porcentaje_retencion: venta.value.porcentaje_retencion || 0,
+      establecimiento: venta.value.establecimiento || '',
+      nombre_comercial: venta.value.nombre_comercial || '',
+      punto_emision: venta.value.punto_emision || '',
+      transportista_identificacion: venta.value.transportista_identificacion || '',
+      transportista_tipo: venta.value.transportista_tipo || '',
+      transportista_razon_social: venta.value.transportista_razon_social || '',
+      transportista_correo: venta.value.transportista_correo || '',
+      direccion_partida: venta.value.direccion_partida || '',
+      inicio_transporte: venta.value.inicio_transporte || '',
+      fin_transporte: venta.value.fin_transporte || '',
+      placa_transporte: venta.value.placa_transporte || '',
+      destinatario_identificacion: venta.value.destinatario_identificacion || '',
+      destinatario_tipo: venta.value.destinatario_tipo || '',
+      destinatario_razon_social: venta.value.destinatario_razon_social || '',
+      destinatario_direccion: venta.value.destinatario_direccion || '',
+      ruta: venta.value.ruta || '',
+      motivo: venta.value.motivo || '',
+      documento_aduana: venta.value.documento_aduana || '',
+      comprobante_tipo_emision: venta.value.comprobante_tipo_emision || '',
+      comprobante_documento: venta.value.comprobante_documento || '',
+      comprobante_buscar: venta.value.comprobante_buscar || '',
+      comprobante_clave_acceso: venta.value.comprobante_clave_acceso || '',
+      comprobante_numero_autorizacion: venta.value.comprobante_numero_autorizacion || '',
+      comprobante_numero: venta.value.comprobante_numero || '',
+      comprobante_fecha_emision: venta.value.comprobante_fecha_emision || '',
+      forma_pago: venta.value.forma_pago || '',
+      estado_pago: venta.value.estado_pago || 'pendiente',
+      fecha_pago: venta.value.fecha_pago || null,
+      observaciones: venta.value.observaciones || ''
     }
 
     if (id) {
@@ -965,17 +992,32 @@ const guardar = async () => {
   background: var(--bg-table-stripe);
 }
 
+/* ===== FIX: permitir que los dropdowns sobresalgan ===== */
+.card-with-dropdown {
+  overflow: visible !important;
+  position: relative;
+  z-index: 1;
+}
+.card-with-dropdown:focus-within {
+  z-index: 100;
+}
+.card-with-dropdown .card-body,
+.card-with-dropdown .position-relative,
+.card-with-dropdown .input-group {
+  overflow: visible !important;
+}
+
 /* ===== DROPDOWN CUSTOM ===== */
 .dropdown-custom {
   position: absolute;
   top: 100%;
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 9999 !important;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  box-shadow: 0 8px 24px var(--shadow-hover);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.18);
   max-height: 350px;
   overflow-y: auto;
   margin-top: 4px;
@@ -1043,6 +1085,9 @@ const guardar = async () => {
   position: sticky;
   top: 80px;
 }
+.sidebar-sticky > .card-cacao {
+  height: auto !important;
+}
 
 .resumen-card .card-body {
   padding: 20px;
@@ -1087,6 +1132,11 @@ kbd {
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* Fix: evitar que las tarjetas se estiren en la columna principal */
+.col-lg-8 > .card-cacao {
+  height: auto !important;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 992px) {
   .sidebar-sticky {
@@ -1105,14 +1155,5 @@ kbd {
   .items-table td {
     padding: 6px 4px;
   }
-}
-/* Fix: evitar que las tarjetas se estiren en la columna principal */
-.col-lg-8 > .card-cacao {
-  height: auto !important;
-}
-
-/* Asegurar que el sidebar no se estire más de lo necesario */
-.sidebar-sticky > .card-cacao {
-  height: auto !important;
 }
 </style>
