@@ -7,7 +7,6 @@
         <p class="text-muted">Ingresa tus credenciales</p>
       </div>
 
-      <!-- Mensaje de error general -->
       <div v-if="errorGeneral" class="alert alert-danger alert-dismissible fade show" role="alert">
         <i class="fas fa-exclamation-circle me-2"></i>
         {{ errorGeneral }}
@@ -17,29 +16,29 @@
       <form @submit.prevent="login">
         <div class="mb-3">
           <label class="form-label">Email</label>
-          <input 
-            type="email" 
-            class="form-control" 
-            v-model="email" 
-            required 
+          <input
+            type="email"
+            class="form-control"
+            v-model="email"
+            required
             placeholder="correo@ejemplo.com"
             :disabled="cargando"
           />
         </div>
         <div class="mb-3">
           <label class="form-label">Contraseña</label>
-          <input 
-            type="password" 
-            class="form-control" 
-            v-model="password" 
-            required 
+          <input
+            type="password"
+            class="form-control"
+            v-model="password"
+            required
             placeholder="••••••••"
             :disabled="cargando"
           />
         </div>
-        <button 
-          type="submit" 
-          class="btn btn-primary w-100" 
+        <button
+          type="submit"
+          class="btn btn-primary w-100"
           :disabled="cargando"
         >
           <i class="fas fa-sign-in-alt" :class="{ 'fa-spin': cargando }"></i>
@@ -58,10 +57,12 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
+import { usePermisos } from '../composables/usePermisos'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 const router = useRouter()
 const toast = useToast()
+const { limpiarCache, cargarPermisos } = usePermisos()
 
 const email = ref('')
 const password = ref('')
@@ -79,6 +80,9 @@ const login = async () => {
   cargando.value = true
 
   try {
+    // Limpiar cualquier cache previo (por si había sesión anterior)
+    limpiarCache()
+
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -91,15 +95,20 @@ const login = async () => {
       throw new Error(data.error || 'Credenciales inválidas')
     }
 
+    // Guardar token y usuario
     localStorage.setItem('token', data.token)
     localStorage.setItem('user', JSON.stringify(data.user))
 
+    // Cargar permisos del usuario recién logueado ANTES de navegar
+    await cargarPermisos(true)
+
     toast.success(`Bienvenido ${data.user.nombre}`)
-    
     router.push('/')
   } catch (e) {
     errorGeneral.value = e.message
     toast.error(e.message)
+    // Limpiar por si algo falló a medias
+    limpiarCache()
   } finally {
     cargando.value = false
   }

@@ -2,15 +2,18 @@
 import { ref } from 'vue'
 import { api } from '../services/api'
 
-// Cache a nivel de módulo
-let permisosCache = null
-let promesaCarga = null
-let usuarioCacheKey = null // identificador del usuario para el que se cachearon los permisos
+// ============================================================
+// ESTADO COMPARTIDO (singleton)
+// Todas las llamadas a usePermisos() usan las MISMAS refs.
+// ============================================================
+const permisos = ref({})
+const rol = ref(null)
+const loading = ref(false)
 
-/**
- * Calcula una clave única para identificar al usuario
- * Si cambia, se invalida el cache
- */
+// Variables internas del módulo
+let promesaCarga = null
+let usuarioCacheKey = null
+
 function getUserKey() {
   try {
     const user = JSON.parse(localStorage.getItem('user') || 'null')
@@ -22,32 +25,23 @@ function getUserKey() {
 }
 
 export function usePermisos() {
-  const permisos = ref(permisosCache || {})
-  const rol = ref(null)
-  const loading = ref(false)
-
   const cargarPermisos = async (forzar = false) => {
     const currentKey = getUserKey()
 
-    // Si no hay usuario, limpiar todo
+    // Si no hay usuario logueado, limpiar y salir
     if (!currentKey) {
-      permisosCache = null
-      permisos.value = {}
-      rol.value = null
-      usuarioCacheKey = null
+      limpiarCache()
       return {}
     }
 
-    // Si el usuario cambió (distinto al cacheado), forzar recarga
-    const usuarioCambio = usuarioCacheKey && usuarioCacheKey !== currentKey
-    if (usuarioCambio) {
+    // Si el usuario cambió, forzar recarga
+    if (usuarioCacheKey && usuarioCacheKey !== currentKey) {
       forzar = true
     }
 
-    // Si hay cache válido y no forzamos, devolverlo
-    if (permisosCache && !forzar && usuarioCacheKey === currentKey) {
-      permisos.value = permisosCache
-      return { permisos: permisosCache, rol: rol.value }
+    // Si ya tenemos permisos cargados para este usuario, devolverlos
+    if (!forzar && usuarioCacheKey === currentKey && Object.keys(permisos.value).length > 0) {
+      return { permisos: permisos.value, rol: rol.value }
     }
 
     // Si ya hay una petición en curso para el mismo usuario, esperarla
@@ -56,25 +50,20 @@ export function usePermisos() {
     }
 
     loading.value = true
-
-    // Marcar el usuario del cache ANTES de la petición, para evitar condiciones de carrera
     usuarioCacheKey = currentKey
 
     promesaCarga = api.request('/auth/permisos', { method: 'GET' })
       .then(data => {
-        // Verificar que el usuario no haya cambiado durante la petición
+        // Verificar que el usuario no haya cambiado mientras esperábamos
         if (getUserKey() !== usuarioCacheKey) {
-          // El usuario cambió mientras cargábamos; descartar respuesta
           return { permisos: {}, rol: null }
         }
-        permisosCache = data.permisos || {}
-        permisos.value = permisosCache
-        rol.value = data.rol
+        permisos.value = data.permisos || {}
+        rol.value = data.rol || null
         return data
       })
       .catch(err => {
         console.error('Error cargando permisos:', err)
-        permisosCache = null
         permisos.value = {}
         rol.value = null
         usuarioCacheKey = null
@@ -88,15 +77,11 @@ export function usePermisos() {
     return promesaCarga
   }
 
-  /**
-   * Limpia el cache. Llamar al cerrar sesión.
-   */
   const limpiarCache = () => {
-    permisosCache = null
-    promesaCarga = null
-    usuarioCacheKey = null
     permisos.value = {}
     rol.value = null
+    promesaCarga = null
+    usuarioCacheKey = null
   }
 
   const puede = (modulo, accion = 'ver') => {
@@ -104,21 +89,18 @@ export function usePermisos() {
     return permisos.value[modulo].includes(accion)
   }
 
-  const puedeVer = (modulo) => puede(modulo, 'ver')
-  const puedeCrear = (modulo) => puede(modulo, 'crear')
-  const puedeEditar = (modulo) => puede(modulo, 'editar')
-  const puedeEliminar = (modulo) => puede(modulo, 'eliminar')
-
   return {
+    // Estado compartido (refs únicas del módulo)
     permisos,
     rol,
     loading,
+    // Acciones
     cargarPermisos,
     limpiarCache,
     puede,
-    puedeVer,
-    puedeCrear,
-    puedeEditar,
-    puedeEliminar
+    puedeVer: (m) => puede(m, 'ver'),
+    puedeCrear: (m) => puede(m, 'crear'),
+    puedeEditar: (m) => puede(m, 'editar'),
+    puedeEliminar: (m) => puede(m, 'eliminar')
   }
 }
