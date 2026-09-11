@@ -24,79 +24,59 @@
           </li>
 
           <!-- ===== DOCUMENTOS ===== -->
-          <li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('documentos')"
-            >
+          <li v-if="puedeVerVentas || puedeVerCompras" class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('documentos')">
               <i class="fas fa-file-invoice"></i> Documentos
               <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
-              <li><router-link class="dropdown-item" to="/ventas" @click="cerrarTodo"><i class="fas fa-hand-holding-usd"></i> Bandeja de Ventas</router-link></li>
-              <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarTodo">Factura Reembolso</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">Comprobante Retención</router-link></li>
-              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
+              <li v-if="puedeVerVentas"><router-link class="dropdown-item" to="/ventas" @click="cerrarTodo"><i class="fas fa-hand-holding-usd"></i> Bandeja de Ventas</router-link></li>
+              <li v-if="puedeVerCompras"><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
+              <li v-if="puedeVerVentas && puedeVerCompras"><hr class="dropdown-divider"></li>
+              <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
+              <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
+              <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
+              <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarTodo">Factura Reembolso</router-link></li>
+              <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">Comprobante Retención</router-link></li>
+              <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
               <li><hr class="dropdown-divider"></li>
               <li><router-link class="dropdown-item" to="/consultar-documentos" @click="cerrarTodo"><i class="fas fa-search"></i> Consultar Documentos</router-link></li>
             </ul>
           </li>
 
           <!-- ===== BASE DE DATOS ===== -->
-          <li class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('maestros')"
-            >
+          <li v-if="puedeVerClientes || puedeVerProveedores || puedeVerProductos" class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('maestros')">
               <i class="fas fa-database"></i> Base de datos
               <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.maestros }">
-              <li><router-link class="dropdown-item" to="/productos" @click="cerrarTodo"><i class="fas fa-boxes"></i> Productos</router-link></li>
-              <li><router-link class="dropdown-item" to="/categorias" @click="cerrarTodo"><i class="fas fa-tags"></i> Categorías</router-link></li>
-              <li><router-link class="dropdown-item" to="/clientes" @click="cerrarTodo"><i class="fas fa-users"></i> Clientes</router-link></li>
-              <li><router-link class="dropdown-item" to="/proveedores" @click="cerrarTodo"><i class="fas fa-truck"></i> Proveedores</router-link></li>
+              <li v-if="puedeVerProductos"><router-link class="dropdown-item" to="/productos" @click="cerrarTodo"><i class="fas fa-boxes"></i> Productos</router-link></li>
+              <li v-if="puedeVerCategorias"><router-link class="dropdown-item" to="/categorias" @click="cerrarTodo"><i class="fas fa-tags"></i> Categorías</router-link></li>
+              <li v-if="puedeVerClientes"><router-link class="dropdown-item" to="/clientes" @click="cerrarTodo"><i class="fas fa-users"></i> Clientes</router-link></li>
+              <li v-if="puedeVerProveedores"><router-link class="dropdown-item" to="/proveedores" @click="cerrarTodo"><i class="fas fa-truck"></i> Proveedores</router-link></li>
             </ul>
           </li>
 
           <!-- ===== INVENTARIOS ===== -->
-          <li class="nav-item dropdown" :class="{ show: dropdowns.inventarios }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('inventarios')"
-            >
+          <li v-if="puedeVerInventario || puedeVerKardex" class="nav-item dropdown" :class="{ show: dropdowns.inventarios }">
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('inventarios')">
               <i class="fas fa-warehouse"></i> Inventarios
               <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.inventarios }">
-              <li><router-link class="dropdown-item" to="/kardex" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo"><i class="fas fa-calendar-alt"></i> Planificación de Inventarios</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/stock" @click="cerrarTodo"><i class="fas fa-boxes"></i> Stock Actual</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/conteo" @click="cerrarTodo"><i class="fas fa-clipboard-check"></i> Conteo Físico</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/ajustes" @click="cerrarTodo"><i class="fas fa-edit"></i> Ajustes de Inventario</router-link></li>
-              <li><router-link class="dropdown-item" to="/inventario/valorizado" @click="cerrarTodo"><i class="fas fa-dollar-sign"></i> Inventario Valorizado</router-link></li>
+              <li v-if="puedeVerKardex"><router-link class="dropdown-item" to="/kardex" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
+              <li v-if="puedeVerInventario"><router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo"><i class="fas fa-calendar-alt"></i> Planificación</router-link></li>
+              <li v-if="puedeVerInventario"><router-link class="dropdown-item" to="/inventario/stock" @click="cerrarTodo"><i class="fas fa-boxes"></i> Stock Actual</router-link></li>
+              <li v-if="puedeVerInventario"><router-link class="dropdown-item" to="/inventario/conteo" @click="cerrarTodo"><i class="fas fa-clipboard-check"></i> Conteo Físico</router-link></li>
+              <li v-if="puedeEditarInventario"><router-link class="dropdown-item" to="/inventario/ajustes" @click="cerrarTodo"><i class="fas fa-edit"></i> Ajustes</router-link></li>
+              <li v-if="puedeVerInventario"><router-link class="dropdown-item" to="/inventario/valorizado" @click="cerrarTodo"><i class="fas fa-dollar-sign"></i> Valorizado</router-link></li>
             </ul>
           </li>
 
           <!-- ===== REPORTES ===== -->
-          <li class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('reportes')"
-            >
+          <li v-if="puedeVerReportes" class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('reportes')">
               <i class="fas fa-chart-bar"></i> Reportes
               <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
             </a>
@@ -108,31 +88,32 @@
           </li>
 
           <!-- ===== RETENCIONES ===== -->
-          <li class="nav-item dropdown" :class="{ show: dropdowns.retenciones }">
-            <a
-              class="nav-link dropdown-toggle"
-              href="#"
-              role="button"
-              @click.prevent="toggleDropdown('retenciones')"
-            >
+          <li v-if="puedeVerRetenciones" class="nav-item dropdown" :class="{ show: dropdowns.retenciones }">
+            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('retenciones')">
               <i class="fas fa-percent"></i> Retenciones
               <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.retenciones }">
               <li><router-link class="dropdown-item" to="/retenciones" @click="cerrarTodo">Lista de Retenciones</router-link></li>
-              <li><router-link class="dropdown-item" to="/retenciones/nuevo" @click="cerrarTodo">Nueva Retención</router-link></li>
+              <li v-if="puedeCrearRetenciones"><router-link class="dropdown-item" to="/retenciones/nuevo" @click="cerrarTodo">Nueva Retención</router-link></li>
             </ul>
           </li>
 
-          <!-- ===== AUDITORÍA (solo admin) ===== -->
-          <li v-if="isAdmin" class="nav-item">
+          <!-- ===== AUDITORÍA ===== -->
+          <li v-if="puedeVerAuditoria" class="nav-item">
             <router-link class="nav-link" to="/auditoria" active-class="active" @click="cerrarTodo">
               <i class="fas fa-history"></i> Auditoría
             </router-link>
           </li>
+
+          <!-- ===== USUARIOS ===== -->
+          <li v-if="puedeVerUsuarios" class="nav-item">
+            <router-link class="nav-link" to="/usuarios" active-class="active" @click="cerrarTodo">
+              <i class="fas fa-user-cog"></i> Usuarios
+            </router-link>
+          </li>
         </ul>
 
-        <!-- ===== BARRA DE BÚSQUEDA Y CONTROLES DE USUARIO ===== -->
         <div class="nav-user-controls d-flex align-items-center gap-3 flex-wrap">
           <SearchBar class="search-bar-nav" ref="searchBar" />
           <ThemeToggle />
@@ -144,7 +125,8 @@
             </button>
             <ul class="dropdown-menu dropdown-menu-end" :class="{ show: userMenuOpen }">
               <li><a class="dropdown-item" href="#" @click.prevent="irPerfil"><i class="fas fa-id-card"></i> Mi Perfil</a></li>
-              <li v-if="isAdmin"><a class="dropdown-item" href="#" @click.prevent="irAuditoria"><i class="fas fa-history"></i> Auditoría</a></li>
+              <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irUsuarios"><i class="fas fa-user-cog"></i> Gestionar Usuarios</a></li>
+              <li v-if="puedeVerAuditoria"><a class="dropdown-item" href="#" @click.prevent="irAuditoria"><i class="fas fa-history"></i> Auditoría</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item text-danger" href="#" @click.prevent="cerrarSesion"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a></li>
             </ul>
@@ -156,14 +138,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import { useAuth } from '../composables/useAuth'
+import { usePermisos } from '../composables/usePermisos'
 
 const router = useRouter()
-const { user, logout, isAdmin } = useAuth()
+const { user, logout } = useAuth()
+const { cargarPermisos, puede } = usePermisos()
 
 const navbarAbierto = ref(false)
 const userMenuOpen = ref(false)
@@ -179,7 +163,23 @@ const dropdowns = ref({
   retenciones: false
 })
 
-// ===== TOGGLES =====
+// Permisos computados
+const puedeVerVentas = computed(() => puede('ventas', 'ver'))
+const puedeCrearVentas = computed(() => puede('ventas', 'crear'))
+const puedeVerCompras = computed(() => puede('compras', 'ver'))
+const puedeVerClientes = computed(() => puede('clientes', 'ver'))
+const puedeVerProveedores = computed(() => puede('proveedores', 'ver'))
+const puedeVerProductos = computed(() => puede('productos', 'ver'))
+const puedeVerCategorias = computed(() => puede('categorias', 'ver'))
+const puedeVerInventario = computed(() => puede('inventario', 'ver'))
+const puedeEditarInventario = computed(() => puede('inventario', 'editar'))
+const puedeVerKardex = computed(() => puede('kardex', 'ver'))
+const puedeVerReportes = computed(() => puede('reportes', 'ver'))
+const puedeVerRetenciones = computed(() => puede('retenciones', 'ver'))
+const puedeCrearRetenciones = computed(() => puede('retenciones', 'crear'))
+const puedeVerAuditoria = computed(() => puede('auditoria', 'ver'))
+const puedeVerUsuarios = computed(() => puede('usuarios', 'ver'))
+
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
   if (!navbarAbierto.value) {
@@ -207,14 +207,12 @@ const cerrarTodo = () => {
   userMenuOpen.value = false
 }
 
-// ===== CERRAR AL HACER CLICK FUERA =====
 const handleClickOutside = (event) => {
   if (navbar.value && navbar.value.contains(event.target)) return
   if (searchBar.value && searchBar.value.$el && searchBar.value.$el.contains(event.target)) return
   cerrarTodo()
 }
 
-// ===== ACCIONES DE USUARIO =====
 const irPerfil = () => {
   cerrarTodo()
   router.push('/mi-perfil')
@@ -225,13 +223,22 @@ const irAuditoria = () => {
   router.push('/auditoria')
 }
 
+const irUsuarios = () => {
+  cerrarTodo()
+  router.push('/usuarios')
+}
+
 const cerrarSesion = () => {
   cerrarTodo()
   logout()
 }
 
-// ===== MONTAJE Y LIMPIEZA =====
-onMounted(() => {
+onMounted(async () => {
+  try {
+    await cargarPermisos()
+  } catch (e) {
+    console.warn('No se pudieron cargar permisos:', e)
+  }
   document.addEventListener('click', handleClickOutside)
 })
 

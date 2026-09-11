@@ -31,9 +31,11 @@ import Footer from './components/Footer.vue'
 import NotificationStock from './components/NotificationStock.vue'
 import LoaderOverlay from './components/LoaderOverlay.vue'
 import { useInactivityTimeout } from './composables/useInactivityTimeout'
+import { usePermisos } from './composables/usePermisos'
 
 const route = useRoute()
 const toast = useToast()
+const { cargarPermisos } = usePermisos()
 
 const isLoginPage = computed(() => route.path === '/login')
 const isAuthenticated = computed(() => !!localStorage.getItem('token'))
@@ -41,10 +43,18 @@ const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 
 const socket = inject('socket')
 
-// Inicializar timeout de inactividad (30 minutos)
 useInactivityTimeout(30)
 
-onMounted(() => {
+onMounted(async () => {
+  // Cargar permisos del usuario al iniciar la app
+  if (isAuthenticated.value) {
+    try {
+      await cargarPermisos()
+    } catch (e) {
+      console.warn('No se pudieron cargar permisos:', e)
+    }
+  }
+
   if (socket) {
     socket.on('nueva-compra', (data) => {
       toast.info(`📥 Nueva compra: ${data.data?.numero_factura || 'Factura'}`)

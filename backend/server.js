@@ -24,6 +24,7 @@ const contadoresRoutes = require('./routes/contadores');
 const retencionesRoutes = require('./routes/retenciones');
 const catalogosRoutes = require('./routes/catalogos');
 const auditoriaRoutes = require('./routes/auditoria');
+const usuariosRoutes = require('./routes/usuarios');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -31,15 +32,14 @@ const port = process.env.PORT || 5000;
 // ===== MIDDLEWARES DE SEGURIDAD =====
 app.use(helmet());
 
-// Rate limiter - Aumentado a 500 para evitar 429 en desarrollo
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 500, // límite de 500 peticiones por IP (antes 100)
+  windowMs: 15 * 60 * 1000,
+  max: 500,
   message: { error: 'Demasiadas peticiones, intente más tarde' }
 }));
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // ===== CONEXIÓN A MONGODB =====
 const uri = process.env.MONGODB_URI;
@@ -55,6 +55,12 @@ MongoClient.connect(uri)
     db.collection('proveedores').createIndex({ ruc: 1 }, { unique: true });
     db.collection('productos').createIndex({ codigo: 1 }, { unique: true });
     db.collection('productos').createIndex({ nombre: 1 }, { unique: true });
+    db.collection('usuarios').createIndex({ email: 1 }, { unique: true });
+    db.collection('auditoria').createIndex({ fecha: -1 });
+    db.collection('auditoria').createIndex({ usuarioId: 1, fecha: -1 });
+    db.collection('auditoria').createIndex({ coleccion: 1, accion: 1, fecha: -1 });
+    db.collection('ventas_v2').createIndex({ fecha_emision: -1 });
+    db.collection('compras_v2').createIndex({ fecha_emision: -1 });
   })
   .catch(err => {
     console.error('❌ Error conectando a MongoDB:', err);
@@ -73,7 +79,7 @@ app.use('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Dat
 
 // ===== MIDDLEWARE DE AUTENTICACIÓN =====
 const authMiddleware = require('./middleware/auth');
-app.use('/api', authMiddleware); // a partir de aquí, todo requiere token
+app.use('/api', authMiddleware);
 
 // ===== RUTAS PROTEGIDAS =====
 app.use('/api/productos', productosRoutes);
@@ -91,8 +97,19 @@ app.use('/api/contadores', contadoresRoutes);
 app.use('/api/retenciones', retencionesRoutes);
 app.use('/api/catalogos', catalogosRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
+app.use('/api/usuarios', usuariosRoutes);
 
-// ===== MANEJO DE ERRORES (debe ir al final) =====
+// ===== ENDPOINT DE PERMISOS DEL USUARIO ACTUAL =====
+app.get('/api/auth/permisos', (req, res) => {
+  const { PERMISOS } = require('./utils/permisos');
+  const rol = req.user?.rol || 'vendedor';
+  res.json({
+    rol,
+    permisos: PERMISOS[rol] || {}
+  });
+});
+
+// ===== MANEJO DE ERRORES =====
 const errorHandler = require('./middleware/errorHandler');
 app.use(errorHandler);
 
@@ -109,7 +126,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Inyectar io en req para emitir eventos desde las rutas
 app.use((req, res, next) => {
   req.io = io;
   next();
