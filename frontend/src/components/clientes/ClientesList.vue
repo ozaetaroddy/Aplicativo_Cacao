@@ -52,6 +52,13 @@ const columnas = [
 
 const acciones = [
   {
+    key: 'estado-cuenta',
+    icon: 'fas fa-file-invoice-dollar',
+    class: 'btn-outline-info',
+    title: 'Estado de cuenta',
+    handler: (row) => router.push(`/reportes/estado-cuenta?clienteId=${row._id}`)
+  },
+  {
     key: 'edit',
     icon: 'fas fa-edit',
     class: 'btn-outline-primary',
@@ -76,7 +83,6 @@ const acciones = [
   }
 ]
 
-// Imprime TODOS los clientes (no solo la página actual)
 const imprimirLista = async () => {
   try {
     const datos = await api.request('/clientes', { method: 'GET' })

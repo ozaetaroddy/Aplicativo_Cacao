@@ -34,6 +34,8 @@ const UsuariosList = () => import('../components/usuarios/UsuariosList.vue')
 const UsuarioForm = () => import('../components/usuarios/UsuarioForm.vue')
 const PeriodosCerrados = () => import('../components/periodos/PeriodosCerrados.vue')
 const BackupsAdmin = () => import('../components/admin/BackupsAdmin.vue')
+const EstadoCuentaCliente = () => import('../components/reportes/EstadoCuentaCliente.vue')
+const CarteraGeneral = () => import('../components/reportes/CarteraGeneral.vue')
 
 const routes = [
   { path: '/login', component: Login },
@@ -80,6 +82,8 @@ const routes = [
   { path: '/reportes/ventas', component: ReporteVentas, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes/compras', component: ReporteCompras, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes/mensual', component: ReporteMensual, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
+  { path: '/reportes/estado-cuenta', component: EstadoCuentaCliente, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
+  { path: '/reportes/cartera', component: CarteraGeneral, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes', redirect: '/reportes/ventas' },
 
   { path: '/consultar-documentos', component: ConsultarDocumentos, meta: { requiresAuth: true } },
@@ -91,7 +95,6 @@ const routes = [
   { path: '/usuarios/editar/:id', component: UsuarioForm, props: true, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'editar' } },
 
   { path: '/periodos-cerrados', component: PeriodosCerrados, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
-
   { path: '/backups', component: BackupsAdmin, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
 
   { path: '/:pathMatch(.*)*', redirect: '/' }

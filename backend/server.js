@@ -26,6 +26,7 @@ const auditoriaRoutes = require('./routes/auditoria');
 const usuariosRoutes = require('./routes/usuarios');
 const periodosRoutes = require('./routes/periodos');
 const backupsRoutes = require('./routes/backups');
+const estadoCuentaRoutes = require('./routes/estadoCuenta');
 
 const { iniciarScheduler } = require('./utils/backupScheduler');
 
@@ -107,6 +108,7 @@ app.use('/api/auditoria', auditoriaRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/periodos', periodosRoutes);
 app.use('/api/backups', backupsRoutes);
+app.use('/api/estado-cuenta', estadoCuentaRoutes);
 
 app.get('/api/auth/permisos', (req, res) => {
   const { PERMISOS } = require('./utils/permisos');

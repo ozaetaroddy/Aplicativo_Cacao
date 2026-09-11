@@ -85,6 +85,9 @@
               <li><router-link class="dropdown-item" to="/reportes/compras" @click="cerrarTodo"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
               <li><router-link class="dropdown-item" to="/reportes/mensual" @click="cerrarTodo"><i class="fas fa-file-invoice"></i> Reporte Mensual</router-link></li>
               <li><hr class="dropdown-divider"></li>
+              <li><router-link class="dropdown-item" to="/reportes/estado-cuenta" @click="cerrarTodo"><i class="fas fa-file-invoice-dollar"></i> Estado de Cuenta</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/cartera" @click="cerrarTodo"><i class="fas fa-chart-pie"></i> Cartera General</router-link></li>
+              <li><hr class="dropdown-divider"></li>
               <li><router-link class="dropdown-item" to="/periodos-cerrados" @click="cerrarTodo"><i class="fas fa-lock"></i> Períodos Cerrados</router-link></li>
             </ul>
           </li>
