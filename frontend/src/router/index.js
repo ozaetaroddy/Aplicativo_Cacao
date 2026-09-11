@@ -34,6 +34,7 @@ const UsuariosList = () => import('../components/usuarios/UsuariosList.vue')
 const UsuarioForm = () => import('../components/usuarios/UsuarioForm.vue')
 const PeriodosCerrados = () => import('../components/periodos/PeriodosCerrados.vue')
 const BackupsAdmin = () => import('../components/admin/BackupsAdmin.vue')
+const ConfiguracionEmpresa = () => import('../components/admin/ConfiguracionEmpresa.vue')
 const EstadoCuentaCliente = () => import('../components/reportes/EstadoCuentaCliente.vue')
 const CarteraGeneral = () => import('../components/reportes/CarteraGeneral.vue')
 const EstadosFinancieros = () => import('../components/reportes/EstadosFinancieros.vue')
@@ -100,6 +101,7 @@ const routes = [
 
   { path: '/periodos-cerrados', component: PeriodosCerrados, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/backups', component: BackupsAdmin, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
+  { path: '/configuracion-empresa', component: ConfiguracionEmpresa, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
 
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]

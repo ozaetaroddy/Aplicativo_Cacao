@@ -111,6 +111,7 @@
               <span class="nav-text">Administración</span>
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.admin }">
+              <li v-if="puedeVerUsuarios"><router-link class="dropdown-item" to="/configuracion-empresa" @click="cerrarTodo"><i class="fas fa-building"></i> Configuración Empresa</router-link></li>
               <li v-if="puedeVerUsuarios"><router-link class="dropdown-item" to="/usuarios" @click="cerrarTodo"><i class="fas fa-user-cog"></i> Usuarios</router-link></li>
               <li v-if="puedeVerAuditoria"><router-link class="dropdown-item" to="/auditoria" @click="cerrarTodo"><i class="fas fa-history"></i> Auditoría</router-link></li>
               <li v-if="puedeVerUsuarios"><router-link class="dropdown-item" to="/backups" @click="cerrarTodo"><i class="fas fa-database"></i> Backups</router-link></li>
@@ -139,6 +140,7 @@
               </li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item" href="#" @click.prevent="irPerfil"><i class="fas fa-id-card"></i> Mi Perfil</a></li>
+              <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irConfigEmpresa"><i class="fas fa-building"></i> Configuración Empresa</a></li>
               <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irUsuarios"><i class="fas fa-user-cog"></i> Gestionar Usuarios</a></li>
               <li v-if="puedeVerAuditoria"><a class="dropdown-item" href="#" @click.prevent="irAuditoria"><i class="fas fa-history"></i> Auditoría</a></li>
               <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irBackups"><i class="fas fa-database"></i> Backups</a></li>
@@ -230,6 +232,7 @@ const irPerfil = () => { cerrarTodo(); router.push('/mi-perfil') }
 const irAuditoria = () => { cerrarTodo(); router.push('/auditoria') }
 const irUsuarios = () => { cerrarTodo(); router.push('/usuarios') }
 const irBackups = () => { cerrarTodo(); router.push('/backups') }
+const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
 const cerrarSesion = () => { cerrarTodo(); logout() }
 
 const getInitials = (nombre) => {

@@ -29,6 +29,7 @@ const backupsRoutes = require('./routes/backups');
 const estadoCuentaRoutes = require('./routes/estadoCuenta');
 const estadosFinancierosRoutes = require('./routes/estadosFinancieros');
 const anexosRoutes = require('./routes/anexos');
+const configuracionRoutes = require('./routes/configuracion');
 
 const { iniciarScheduler } = require('./utils/backupScheduler');
 
@@ -112,6 +113,7 @@ app.use('/api/periodos', periodosRoutes);
 app.use('/api/backups', backupsRoutes);
 app.use('/api/estado-cuenta', estadoCuentaRoutes);
 app.use('/api/estados-financieros', estadosFinancierosRoutes);
+app.use('/api/configuracion', configuracionRoutes);
 app.use('/api/anexos', anexosRoutes);
 
 app.get('/api/auth/permisos', (req, res) => {

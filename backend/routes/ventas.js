@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const { logAudit } = require('../utils/audit');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 const { verificarPeriodoAbierto } = require('../utils/periodos');
+const { generarClaveAcceso, formatearSerie, descomponerClave, validarClave } = require('../utils/claveAcceso');
 
 const validarVenta = [
   body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
@@ -15,6 +16,23 @@ const validarVenta = [
   body('total').isNumeric().withMessage('Total debe ser número'),
 ];
 
+// Mapeo tipo_documento interno → código SRI
+const TIPO_COMPROBANTE_SRI = {
+  'factura': '01',
+  'liquidacion': '03',
+  'nota_credito': '04',
+  'nota_debito': '05',
+  'guia_remision': '06',
+  'retencion': '07',
+  'exportacion': '01',
+  'reembolso': '01',
+  'proforma': null // Proforma no se envía al SRI
+};
+
+// Documentos que generan clave de acceso
+const DOCS_CON_CLAVE = ['factura', 'liquidacion', 'nota_credito', 'nota_debito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'];
+
+// OBTENER TODAS (con paginación, búsqueda y filtros)
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -59,6 +77,7 @@ router.get('/', async (req, res) => {
         $match: {
           $or: [
             { numero_factura: regex },
+            { clave_acceso: regex },
             { 'cliente.nombre': regex },
             { 'cliente.ruc': regex }
           ]
@@ -93,6 +112,18 @@ router.get('/', async (req, res) => {
     });
   } catch (err) {
     console.error('Error listando ventas:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== VALIDAR CLAVE DE ACCESO =====
+router.post('/validar-clave', async (req, res) => {
+  try {
+    const { clave } = req.body;
+    const valida = validarClave(clave);
+    const partes = descomponerClave(clave);
+    res.json({ valida, partes });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -142,6 +173,11 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
       forma_pago, estado_pago, fecha_pago, observaciones
     } = req.body;
 
+    const tipoDoc = tipo_documento || 'factura';
+
+    // ===== CARGAR CONFIGURACIÓN DE LA EMPRESA =====
+    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+
     const session = req.db.client.startSession();
     let result;
 
@@ -154,24 +190,55 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         }
       }
 
-      const tipoDoc = tipo_documento || 'factura';
+      // Generar secuencial desde el contador
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: tipoDoc },
         { $inc: { valor: 1 } },
         { upsert: true, returnDocument: 'after', session }
       );
+
       const prefijos = {
-        'factura': 'FAC',
-        'guia_remision': 'GUI',
-        'exportacion': 'EXP',
-        'reembolso': 'REB',
-        'retencion': 'RET',
-        'liquidacion': 'LIQ',
-        'nota_credito': 'NCR',
-        'proforma': 'PRO'
+        'factura': 'FAC', 'guia_remision': 'GUI', 'exportacion': 'EXP', 'reembolso': 'REB',
+        'retencion': 'RET', 'liquidacion': 'LIQ', 'nota_credito': 'NCR', 'proforma': 'PRO'
       };
       const prefijo = prefijos[tipoDoc] || 'DOC';
       const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
+
+      // ===== GENERAR CLAVE DE ACCESO =====
+      let claveAcceso = null;
+      let partesClave = null;
+      let serieFormateada = null;
+      let numeroSecuencial = null;
+
+      const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && config?.ruc && config.ruc.length === 13;
+
+      if (generaClave) {
+        const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
+
+        // Serie: priorizar la que venga del formulario, si no, la de configuración
+        const est = establecimiento || config.establecimiento || '001';
+        const pe = punto_emision || config.punto_emision || '001';
+        serieFormateada = formatearSerie(est, pe);
+
+        // Secuencial de 9 dígitos (usamos el contador de valor)
+        numeroSecuencial = contadorResult.valor;
+
+        try {
+          claveAcceso = generarClaveAcceso({
+            fechaEmision: new Date(fecha_emision),
+            tipoComprobante: codigoSRI,
+            ruc: config.ruc,
+            ambiente: config.ambiente || '1',
+            serie: serieFormateada,
+            secuencial: numeroSecuencial,
+            tipoEmision: config.tipo_emision || '1'
+          });
+          partesClave = descomponerClave(claveAcceso);
+        } catch (e) {
+          console.error('Error generando clave de acceso:', e.message);
+          // Continuar sin clave si falla (para no bloquear la venta)
+        }
+      }
 
       let exportacionCodigo = null;
       if (tipoDoc === 'exportacion') {
@@ -192,6 +259,16 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         subtotal,
         iva,
         total,
+        // ===== CAMPOS SRI =====
+        clave_acceso: claveAcceso || '',
+        numero_autorizacion: '', // Se llena cuando el SRI autoriza
+        estado_sri: generaClave ? 'PENDIENTE' : 'NO_APLICA',
+        ambiente_sri: config?.ambiente || '1',
+        serie: serieFormateada || '',
+        secuencial_sri: numeroSecuencial ? String(numeroSecuencial).padStart(9, '0') : '',
+        ruc_emisor: config?.ruc || '',
+        razon_social_emisor: config?.razon_social || '',
+        // ===== CAMPOS EXISTENTES =====
         numero_guia: numero_guia || '',
         transportista: transportista || '',
         placa: placa || '',
@@ -199,9 +276,9 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         pais_destino: pais_destino || '',
         numero_retencion: numero_retencion || '',
         porcentaje_retencion: porcentaje_retencion || 0,
-        establecimiento: establecimiento || '',
-        nombre_comercial: nombre_comercial || '',
-        punto_emision: punto_emision || '',
+        establecimiento: establecimiento || config?.establecimiento || '',
+        nombre_comercial: nombre_comercial || config?.nombre_comercial || '',
+        punto_emision: punto_emision || config?.punto_emision || '',
         transportista_identificacion: transportista_identificacion || '',
         transportista_tipo: transportista_tipo || '',
         transportista_razon_social: transportista_razon_social || '',
@@ -262,11 +339,11 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         }
       }
 
-      result = ventaResult;
+      result = { ventaResult, claveAcceso, partesClave };
     });
 
     const ventaCreada = await req.db.collection('ventas_v2').aggregate([
-      { $match: { _id: result.insertedId } },
+      { $match: { _id: result.ventaResult.insertedId } },
       {
         $lookup: {
           from: 'clientes',
@@ -281,14 +358,18 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
     await logAudit(req.db, req, {
       accion: 'crear',
       coleccion: 'ventas',
-      documentoId: result.insertedId,
+      documentoId: result.ventaResult.insertedId,
       documentoNumero: ventaCreada[0]?.numero_factura || '',
       datosNuevos: ventaCreada[0],
-      detalle: `Venta creada: ${ventaCreada[0]?.numero_factura || ''} por $${(ventaCreada[0]?.total || 0).toFixed(2)}`
+      detalle: `Venta creada: ${ventaCreada[0]?.numero_factura || ''} por $${(ventaCreada[0]?.total || 0).toFixed(2)}${result.claveAcceso ? ' (Clave: ' + result.claveAcceso.substring(0, 20) + '...)' : ''}`
     });
 
     if (req.io) req.io.emit('nueva-venta', ventaCreada[0]);
-    res.status(201).json(ventaCreada[0]);
+
+    res.status(201).json({
+      ...ventaCreada[0],
+      clave_acceso_partes: result.partesClave
+    });
   } catch (err) {
     console.error('Error en venta:', err);
     res.status(500).json({ error: err.message });
@@ -305,6 +386,13 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
 
     const ventaActual = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
     if (!ventaActual) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    // No permitir editar si ya fue autorizada por el SRI
+    if (ventaActual.estado_sri === 'AUTORIZADO') {
+      return res.status(400).json({
+        error: 'Esta factura ya fue autorizada por el SRI. No se puede modificar. Genere una nota de crédito si es necesario.'
+      });
+    }
 
     const {
       clienteId, numero_factura, fecha_emision, tipo_documento,
@@ -349,6 +437,40 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
         }
       }
 
+      // Si la fecha cambió, regenerar clave de acceso
+      let nuevaClave = ventaActual.clave_acceso || '';
+      let nuevoSecuencial = ventaActual.secuencial_sri || '';
+      const fechaCambio = new Date(fecha_emision).getTime() !== new Date(ventaActual.fecha_emision).getTime();
+      const tipoCambio = (tipo_documento || 'factura') !== ventaActual.tipo_documento;
+
+      if (fechaCambio || tipoCambio) {
+        const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+        const tipoDoc = tipo_documento || 'factura';
+        const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && config?.ruc && config.ruc.length === 13;
+
+        if (generaClave) {
+          try {
+            const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
+            const est = establecimiento || config.establecimiento || '001';
+            const pe = punto_emision || config.punto_emision || '001';
+            const serie = formatearSerie(est, pe);
+            const secuencial = parseInt(nuevoSecuencial) || 1;
+
+            nuevaClave = generarClaveAcceso({
+              fechaEmision: new Date(fecha_emision),
+              tipoComprobante: codigoSRI,
+              ruc: config.ruc,
+              ambiente: config.ambiente || '1',
+              serie,
+              secuencial,
+              tipoEmision: config.tipo_emision || '1'
+            });
+          } catch (e) {
+            console.error('Error regenerando clave:', e.message);
+          }
+        }
+      }
+
       const updateData = {
         clienteId: new ObjectId(clienteId),
         numero_factura,
@@ -358,6 +480,7 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
         subtotal,
         iva,
         total,
+        clave_acceso: nuevaClave,
         numero_guia,
         transportista,
         placa,
@@ -395,6 +518,7 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
         observaciones: observaciones || '',
         updatedAt: new Date()
       };
+
       await req.db.collection('ventas_v2').updateOne(
         { _id: new ObjectId(id) },
         { $set: updateData },
@@ -463,6 +587,13 @@ router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
 
     const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    // No permitir eliminar si ya fue autorizada por el SRI
+    if (venta.estado_sri === 'AUTORIZADO') {
+      return res.status(400).json({
+        error: 'Esta factura ya fue autorizada por el SRI. No se puede eliminar. Genere una nota de crédito si es necesario.'
+      });
+    }
 
     const session = req.db.client.startSession();
     await session.withTransaction(async () => {
