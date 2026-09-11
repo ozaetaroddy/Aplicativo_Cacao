@@ -177,6 +177,35 @@
       </div>
     </div>
 
+    <!-- ===== BANDEJAS: VENTAS Y COMPRAS ===== -->
+    <div class="row g-4 mb-4">
+      <div class="col-12">
+        <h5 class="section-subtitle"><i class="fas fa-inbox me-2"></i>Bandejas de Trabajo</h5>
+      </div>
+      <div class="col-lg-6">
+        <div class="card card-cacao h-100">
+          <div class="card-header">
+            <i class="fas fa-hand-holding-usd me-2" style="color: #3498db;"></i>
+            Bandeja de Ventas
+          </div>
+          <div class="card-body">
+            <BandejaVentasWidget />
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card card-cacao h-100">
+          <div class="card-header">
+            <i class="fas fa-shopping-cart me-2" style="color: #e67e22;"></i>
+            Bandeja de Compras
+          </div>
+          <div class="card-body">
+            <BandejaComprasWidget />
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== GRÁFICOS ===== -->
     <DashboardCharts
       :ventas-diarias="ventasDiarias"
@@ -210,6 +239,8 @@ import { useEstadisticas } from '../composables/useEstadisticas'
 import DashboardCharts from './dashboard/DashboardCharts.vue'
 import WidgetContainer from './dashboard/WidgetContainer.vue'
 import ExportImport from './ExportImport.vue'
+import BandejaVentasWidget from './dashboard/widgets/BandejaVentasWidget.vue'
+import BandejaComprasWidget from './dashboard/widgets/BandejaComprasWidget.vue'
 
 const { find } = useMongoDB()
 const {
@@ -237,10 +268,6 @@ const defaultWidgets = [
   { id: 'actividad-reciente', title: 'Actividad Reciente', component: 'ActividadRecienteWidget', size: 'col-12 col-md-6', props: {} }
 ]
 
-const onLayoutChanged = (widgets) => {
-  console.log('Layout guardado:', widgets)
-}
-
 // ===== CALCULAR KPIS =====
 const calcularKPIs = async () => {
   try {
@@ -253,21 +280,17 @@ const calcularKPIs = async () => {
     const hoy = new Date()
     const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
 
-    // Total facturado en el mes
     const facturadoMes = ventas
       .filter(v => new Date(v.fecha_emision) >= inicioMes)
       .reduce((sum, v) => sum + (v.total || 0), 0)
     totalFacturado.value = facturadoMes
 
-    // Cuentas por pagar (compras pendientes)
     cuentasPorPagar.value = compras.filter(c => c.estado_pago === 'pendiente').length
 
-    // Rotación de inventario (ventas totales / stock promedio)
     const totalVentas = ventas.reduce((sum, v) => sum + (v.total || 0), 0)
     const stockTotal = productos.reduce((sum, p) => sum + (p.stock || 0), 0)
     rotacionInventario.value = stockTotal > 0 ? totalVentas / stockTotal : 0
 
-    // Margen bruto (ventas - compras) / ventas
     const totalCompras = compras.reduce((sum, c) => sum + (c.total || 0), 0)
     margenBruto.value = totalVentas > 0 ? ((totalVentas - totalCompras) / totalVentas) * 100 : 0
 
