@@ -37,6 +37,7 @@ const BackupsAdmin = () => import('../components/admin/BackupsAdmin.vue')
 const EstadoCuentaCliente = () => import('../components/reportes/EstadoCuentaCliente.vue')
 const CarteraGeneral = () => import('../components/reportes/CarteraGeneral.vue')
 const EstadosFinancieros = () => import('../components/reportes/EstadosFinancieros.vue')
+const AnexoATS = () => import('../components/reportes/AnexoATS.vue')
 
 const routes = [
   { path: '/login', component: Login },
@@ -86,6 +87,7 @@ const routes = [
   { path: '/reportes/estado-cuenta', component: EstadoCuentaCliente, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes/cartera', component: CarteraGeneral, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes/estados-financieros', component: EstadosFinancieros, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
+  { path: '/reportes/ats', component: AnexoATS, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes', redirect: '/reportes/ventas' },
 
   { path: '/consultar-documentos', component: ConsultarDocumentos, meta: { requiresAuth: true } },

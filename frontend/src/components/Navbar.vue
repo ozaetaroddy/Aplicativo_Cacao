@@ -89,6 +89,7 @@
               <li><router-link class="dropdown-item" to="/reportes/cartera" @click="cerrarTodo"><i class="fas fa-chart-pie"></i> Cartera General</router-link></li>
               <li><router-link class="dropdown-item" to="/reportes/estados-financieros" @click="cerrarTodo"><i class="fas fa-chart-line"></i> Estados Financieros</router-link></li>
               <li><hr class="dropdown-divider"></li>
+              <li><router-link class="dropdown-item" to="/reportes/ats" @click="cerrarTodo"><i class="fas fa-file-export"></i> Anexo ATS</router-link></li>
               <li><router-link class="dropdown-item" to="/periodos-cerrados" @click="cerrarTodo"><i class="fas fa-lock"></i> Períodos Cerrados</router-link></li>
             </ul>
           </li>
