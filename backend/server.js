@@ -7,7 +7,6 @@ const { MongoClient } = require('mongodb');
 const http = require('http');
 const socketIo = require('socket.io');
 
-// Importar rutas
 const authRoutes = require('./routes/auth');
 const productosRoutes = require('./routes/productos');
 const categoriasRoutes = require('./routes/categorias');
@@ -26,11 +25,13 @@ const catalogosRoutes = require('./routes/catalogos');
 const auditoriaRoutes = require('./routes/auditoria');
 const usuariosRoutes = require('./routes/usuarios');
 const periodosRoutes = require('./routes/periodos');
+const backupsRoutes = require('./routes/backups');
+
+const { iniciarScheduler } = require('./utils/backupScheduler');
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// ===== MIDDLEWARES DE SEGURIDAD =====
 app.use(helmet());
 
 app.use(rateLimit({
@@ -40,17 +41,17 @@ app.use(rateLimit({
 }));
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
 
-// ===== CONEXIÓN A MONGODB =====
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME;
 let db;
 
 MongoClient.connect(uri)
-  .then(client => {
+  .then(async client => {
     db = client.db(dbName);
     console.log('✅ Conectado a MongoDB');
+
     db.collection('clientes').createIndex({ ruc: 1 }, { unique: true });
     db.collection('proveedores').createIndex({ ruc: 1 }, { unique: true });
     db.collection('productos').createIndex({ codigo: 1 }, { unique: true });
@@ -62,27 +63,32 @@ MongoClient.connect(uri)
     db.collection('ventas_v2').createIndex({ fecha_emision: -1 });
     db.collection('compras_v2').createIndex({ fecha_emision: -1 });
     db.collection('periodos_cerrados').createIndex({ anio: 1, mes: 1 }, { unique: true });
+    db.collection('backups').createIndex({ fecha: -1 });
+    db.collection('backups').createIndex({ tipo: 1, fecha: -1 });
+
+    // Iniciar scheduler de backups
+    try {
+      await iniciarScheduler(db);
+    } catch (e) {
+      console.error('Error iniciando scheduler de backups:', e.message);
+    }
   })
   .catch(err => {
     console.error('❌ Error conectando a MongoDB:', err);
     process.exit(1);
   });
 
-// Middleware para inyectar db en las rutas
 app.use((req, res, next) => {
   req.db = db;
   next();
 });
 
-// ===== RUTAS PÚBLICAS =====
 app.use('/api/auth', authRoutes);
 app.use('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 
-// ===== MIDDLEWARE DE AUTENTICACIÓN =====
 const authMiddleware = require('./middleware/auth');
 app.use('/api', authMiddleware);
 
-// ===== RUTAS PROTEGIDAS =====
 app.use('/api/productos', productosRoutes);
 app.use('/api/categorias', categoriasRoutes);
 app.use('/api/clientes', clientesRoutes);
@@ -100,8 +106,8 @@ app.use('/api/catalogos', catalogosRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/periodos', periodosRoutes);
+app.use('/api/backups', backupsRoutes);
 
-// ===== ENDPOINT DE PERMISOS =====
 app.get('/api/auth/permisos', (req, res) => {
   const { PERMISOS } = require('./utils/permisos');
   const rol = req.user?.rol || 'vendedor';
@@ -111,11 +117,9 @@ app.get('/api/auth/permisos', (req, res) => {
   });
 });
 
-// ===== MANEJO DE ERRORES =====
 const errorHandler = require('./middleware/errorHandler');
 app.use(errorHandler);
 
-// ===== SOCKET.IO =====
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: { origin: '*' }
@@ -133,7 +137,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ===== INICIAR SERVIDOR =====
 server.listen(port, () => {
   console.log(`🚀 Servidor backend corriendo en http://localhost:${port}`);
   console.log(`📡 Entorno: ${process.env.NODE_ENV || 'desarrollo'}`);

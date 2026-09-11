@@ -108,6 +108,7 @@
             <ul class="dropdown-menu" :class="{ show: dropdowns.admin }">
               <li v-if="puedeVerUsuarios"><router-link class="dropdown-item" to="/usuarios" @click="cerrarTodo"><i class="fas fa-user-cog"></i> Usuarios</router-link></li>
               <li v-if="puedeVerAuditoria"><router-link class="dropdown-item" to="/auditoria" @click="cerrarTodo"><i class="fas fa-history"></i> Auditoría</router-link></li>
+              <li v-if="puedeVerUsuarios"><router-link class="dropdown-item" to="/backups" @click="cerrarTodo"><i class="fas fa-database"></i> Backups</router-link></li>
             </ul>
           </li>
         </ul>
@@ -135,6 +136,7 @@
               <li><a class="dropdown-item" href="#" @click.prevent="irPerfil"><i class="fas fa-id-card"></i> Mi Perfil</a></li>
               <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irUsuarios"><i class="fas fa-user-cog"></i> Gestionar Usuarios</a></li>
               <li v-if="puedeVerAuditoria"><a class="dropdown-item" href="#" @click.prevent="irAuditoria"><i class="fas fa-history"></i> Auditoría</a></li>
+              <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irBackups"><i class="fas fa-database"></i> Backups</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item text-danger" href="#" @click.prevent="cerrarSesion"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a></li>
             </ul>
@@ -205,9 +207,7 @@ const toggleDropdown = (nombre) => {
   })
 }
 
-const toggleUserMenu = () => {
-  userMenuOpen.value = !userMenuOpen.value
-}
+const toggleUserMenu = () => { userMenuOpen.value = !userMenuOpen.value }
 
 const cerrarTodo = () => {
   navbarAbierto.value = false
@@ -224,6 +224,7 @@ const handleClickOutside = (event) => {
 const irPerfil = () => { cerrarTodo(); router.push('/mi-perfil') }
 const irAuditoria = () => { cerrarTodo(); router.push('/auditoria') }
 const irUsuarios = () => { cerrarTodo(); router.push('/usuarios') }
+const irBackups = () => { cerrarTodo(); router.push('/backups') }
 const cerrarSesion = () => { cerrarTodo(); logout() }
 
 const getInitials = (nombre) => {

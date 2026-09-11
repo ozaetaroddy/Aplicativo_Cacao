@@ -33,6 +33,7 @@ const AuditoriaList = () => import('../components/auditoria/AuditoriaList.vue')
 const UsuariosList = () => import('../components/usuarios/UsuariosList.vue')
 const UsuarioForm = () => import('../components/usuarios/UsuarioForm.vue')
 const PeriodosCerrados = () => import('../components/periodos/PeriodosCerrados.vue')
+const BackupsAdmin = () => import('../components/admin/BackupsAdmin.vue')
 
 const routes = [
   { path: '/login', component: Login },
@@ -91,6 +92,8 @@ const routes = [
 
   { path: '/periodos-cerrados', component: PeriodosCerrados, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
 
+  { path: '/backups', component: BackupsAdmin, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
+
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
@@ -104,21 +107,14 @@ router.beforeEach(async (to, from, next) => {
   const publicPages = ['/login']
   const authRequired = !publicPages.includes(to.path)
 
-  if (to.path === '/login' && token) {
-    return next('/')
-  }
-
-  if (authRequired && !token) {
-    return next('/login')
-  }
+  if (to.path === '/login' && token) return next('/')
+  if (authRequired && !token) return next('/login')
 
   if (to.meta.modulo && to.meta.accion) {
     try {
       const { cargarPermisos, puede } = usePermisos()
       await cargarPermisos()
-      if (!puede(to.meta.modulo, to.meta.accion)) {
-        return next('/')
-      }
+      if (!puede(to.meta.modulo, to.meta.accion)) return next('/')
     } catch (e) {
       return next('/login')
     }
