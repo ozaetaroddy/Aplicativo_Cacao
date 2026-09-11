@@ -61,44 +61,22 @@
       </div>
     </div>
 
-    <!-- ===== FILTROS RÁPIDOS ===== -->
+    <!-- ===== FILTROS ===== -->
     <div class="card card-cacao mb-3">
       <div class="card-body py-2">
         <div class="d-flex gap-2 flex-wrap align-items-center">
-          <span class="text-muted small me-2"><i class="fas fa-filter"></i> Filtrar por estado SRI:</span>
-          <button
-            class="btn btn-sm"
-            :class="filtroEstadoSri === '' ? 'btn-primary' : 'btn-outline-secondary'"
-            @click="cambiarFiltroSri('')"
-          >
-            Todos
-          </button>
-          <button
-            class="btn btn-sm"
-            :class="filtroEstadoSri === 'PENDIENTE' ? 'btn-warning' : 'btn-outline-warning'"
-            @click="cambiarFiltroSri('PENDIENTE')"
-          >
+          <span class="text-muted small me-2"><i class="fas fa-filter"></i> Filtrar:</span>
+          <button class="btn btn-sm" :class="filtroEstadoSri === '' ? 'btn-primary' : 'btn-outline-secondary'" @click="cambiarFiltroSri('')">Todos</button>
+          <button class="btn btn-sm" :class="filtroEstadoSri === 'PENDIENTE' ? 'btn-warning' : 'btn-outline-warning'" @click="cambiarFiltroSri('PENDIENTE')">
             <i class="fas fa-clock"></i> Pendientes
           </button>
-          <button
-            class="btn btn-sm"
-            :class="filtroEstadoSri === 'FIRMADO' ? 'btn-info' : 'btn-outline-info'"
-            @click="cambiarFiltroSri('FIRMADO')"
-          >
+          <button class="btn btn-sm" :class="filtroEstadoSri === 'FIRMADO' ? 'btn-info' : 'btn-outline-info'" @click="cambiarFiltroSri('FIRMADO')">
             <i class="fas fa-signature"></i> Firmados
           </button>
-          <button
-            class="btn btn-sm"
-            :class="filtroEstadoSri === 'AUTORIZADO' ? 'btn-success' : 'btn-outline-success'"
-            @click="cambiarFiltroSri('AUTORIZADO')"
-          >
+          <button class="btn btn-sm" :class="filtroEstadoSri === 'AUTORIZADO' ? 'btn-success' : 'btn-outline-success'" @click="cambiarFiltroSri('AUTORIZADO')">
             <i class="fas fa-check-double"></i> Autorizados
           </button>
-          <button
-            class="btn btn-sm"
-            :class="filtroEstadoSri === 'RECHAZADA' ? 'btn-danger' : 'btn-outline-danger'"
-            @click="cambiarFiltroSri('RECHAZADA')"
-          >
+          <button class="btn btn-sm" :class="filtroEstadoSri === 'RECHAZADA' ? 'btn-danger' : 'btn-outline-danger'" @click="cambiarFiltroSri('RECHAZADA')">
             <i class="fas fa-times-circle"></i> Rechazados
           </button>
         </div>
@@ -108,70 +86,202 @@
     <!-- ===== TABLA ===== -->
     <div class="card card-cacao">
       <div class="card-body">
-        <DataTablePaged
-          ref="tablaRef"
-          endpoint="/ventas"
-          :columns="columnas"
-          :actions="acciones"
-          :default-limit="20"
-          default-sort="fecha_emision"
-          default-sort-dir="desc"
-          :extra-query="extraQuery"
-          @loaded="onDataLoaded"
-        >
-          <template #fecha_emision="{ row }">
-            {{ new Date(row.fecha_emision).toLocaleDateString('es-EC') }}
-          </template>
-          <template #cliente="{ row }">
-            <div class="fw-bold small">{{ row.cliente?.nombre || 'N/A' }}</div>
-            <div class="text-muted" style="font-size:0.7rem;">{{ row.cliente?.ruc || '' }}</div>
-          </template>
-          <template #tipo_documento="{ row }">
-            <span class="badge bg-secondary small">{{ row.tipo_documento || 'N/A' }}</span>
-          </template>
-          <template #total="{ value }">
-            <strong>${{ (value || 0).toFixed(2) }}</strong>
-          </template>
-          <template #estado_pago="{ row }">
-            <span class="badge" :class="row.estado_pago === 'pagado' ? 'bg-success' : 'bg-warning text-dark'">
-              {{ row.estado_pago || 'pendiente' }}
-            </span>
-          </template>
-          <template #estado_sri="{ row }">
-            <span class="badge" :class="getEstadoSriClass(row.estado_sri)">
-              <i :class="getEstadoSriIcon(row.estado_sri)" class="me-1"></i>
-              {{ row.estado_sri || 'N/A' }}
-            </span>
-          </template>
-          <template #clave_acceso="{ row }">
-            <span v-if="row.clave_acceso" class="clave-corta" :title="row.clave_acceso">
-              {{ row.clave_acceso.substring(0, 12) }}...
-            </span>
-            <span v-else class="text-muted">—</span>
-          </template>
-          <template #numero_autorizacion="{ row }">
-            <span v-if="row.numero_autorizacion" class="clave-corta" :title="row.numero_autorizacion">
-              {{ row.numero_autorizacion.substring(0, 12) }}...
-            </span>
-            <span v-else class="text-muted">—</span>
-          </template>
-        </DataTablePaged>
+        <div class="table-responsive">
+          <table class="table table-cacao tabla-ventas">
+            <thead>
+              <tr>
+                <th style="min-width:90px;">Fecha</th>
+                <th style="min-width:120px;">Nº Factura</th>
+                <th style="min-width:180px;">Cliente</th>
+                <th style="min-width:80px;">Tipo</th>
+                <th style="min-width:90px;" class="text-end">Total</th>
+                <th style="min-width:90px;">Pago</th>
+                <th style="min-width:100px;">Estado SRI</th>
+                <th style="min-width:120px;">Nº Autorización</th>
+                <th style="min-width:140px;">Clave Acceso</th>
+                <th style="width:180px;" class="text-center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="loading">
+                <td colspan="10" class="text-center py-4">
+                  <i class="fas fa-spinner fa-spin"></i> Cargando...
+                </td>
+              </tr>
+              <tr v-else-if="ventas.length === 0">
+                <td colspan="10" class="text-center text-muted py-4">
+                  No hay ventas registradas
+                </td>
+              </tr>
+              <tr v-else v-for="v in ventas" :key="v._id">
+                <td class="small">{{ formatFecha(v.fecha_emision) }}</td>
+                <td class="small font-monospace">{{ v.numero_factura }}</td>
+                <td>
+                  <div class="fw-bold small">{{ v.cliente?.nombre || 'N/A' }}</div>
+                  <div class="text-muted" style="font-size:0.7rem;">{{ v.cliente?.ruc || '' }}</div>
+                </td>
+                <td>
+                  <span class="badge-tipo">{{ v.tipo_documento || 'N/A' }}</span>
+                </td>
+                <td class="text-end fw-bold">${{ (v.total || 0).toFixed(2) }}</td>
+                <td>
+                  <span class="badge" :class="v.estado_pago === 'pagado' ? 'bg-success' : 'bg-warning text-dark'">
+                    {{ v.estado_pago || 'pendiente' }}
+                  </span>
+                </td>
+                <td>
+                  <span class="badge" :class="getEstadoSriClass(v.estado_sri)">
+                    <i :class="getEstadoSriIcon(v.estado_sri)" class="me-1"></i>
+                    {{ v.estado_sri || 'N/A' }}
+                  </span>
+                </td>
+                <td class="small font-monospace">
+                  <span v-if="v.numero_autorizacion" :title="v.numero_autorizacion">
+                    {{ v.numero_autorizacion.substring(0, 12) }}...
+                  </span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td class="small font-monospace">
+                  <span v-if="v.clave_acceso" class="clave-corta" :title="v.clave_acceso">
+                    {{ v.clave_acceso.substring(0, 12) }}...
+                  </span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td class="text-center">
+                  <div class="acciones-cell">
+                    <!-- Firma -->
+                    <button
+                      v-if="puedeFirmar(v)"
+                      class="btn-accion btn-warning-accion"
+                      @click="firmar(v)"
+                      title="Firmar electrónicamente"
+                    >
+                      <i class="fas fa-signature"></i>
+                    </button>
+
+                    <!-- Enviar al SRI -->
+                    <button
+                      v-if="puedeEnviarSri(v)"
+                      class="btn-accion btn-success-accion"
+                      @click="enviarAlSRI(v)"
+                      title="Enviar al SRI"
+                    >
+                      <i class="fas fa-paper-plane"></i>
+                    </button>
+
+                    <!-- Reintentar (rechazado) -->
+                    <button
+                      v-if="puedeReintentar(v)"
+                      class="btn-accion btn-warning-accion"
+                      @click="enviarAlSRI(v)"
+                      title="Reintentar envío al SRI"
+                    >
+                      <i class="fas fa-redo"></i>
+                    </button>
+
+                    <!-- Consultar autorización -->
+                    <button
+                      v-if="puedeConsultar(v)"
+                      class="btn-accion btn-info-accion"
+                      @click="consultarSRI(v)"
+                      title="Consultar autorización en el SRI"
+                    >
+                      <i class="fas fa-search"></i>
+                    </button>
+
+                    <!-- Ver documento -->
+                    <button
+                      class="btn-accion btn-secondary-accion"
+                      @click="irDocumento(v)"
+                      title="Ver documento (RIDE)"
+                    >
+                      <i class="fas fa-eye"></i>
+                    </button>
+
+                    <!-- Menú desplegable para más acciones -->
+                    <div class="dropdown d-inline-block">
+                      <button
+                        class="btn-accion btn-secondary-accion"
+                        type="button"
+                        @click.stop="toggleMenuAcciones(v._id)"
+                        title="Más acciones"
+                      >
+                        <i class="fas fa-ellipsis-v"></i>
+                      </button>
+                      <ul
+                        v-if="menuAbierto === v._id"
+                        class="dropdown-menu-acciones"
+                        @click.stop
+                      >
+                        <li v-if="v.clave_acceso">
+                          <a href="#" @click.prevent="descargarXML(v, v.estado_sri === 'FIRMADO' || v.estado_sri === 'AUTORIZADO')">
+                            <i class="fas fa-file-code text-success"></i>
+                            Descargar XML
+                          </a>
+                        </li>
+                        <li v-if="v.clave_acceso">
+                          <a href="#" @click.prevent="abrirModalEmail(v)">
+                            <i class="fas fa-envelope text-info"></i>
+                            Enviar por email
+                          </a>
+                        </li>
+                        <li v-if="v.estado_sri !== 'AUTORIZADO'">
+                          <a href="#" @click.prevent="editar(v)">
+                            <i class="fas fa-edit text-primary"></i>
+                            Editar
+                          </a>
+                        </li>
+                        <li v-if="v.estado_sri !== 'AUTORIZADO'" class="divider"></li>
+                        <li v-if="v.estado_sri !== 'AUTORIZADO'">
+                          <a href="#" @click.prevent="eliminar(v)" class="text-danger">
+                            <i class="fas fa-trash"></i>
+                            Eliminar
+                          </a>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Paginación -->
+        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+          <div class="text-muted small">
+            Mostrando {{ ventas.length }} registros
+          </div>
+          <button class="btn btn-sm btn-outline-primary" @click="cargar" :disabled="loading">
+            <i class="fas fa-sync" :class="{ 'fa-spin': loading }"></i> Actualizar
+          </button>
+        </div>
       </div>
     </div>
+
+    <!-- Modal de email -->
+    <EnviarEmailModal :venta="ventaParaEmail" :cliente="ventaParaEmail?.cliente" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import DataTablePaged from '../shared/DataTablePaged.vue'
 import { api } from '../../services/api'
+import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
+import { Modal } from 'bootstrap'
+import EnviarEmailModal from './EnviarEmailModal.vue'
 
 const router = useRouter()
 const toast = useToast()
-const tablaRef = ref(null)
+const { find } = useMongoDB()
+
+const ventas = ref([])
+const loading = ref(false)
 const filtroEstadoSri = ref('')
+const menuAbierto = ref(null)
+const ventaParaEmail = ref(null)
 
 const stats = ref({
   total: 0,
@@ -180,12 +290,12 @@ const stats = ref({
   rechazados: 0
 })
 
-const extraQuery = computed(() => {
-  if (!filtroEstadoSri.value) return {}
-  return { estado_sri: filtroEstadoSri.value }
-})
+// ===== HELPERS =====
+const formatFecha = (fecha) => {
+  if (!fecha) return ''
+  return new Date(fecha).toLocaleDateString('es-EC')
+}
 
-// ===== HELPERS DE ESTADO SRI =====
 const getEstadoSriClass = (estado) => {
   switch (estado) {
     case 'AUTORIZADO': return 'bg-success'
@@ -211,13 +321,103 @@ const getEstadoSriIcon = (estado) => {
   }
 }
 
-// ===== FILTROS =====
-const cambiarFiltroSri = (estado) => {
-  filtroEstadoSri.value = estado
-  tablaRef.value?.reload()
+// ===== CONDICIONES DE ACCIONES =====
+const puedeFirmar = (v) => v.clave_acceso && !['FIRMADO', 'AUTORIZADO', 'RECHAZADA', 'DEVUELTA'].includes(v.estado_sri)
+const puedeEnviarSri = (v) => v.clave_acceso && v.estado_sri === 'FIRMADO'
+const puedeReintentar = (v) => v.clave_acceso && ['RECHAZADA', 'DEVUELTA'].includes(v.estado_sri)
+const puedeConsultar = (v) => v.clave_acceso && ['PENDIENTE', 'RECIBIDA', 'FIRMADO'].includes(v.estado_sri)
+
+// ===== CARGAR =====
+const cargar = async () => {
+  loading.value = true
+  try {
+    let datos = await find('ventas')
+    if (!Array.isArray(datos)) datos = []
+
+    if (filtroEstadoSri.value) {
+      datos = datos.filter(v => v.estado_sri === filtroEstadoSri.value)
+    }
+
+    ventas.value = datos
+    stats.value.total = datos.length
+    stats.value.firmados = datos.filter(v => v.estado_sri === 'FIRMADO').length
+    stats.value.autorizados = datos.filter(v => v.estado_sri === 'AUTORIZADO').length
+    stats.value.rechazados = datos.filter(v => v.estado_sri === 'RECHAZADA' || v.estado_sri === 'DEVUELTA').length
+  } catch (e) {
+    toast.error('Error al cargar: ' + e.message)
+  } finally {
+    loading.value = false
+  }
 }
 
-// ===== DESCARGA DE XML =====
+const cambiarFiltroSri = (estado) => {
+  filtroEstadoSri.value = estado
+  cargar()
+}
+
+// ===== MENÚ DE ACCIONES =====
+const toggleMenuAcciones = (id) => {
+  menuAbierto.value = menuAbierto.value === id ? null : id
+}
+
+const cerrarMenu = () => {
+  menuAbierto.value = null
+}
+
+// ===== ACCIONES =====
+const firmar = async (row) => {
+  if (!confirm('¿Firmar electrónicamente este documento?')) return
+  try {
+    await api.request(`/ventas/${row._id}/firmar`, {
+      method: 'POST',
+      loaderMessage: 'Firmando documento...'
+    })
+    toast.success('Documento firmado correctamente')
+    cargar()
+  } catch (e) {
+    toast.error('Error: ' + e.message)
+  }
+}
+
+const enviarAlSRI = async (row) => {
+  if (!confirm('¿Enviar este documento al SRI?\n\nEl proceso puede tardar unos segundos.')) return
+  try {
+    const res = await api.request(`/sri/enviar/${row._id}`, {
+      method: 'POST',
+      loaderMessage: 'Enviando al SRI...'
+    })
+
+    if (res.success) {
+      toast.success(`✅ Autorizado: ${res.numero_autorizacion}`)
+    } else if (res.estado === 'DEVUELTA' || res.estado === 'RECHAZADA') {
+      const mensajes = (res.mensajes || []).slice(0, 2).map(m => `${m.identificador}: ${m.mensaje}`).join(' | ')
+      toast.error(`❌ Rechazado: ${mensajes || 'Sin detalle'}`)
+    } else {
+      toast.warning(`Estado: ${res.estado}`)
+    }
+    cargar()
+  } catch (e) {
+    toast.error('Error: ' + e.message)
+  }
+}
+
+const consultarSRI = async (row) => {
+  try {
+    const res = await api.request(`/sri/consultar/${row._id}`, {
+      method: 'POST',
+      loaderMessage: 'Consultando autorización...'
+    })
+    if (res.success) {
+      toast.success(`✅ Autorizado: ${res.numero_autorizacion}`)
+    } else {
+      toast.info(`Estado actual: ${res.estado}`)
+    }
+    cargar()
+  } catch (e) {
+    toast.error('Error: ' + e.message)
+  }
+}
+
 const descargarXML = async (row, firmado = false) => {
   if (!row.clave_acceso) {
     toast.warning('Este documento no tiene clave de acceso')
@@ -232,9 +432,6 @@ const descargarXML = async (row, firmado = false) => {
     if (firmado) {
       url = `${baseUrl}/ventas/${row._id}/xml-firmado`
       sufijo = '_firmado'
-    } else if (row.estado_sri === 'AUTORIZADO') {
-      url = `${baseUrl}/ventas/${row._id}/xml-firmado`
-      sufijo = '_autorizado'
     }
 
     const response = await fetch(url, {
@@ -257,211 +454,57 @@ const descargarXML = async (row, firmado = false) => {
   }
 }
 
-// ===== FIRMAR =====
-const firmar = async (row) => {
-  if (!row.clave_acceso) {
-    toast.warning('Este documento no tiene clave de acceso')
-    return
-  }
-  if (row.estado_sri === 'AUTORIZADO') {
-    toast.info('Este documento ya está autorizado por el SRI')
-    return
-  }
-  if (!confirm('¿Firmar electrónicamente este documento?')) return
-  try {
-    await api.request(`/ventas/${row._id}/firmar`, {
-      method: 'POST',
-      loaderMessage: 'Firmando documento...'
-    })
-    toast.success('Documento firmado correctamente')
-    tablaRef.value?.reload()
-  } catch (e) {
-    toast.error('Error: ' + e.message)
-  }
+const abrirModalEmail = (row) => {
+  ventaParaEmail.value = row
+  cerrarMenu()
+  setTimeout(() => {
+    const modalEl = document.getElementById('modalEnviarEmail')
+    const modal = Modal.getOrCreateInstance(modalEl)
+    modal.show()
+  }, 100)
 }
 
-// ===== ENVIAR AL SRI =====
-const enviarAlSRI = async (row) => {
-  if (!row.clave_acceso) {
-    toast.warning('El documento no tiene clave de acceso')
-    return
-  }
-  if (!row.xml_firmado && row.estado_sri !== 'FIRMADO' && row.estado_sri !== 'RECHAZADA' && row.estado_sri !== 'DEVUELTA') {
-    toast.warning('Primero firma el documento')
-    return
-  }
-  if (row.estado_sri === 'AUTORIZADO') {
-    toast.info('Este documento ya está autorizado por el SRI')
-    return
-  }
-  if (!confirm('¿Enviar este documento al SRI?\n\nEl proceso puede tardar unos segundos.')) return
-
-  try {
-    const res = await api.request(`/sri/enviar/${row._id}`, {
-      method: 'POST',
-      loaderMessage: 'Enviando al SRI...'
-    })
-
-    if (res.success) {
-      toast.success(`✅ Autorizado: ${res.numero_autorizacion}`)
-    } else if (res.estado === 'DEVUELTA' || res.estado === 'RECHAZADA') {
-      const primerosMensajes = (res.mensajes || []).slice(0, 2).map(m => `${m.identificador}: ${m.mensaje}`).join(' | ')
-      toast.error(`❌ Rechazado: ${primerosMensajes || 'Sin detalle'}`)
-    } else {
-      toast.warning(`Estado: ${res.estado}. Puede reintentar la consulta.`)
-    }
-    tablaRef.value?.reload()
-  } catch (e) {
-    toast.error('Error: ' + e.message)
-  }
-}
-
-// ===== CONSULTAR AUTORIZACIÓN =====
-const consultarSRI = async (row) => {
-  if (!row.clave_acceso) {
-    toast.warning('El documento no tiene clave de acceso')
-    return
-  }
-  try {
-    const res = await api.request(`/sri/consultar/${row._id}`, {
-      method: 'POST',
-      loaderMessage: 'Consultando autorización...'
-    })
-
-    if (res.success) {
-      toast.success(`✅ Autorizado: ${res.numero_autorizacion}`)
-    } else {
-      toast.info(`Estado actual: ${res.estado}`)
-    }
-    tablaRef.value?.reload()
-  } catch (e) {
-    toast.error('Error: ' + e.message)
-  }
-}
-
-// ===== ELIMINAR =====
-const eliminar = async (row) => {
-  if (row.estado_sri === 'AUTORIZADO') {
-    toast.warning('No se puede eliminar una factura autorizada por el SRI. Genere una nota de crédito.')
-    return
-  }
-  if (!confirm(`¿Eliminar la factura ${row.numero_factura}?\n\nEsta acción no se puede deshacer.`)) return
-  try {
-    await api.request(`/ventas/${row._id}`, { method: 'DELETE' })
-    toast.success('Venta eliminada')
-    tablaRef.value?.reload()
-  } catch (e) {
-    toast.error('Error: ' + e.message)
-  }
-}
-
-// ===== NAVEGACIÓN =====
-const irEnvioSri = () => router.push('/envio-sri')
 const irDocumento = (row) => router.push(`/consultar-documentos?tipo=venta&id=${row._id}`)
+const irEnvioSri = () => router.push('/envio-sri')
+
 const editar = (row) => {
+  cerrarMenu()
   if (row.estado_sri === 'AUTORIZADO') {
-    toast.warning('No se puede editar una factura autorizada. Genere una nota de crédito.')
+    toast.warning('No se puede editar una factura autorizada')
     return
   }
   router.push(`/ventas/editar/${row._id}`)
 }
 
-// ===== COLUMNAS =====
-const columnas = [
-  { key: 'fecha_emision', label: 'Fecha', sortable: true, width: '95px' },
-  { key: 'numero_factura', label: 'Nº Factura', sortable: true, width: '130px' },
-  { key: 'cliente', label: 'Cliente' },
-  { key: 'tipo_documento', label: 'Tipo', width: '90px' },
-  { key: 'total', label: 'Total', sortable: true, width: '100px' },
-  { key: 'estado_pago', label: 'Pago', width: '90px' },
-  { key: 'estado_sri', label: 'Estado SRI', width: '130px' },
-  { key: 'numero_autorizacion', label: 'Nº Autorización', width: '150px' },
-  { key: 'clave_acceso', label: 'Clave Acceso', width: '150px' }
-]
-
-// ===== ACCIONES (dinámicas según estado) =====
-const acciones = [
-  // Botón: Firmar (solo si no está firmado ni autorizado)
-  {
-    key: 'firmar',
-    icon: 'fas fa-signature',
-    class: 'btn-outline-warning',
-    title: 'Firmar electrónicamente',
-    condition: (row) => row.clave_acceso && row.estado_sri !== 'FIRMADO' && row.estado_sri !== 'AUTORIZADO' && row.estado_sri !== 'RECHAZADA' && row.estado_sri !== 'DEVUELTA',
-    handler: firmar
-  },
-  // Botón: Enviar al SRI (solo si está firmado)
-  {
-    key: 'enviar-sri',
-    icon: 'fas fa-paper-plane',
-    class: 'btn-outline-success',
-    title: 'Enviar al SRI',
-    condition: (row) => row.clave_acceso && row.estado_sri === 'FIRMADO',
-    handler: enviarAlSRI
-  },
-  // Botón: Reintentar (si fue rechazado)
-  {
-    key: 'reintentar-sri',
-    icon: 'fas fa-redo',
-    class: 'btn-outline-warning',
-    title: 'Reintentar envío al SRI',
-    condition: (row) => row.clave_acceso && (row.estado_sri === 'RECHAZADA' || row.estado_sri === 'DEVUELTA'),
-    handler: enviarAlSRI
-  },
-  // Botón: Consultar autorización (para documentos enviados)
-  {
-    key: 'consultar-sri',
-    icon: 'fas fa-search',
-    class: 'btn-outline-info',
-    title: 'Consultar autorización en el SRI',
-    condition: (row) => row.clave_acceso && (row.estado_sri === 'PENDIENTE' || row.estado_sri === 'RECIBIDA' || row.estado_sri === 'FIRMADO'),
-    handler: consultarSRI
-  },
-  // Botón: Descargar XML (siempre visible si hay clave)
-  {
-    key: 'xml',
-    icon: 'fas fa-file-code',
-    class: 'btn-outline-primary',
-    title: 'Descargar XML',
-    condition: (row) => !!row.clave_acceso,
-    handler: (row) => descargarXML(row, row.estado_sri === 'FIRMADO' || row.estado_sri === 'AUTORIZADO')
-  },
-  // Botón: Ver documento
-  {
-    key: 'ver',
-    icon: 'fas fa-eye',
-    class: 'btn-outline-secondary',
-    title: 'Ver documento (RIDE)',
-    handler: irDocumento
-  },
-  // Botón: Editar
-  {
-    key: 'edit',
-    icon: 'fas fa-edit',
-    class: 'btn-outline-primary',
-    title: 'Editar',
-    condition: (row) => row.estado_sri !== 'AUTORIZADO',
-    handler: editar
-  },
-  // Botón: Eliminar
-  {
-    key: 'delete',
-    icon: 'fas fa-trash',
-    class: 'btn-outline-danger',
-    title: 'Eliminar',
-    condition: (row) => row.estado_sri !== 'AUTORIZADO',
-    handler: eliminar
+const eliminar = async (row) => {
+  cerrarMenu()
+  if (row.estado_sri === 'AUTORIZADO') {
+    toast.warning('No se puede eliminar una factura autorizada por el SRI')
+    return
   }
-]
-
-// ===== CARGAR STATS AL CARGAR DATOS =====
-const onDataLoaded = (data) => {
-  if (!Array.isArray(data)) return
-  stats.value.total = data.length
-  stats.value.firmados = data.filter(v => v.estado_sri === 'FIRMADO').length
-  stats.value.autorizados = data.filter(v => v.estado_sri === 'AUTORIZADO').length
-  stats.value.rechazados = data.filter(v => v.estado_sri === 'RECHAZADA' || v.estado_sri === 'DEVUELTA').length
+  if (!confirm(`¿Eliminar la factura ${row.numero_factura}?`)) return
+  try {
+    await api.request(`/ventas/${row._id}`, { method: 'DELETE' })
+    toast.success('Venta eliminada')
+    cargar()
+  } catch (e) {
+    toast.error('Error: ' + e.message)
+  }
 }
+
+// ===== CLICK FUERA PARA CERRAR MENÚ =====
+const handleClickOutside = () => {
+  cerrarMenu()
+}
+
+onMounted(() => {
+  cargar()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <style scoped>
@@ -507,12 +550,155 @@ const onDataLoaded = (data) => {
   font-weight: 600;
 }
 
-/* ===== CLAVE CORTA ===== */
+/* ===== TABLA ===== */
+.tabla-ventas {
+  margin-bottom: 0;
+  font-size: 0.85rem;
+}
+.tabla-ventas th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+  font-weight: 700;
+  padding: 10px 8px;
+  white-space: nowrap;
+}
+.tabla-ventas td {
+  padding: 10px 8px;
+  vertical-align: middle;
+}
+
+.badge-tipo {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(108,117,125,0.15);
+  color: #6c757d;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
 .clave-corta {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.72rem;
   color: var(--primary-color);
   cursor: help;
+}
+
+/* ===== CELDA DE ACCIONES COMPACTA ===== */
+.acciones-cell {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.btn-accion {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  padding: 0;
+  flex-shrink: 0;
+}
+.btn-accion:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+}
+
+.btn-warning-accion {
+  border-color: #f39c12;
+  color: #f39c12;
+}
+.btn-warning-accion:hover {
+  background: #f39c12;
+  color: #fff;
+  border-color: #f39c12;
+}
+
+.btn-success-accion {
+  border-color: #27ae60;
+  color: #27ae60;
+}
+.btn-success-accion:hover {
+  background: #27ae60;
+  color: #fff;
+  border-color: #27ae60;
+}
+
+.btn-info-accion {
+  border-color: #3498db;
+  color: #3498db;
+}
+.btn-info-accion:hover {
+  background: #3498db;
+  color: #fff;
+  border-color: #3498db;
+}
+
+.btn-secondary-accion {
+  border-color: var(--border-color);
+  color: var(--text-muted);
+}
+.btn-secondary-accion:hover {
+  background: var(--primary-color);
+  color: #fff;
+  border-color: var(--primary-color);
+}
+
+/* ===== MENÚ DESPLEGABLE DE ACCIONES ===== */
+.dropdown-menu-acciones {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1050;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 6px;
+  min-width: 200px;
+  list-style: none;
+  margin: 6px 0 0 0;
+  animation: fadeInMenu 0.15s ease;
+}
+@keyframes fadeInMenu {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.dropdown-menu-acciones li a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+.dropdown-menu-acciones li a:hover {
+  background: var(--bg-table-stripe);
+}
+.dropdown-menu-acciones li a i {
+  width: 16px;
+  font-size: 0.9rem;
+}
+.dropdown-menu-acciones li.divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 8px;
 }
 
 /* ===== RESPONSIVE ===== */
@@ -527,5 +713,7 @@ const onDataLoaded = (data) => {
     font-size: 1rem;
   }
   .kpi-number { font-size: 1.2rem; }
+  .tabla-ventas { font-size: 0.78rem; }
+  .btn-accion { width: 28px; height: 28px; font-size: 0.7rem; }
 }
 </style>

@@ -27,6 +27,37 @@
       </ul>
     </div>
 
+    <!-- ===== ALERTA DE CONFIGURACIÓN ===== -->
+    <div v-if="puedeGenerarClave && !configEmpresaOk" class="alert alert-danger mb-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <strong>Configuración incompleta:</strong>
+        No se generará la clave de acceso electrónica porque la empresa no tiene un RUC válido (13 dígitos) configurado.
+      </div>
+      <router-link to="/configuracion-empresa" class="btn btn-sm btn-danger">
+        <i class="fas fa-cog"></i> Configurar ahora
+      </router-link>
+    </div>
+
+    <div v-else-if="puedeGenerarClave && configEmpresaOk" class="alert alert-success mb-3 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="small">
+        <i class="fas fa-check-circle me-2"></i>
+        Se generará la clave de acceso con RUC <strong>{{ configEmpresa?.ruc }}</strong>
+        en modo
+        <span class="badge" :class="configEmpresa?.ambiente === '2' ? 'bg-success' : 'bg-warning text-dark'">
+          {{ configEmpresa?.ambiente === '2' ? 'PRODUCCIÓN' : 'PRUEBAS' }}
+        </span>
+      </div>
+      <router-link to="/configuracion-empresa" class="btn btn-sm btn-link text-decoration-none small p-0">
+        Cambiar <i class="fas fa-arrow-right"></i>
+      </router-link>
+    </div>
+
+    <div v-else-if="!puedeGenerarClave" class="alert alert-info mb-3 py-2 small">
+      <i class="fas fa-info-circle me-2"></i>
+      Este tipo de documento (<strong>{{ venta.tipo_documento }}</strong>) no requiere clave de acceso electrónica.
+    </div>
+
     <AlertaPeriodoCerrado :periodo-cerrado="periodoCerrado" />
 
     <form @submit.prevent="guardar" novalidate>
@@ -79,7 +110,6 @@
               </router-link>
             </div>
             <div class="card-body">
-              <!-- Buscador de cliente -->
               <div class="position-relative">
                 <label class="form-label"><span class="text-danger">*</span> Buscar cliente</label>
                 <div class="input-group">
@@ -105,7 +135,6 @@
                   </button>
                 </div>
 
-                <!-- Dropdown de clientes -->
                 <div v-if="mostrarListaClientes && clientesFiltrados.length > 0" class="dropdown-custom">
                   <div
                     v-for="c in clientesFiltrados.slice(0, 8)"
@@ -127,7 +156,6 @@
                 </div>
               </div>
 
-              <!-- Preview del cliente seleccionado -->
               <div v-if="clienteActual" class="cliente-preview mt-3">
                 <div class="d-flex align-items-start gap-3">
                   <div class="cliente-avatar">{{ getInitials(clienteActual.nombre) }}</div>
@@ -148,13 +176,15 @@
           <!-- SECCIÓN: PRODUCTOS -->
           <div class="card card-cacao mb-3 card-with-dropdown">
             <div class="card-header d-flex justify-content-between align-items-center">
-              <span><i class="fas fa-boxes me-2"></i> Productos <span class="badge bg-primary ms-1">{{ venta.detalles.length }}</span></span>
+              <span>
+                <i class="fas fa-boxes me-2"></i> Productos
+                <span class="badge bg-primary ms-1">{{ venta.detalles.length }}</span>
+              </span>
               <button type="button" class="btn btn-sm btn-success" @click="focusBusquedaProducto">
                 <i class="fas fa-search"></i> Buscar (F2)
               </button>
             </div>
             <div class="card-body">
-              <!-- Buscador de productos -->
               <div class="position-relative mb-3">
                 <div class="input-group">
                   <span class="input-group-text bg-primary text-white"><i class="fas fa-barcode"></i></span>
@@ -172,7 +202,6 @@
                   />
                 </div>
 
-                <!-- Dropdown de productos -->
                 <div v-if="mostrarListaProductos && productosFiltrados.length > 0" class="dropdown-custom">
                   <div
                     v-for="p in productosFiltrados.slice(0, 10)"
@@ -203,7 +232,6 @@
                 </div>
               </div>
 
-              <!-- Tabla de productos agregados -->
               <div v-if="venta.detalles.length === 0" class="text-center py-4 text-muted">
                 <i class="fas fa-box-open fa-3x mb-2 opacity-50"></i>
                 <p class="mb-0">No has agregado productos</p>
@@ -499,11 +527,16 @@
             </div>
 
             <!-- INFO CLAVE DE ACCESO -->
-            <div v-if="puedeGenerarClave" class="card card-cacao mt-3">
+            <div v-if="puedeGenerarClave && configEmpresaOk" class="card card-cacao mt-3">
               <div class="card-body">
                 <div class="small text-muted">
                   <i class="fas fa-key me-1"></i>
-                  Al guardar se generará automáticamente la <strong>clave de acceso de 49 dígitos</strong> para el SRI.
+                  Al guardar se generará la <strong>clave de acceso de 49 dígitos</strong>
+                  y el XML se firmará automáticamente si tienes certificado configurado.
+                </div>
+                <div class="mt-2 small">
+                  <span class="text-muted">Serie:</span>
+                  <code>{{ seriePreview }}</code>
                 </div>
               </div>
             </div>
@@ -511,7 +544,6 @@
         </div>
       </div>
 
-      <!-- Errores generales -->
       <div v-if="errorGeneral" class="alert alert-danger mt-3">
         <i class="fas fa-exclamation-circle me-2"></i> {{ errorGeneral }}
       </div>
@@ -543,6 +575,7 @@ const productos = ref([])
 const cargando = ref(false)
 const errorGeneral = ref('')
 const periodoCerrado = ref(null)
+const configEmpresa = ref(null)
 
 const tipoInicial = route.query.tipo || 'factura'
 const id = route.params.id
@@ -612,6 +645,17 @@ const venta = ref({
 })
 
 const errores = ref({ cliente: '', detalles: [] })
+
+// ===== CONFIG EMPRESA =====
+const configEmpresaOk = computed(() => {
+  return configEmpresa.value?.ruc && configEmpresa.value.ruc.length === 13
+})
+
+const seriePreview = computed(() => {
+  const est = (configEmpresa.value?.establecimiento || '001').padStart(3, '0')
+  const pe = (configEmpresa.value?.punto_emision || '001').padStart(3, '0')
+  return `${est}-${pe}`
+})
 
 // ===== COMPUTED =====
 const tituloDocumento = computed(() => {
@@ -832,15 +876,24 @@ const handleKeydown = (e) => {
 }
 
 // ===== CARGAR =====
+const cargarConfigEmpresa = async () => {
+  try {
+    configEmpresa.value = await api.request('/configuracion/empresa', { method: 'GET' })
+  } catch (e) {
+    console.warn('No se pudo cargar la configuración de empresa:', e)
+    configEmpresa.value = null
+  }
+}
+
 onMounted(async () => {
   try {
     try { await cargarCatalogos() } catch (e) { console.warn('No se pudieron cargar catálogos:', e) }
+    await cargarConfigEmpresa()
 
     const [clis, prods] = await Promise.all([find('clientes'), find('productos')])
     clientes.value = Array.isArray(clis) ? clis : []
     productos.value = Array.isArray(prods) ? prods : []
 
-    // Inicializar Fuse de forma segura
     try {
       if (clientes.value.length > 0) {
         fuseClientes = new Fuse(clientes.value, {
@@ -899,10 +952,23 @@ const guardar = async () => {
     toast.error(`No se puede guardar: ${periodoCerrado.value.nombre} está cerrado`)
     return
   }
+
   if (!formularioValido.value) {
     errorGeneral.value = 'Corrija los errores antes de guardar'
     toast.warning('Verifica los datos')
     return
+  }
+
+  if (puedeGenerarClave.value && !configEmpresaOk.value) {
+    const confirmar = confirm(
+      'La empresa no tiene un RUC válido configurado.\n\n' +
+      'El documento se guardará pero NO se generará la clave de acceso electrónica.\n\n' +
+      '¿Deseas continuar?'
+    )
+    if (!confirmar) {
+      router.push('/configuracion-empresa')
+      return
+    }
   }
 
   errorGeneral.value = ''
@@ -965,8 +1031,12 @@ const guardar = async () => {
       await updateOne('ventas', id, payload)
       toast.success('Documento actualizado')
     } else {
-      await insertOne('ventas', payload)
-      toast.success('Documento creado exitosamente')
+      const res = await insertOne('ventas', payload)
+      if (res?.clave_acceso) {
+        toast.success('Documento creado con clave de acceso')
+      } else {
+        toast.success('Documento creado exitosamente')
+      }
     }
     router.push('/ventas')
   } catch (e) {
@@ -1130,6 +1200,15 @@ kbd {
   border-radius: 4px;
   font-size: 0.7rem;
   font-family: 'JetBrains Mono', monospace;
+}
+
+code {
+  background: var(--bg-table-stripe);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--primary-color);
+  font-weight: 700;
 }
 
 /* Fix: evitar que las tarjetas se estiren en la columna principal */
