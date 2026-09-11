@@ -4,6 +4,7 @@ const { ObjectId } = require('mongodb');
 const { body, validationResult } = require('express-validator');
 const { logAudit } = require('../utils/audit');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+const { verificarPeriodoAbierto } = require('../utils/periodos');
 
 const validarVenta = [
   body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
@@ -14,7 +15,6 @@ const validarVenta = [
   body('total').isNumeric().withMessage('Total debe ser número'),
 ];
 
-// OBTENER TODAS (con paginación, búsqueda y filtros)
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -97,7 +97,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// OBTENER POR ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -121,8 +120,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// CREAR
-router.post('/', validarVenta, async (req, res) => {
+router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -244,10 +242,7 @@ router.post('/', validarVenta, async (req, res) => {
 
           await req.db.collection('productos').updateOne(
             { _id: productoId },
-            {
-              $inc: { stock: -cantidad },
-              $set: { updatedAt: new Date() }
-            },
+            { $inc: { stock: -cantidad }, $set: { updatedAt: new Date() } },
             { session }
           );
 
@@ -283,7 +278,6 @@ router.post('/', validarVenta, async (req, res) => {
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ]).toArray();
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'crear',
       coleccion: 'ventas',
@@ -301,8 +295,7 @@ router.post('/', validarVenta, async (req, res) => {
   }
 });
 
-// ACTUALIZAR (con ajuste de inventario)
-router.put('/:id', validarVenta, async (req, res) => {
+router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -413,10 +406,7 @@ router.put('/:id', validarVenta, async (req, res) => {
           const productoId = new ObjectId(detalle.productoId);
           await req.db.collection('productos').updateOne(
             { _id: productoId },
-            {
-              $inc: { stock: -detalle.cantidad },
-              $set: { updatedAt: new Date() }
-            },
+            { $inc: { stock: -detalle.cantidad }, $set: { updatedAt: new Date() } },
             { session }
           );
           const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
@@ -448,7 +438,6 @@ router.put('/:id', validarVenta, async (req, res) => {
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ]).toArray();
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'actualizar',
       coleccion: 'ventas',
@@ -467,8 +456,7 @@ router.put('/:id', validarVenta, async (req, res) => {
   }
 });
 
-// ELIMINAR (revertir inventario)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -496,7 +484,6 @@ router.delete('/:id', async (req, res) => {
       await req.db.collection('ventas_v2').deleteOne({ _id: new ObjectId(id) }, { session });
     });
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'eliminar',
       coleccion: 'ventas',

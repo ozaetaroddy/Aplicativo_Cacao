@@ -4,6 +4,7 @@ const { ObjectId } = require('mongodb');
 const { body, validationResult } = require('express-validator');
 const { logAudit } = require('../utils/audit');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+const { verificarPeriodoAbierto } = require('../utils/periodos');
 
 const validarCompra = [
   body('proveedorId').isMongoId().withMessage('ID de proveedor inválido'),
@@ -14,7 +15,6 @@ const validarCompra = [
   body('total').isNumeric().withMessage('Total debe ser número'),
 ];
 
-// OBTENER TODAS
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -97,7 +97,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// OBTENER POR ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -121,8 +120,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// CREAR
-router.post('/', validarCompra, async (req, res) => {
+router.post('/', verificarPeriodoAbierto(), validarCompra, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -175,10 +173,7 @@ router.post('/', validarCompra, async (req, res) => {
 
           await req.db.collection('productos').updateOne(
             { _id: productoId },
-            {
-              $inc: { stock: detalle.cantidad },
-              $set: { precio_compra: detalle.costo_unitario, updatedAt: new Date() }
-            },
+            { $inc: { stock: detalle.cantidad }, $set: { precio_compra: detalle.costo_unitario, updatedAt: new Date() } },
             { session }
           );
 
@@ -226,7 +221,6 @@ router.post('/', validarCompra, async (req, res) => {
       { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
     ]).toArray();
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'crear',
       coleccion: 'compras',
@@ -245,8 +239,7 @@ router.post('/', validarCompra, async (req, res) => {
   }
 });
 
-// ACTUALIZAR
-router.put('/:id', validarCompra, async (req, res) => {
+router.put('/:id', verificarPeriodoAbierto(), validarCompra, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -313,10 +306,7 @@ router.put('/:id', validarCompra, async (req, res) => {
 
           await req.db.collection('productos').updateOne(
             { _id: productoId },
-            {
-              $inc: { stock: detalle.cantidad },
-              $set: { precio_compra: detalle.costo_unitario, updatedAt: new Date() }
-            },
+            { $inc: { stock: detalle.cantidad }, $set: { precio_compra: detalle.costo_unitario, updatedAt: new Date() } },
             { session }
           );
 
@@ -363,7 +353,6 @@ router.put('/:id', validarCompra, async (req, res) => {
       { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
     ]).toArray();
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'actualizar',
       coleccion: 'compras',
@@ -382,8 +371,7 @@ router.put('/:id', validarCompra, async (req, res) => {
   }
 });
 
-// ELIMINAR
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -412,7 +400,6 @@ router.delete('/:id', async (req, res) => {
       await req.db.collection('compras_v2').deleteOne({ _id: new ObjectId(id) }, { session });
     });
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'eliminar',
       coleccion: 'compras',
@@ -430,7 +417,6 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// REPORTE MENSUAL
 router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   try {
     const { mes, anio } = req.params;
@@ -474,7 +460,6 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   }
 });
 
-// IMPORTAR TXT
 router.post('/importar-txt', async (req, res) => {
   try {
     const { lineas } = req.body;
@@ -490,16 +475,7 @@ router.post('/importar-txt', async (req, res) => {
     await session.withTransaction(async () => {
       for (const linea of lineas) {
         try {
-          const {
-            ruc,
-            razonSocial,
-            fechaEmision,
-            total,
-            valorSinImpuestos,
-            iva,
-            tipo_compra,
-            codigoProducto
-          } = linea;
+          const { ruc, razonSocial, fechaEmision, total, valorSinImpuestos, iva, tipo_compra, codigoProducto } = linea;
 
           if (!ruc || !total || total === 0) {
             errores.push(`Línea sin RUC o total: ${JSON.stringify(linea)}`);
@@ -573,10 +549,7 @@ router.post('/importar-txt', async (req, res) => {
           if (tipo_compra === 'inventario') {
             await req.db.collection('productos').updateOne(
               { _id: productoId },
-              {
-                $inc: { stock: 1 },
-                $set: { precio_compra: parseFloat(total), updatedAt: new Date() }
-              },
+              { $inc: { stock: 1 }, $set: { precio_compra: parseFloat(total), updatedAt: new Date() } },
               { session }
             );
             const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
@@ -601,7 +574,6 @@ router.post('/importar-txt', async (req, res) => {
       }
     });
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'importar',
       coleccion: 'compras',
@@ -610,12 +582,7 @@ router.post('/importar-txt', async (req, res) => {
       detalle: `Importación TXT: ${importados} facturas importadas, ${errores.length} errores`
     });
 
-    res.json({
-      success: true,
-      importados,
-      errores,
-      resultados
-    });
+    res.json({ success: true, importados, errores, resultados });
   } catch (err) {
     console.error('Error en importación:', err);
     res.status(500).json({ error: err.message });

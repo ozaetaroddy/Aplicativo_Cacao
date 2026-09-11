@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { usePermisos } from '../composables/usePermisos'
 
-// ===== LAZY LOADING =====
 const Login = () => import('../components/Login.vue')
 const Dashboard = () => import('../components/Dashboard.vue')
 const ProductosList = () => import('../components/productos/ProductosList.vue')
@@ -33,74 +32,64 @@ const PerfilUsuario = () => import('../components/PerfilUsuario.vue')
 const AuditoriaList = () => import('../components/auditoria/AuditoriaList.vue')
 const UsuariosList = () => import('../components/usuarios/UsuariosList.vue')
 const UsuarioForm = () => import('../components/usuarios/UsuarioForm.vue')
+const PeriodosCerrados = () => import('../components/periodos/PeriodosCerrados.vue')
 
 const routes = [
   { path: '/login', component: Login },
   { path: '/', component: Dashboard, meta: { requiresAuth: true } },
   { path: '/mi-perfil', component: PerfilUsuario, meta: { requiresAuth: true } },
 
-  // Ventas
   { path: '/ventas', component: VentasList, meta: { requiresAuth: true, modulo: 'ventas', accion: 'ver' } },
   { path: '/ventas/nuevo', component: VentaForm, meta: { requiresAuth: true, modulo: 'ventas', accion: 'crear' } },
   { path: '/ventas/editar/:id', component: VentaForm, props: true, meta: { requiresAuth: true, modulo: 'ventas', accion: 'editar' } },
 
-  // Compras
   { path: '/compras', component: ComprasList, meta: { requiresAuth: true, modulo: 'compras', accion: 'ver' } },
   { path: '/compras/nuevo', component: CompraForm, meta: { requiresAuth: true, modulo: 'compras', accion: 'crear' } },
   { path: '/compras/editar/:id', component: CompraForm, props: true, meta: { requiresAuth: true, modulo: 'compras', accion: 'editar' } },
   { path: '/importar-facturas', component: ImportarFacturas, meta: { requiresAuth: true, modulo: 'compras', accion: 'crear' } },
 
-  // Clientes
   { path: '/clientes', component: ClientesList, meta: { requiresAuth: true, modulo: 'clientes', accion: 'ver' } },
   { path: '/clientes/nuevo', component: ClienteForm, meta: { requiresAuth: true, modulo: 'clientes', accion: 'crear' } },
   { path: '/clientes/editar/:id', component: ClienteForm, props: true, meta: { requiresAuth: true, modulo: 'clientes', accion: 'editar' } },
 
-  // Proveedores
   { path: '/proveedores', component: ProveedoresList, meta: { requiresAuth: true, modulo: 'proveedores', accion: 'ver' } },
   { path: '/proveedores/nuevo', component: ProveedorForm, meta: { requiresAuth: true, modulo: 'proveedores', accion: 'crear' } },
   { path: '/proveedores/editar/:id', component: ProveedorForm, props: true, meta: { requiresAuth: true, modulo: 'proveedores', accion: 'editar' } },
 
-  // Productos
   { path: '/productos', component: ProductosList, meta: { requiresAuth: true, modulo: 'productos', accion: 'ver' } },
   { path: '/productos/nuevo', component: ProductoForm, meta: { requiresAuth: true, modulo: 'productos', accion: 'crear' } },
   { path: '/productos/editar/:id', component: ProductoForm, props: true, meta: { requiresAuth: true, modulo: 'productos', accion: 'editar' } },
 
-  // Categorías
   { path: '/categorias', component: CategoriasList, meta: { requiresAuth: true, modulo: 'categorias', accion: 'ver' } },
   { path: '/categorias/nuevo', component: CategoriaForm, meta: { requiresAuth: true, modulo: 'categorias', accion: 'crear' } },
   { path: '/categorias/editar/:id', component: CategoriaForm, props: true, meta: { requiresAuth: true, modulo: 'categorias', accion: 'editar' } },
 
-  // Retenciones
   { path: '/retenciones', component: RetencionesList, meta: { requiresAuth: true, modulo: 'retenciones', accion: 'ver' } },
   { path: '/retenciones/nuevo', component: RetencionForm, meta: { requiresAuth: true, modulo: 'retenciones', accion: 'crear' } },
   { path: '/retenciones/editar/:id', component: RetencionForm, props: true, meta: { requiresAuth: true, modulo: 'retenciones', accion: 'editar' } },
 
-  // Kardex
   { path: '/kardex', component: KardexView, meta: { requiresAuth: true, modulo: 'kardex', accion: 'ver' } },
 
-  // Inventario
   { path: '/inventario/stock', component: StockActual, meta: { requiresAuth: true, modulo: 'inventario', accion: 'ver' } },
   { path: '/inventario/conteo', component: ConteoFisico, meta: { requiresAuth: true, modulo: 'inventario', accion: 'ver' } },
   { path: '/inventario/valorizado', component: InventarioValorizado, meta: { requiresAuth: true, modulo: 'inventario', accion: 'ver' } },
   { path: '/inventario/planificacion', component: PlanificacionInventarios, meta: { requiresAuth: true, modulo: 'inventario', accion: 'ver' } },
   { path: '/inventario/ajustes', component: AjustesInventario, meta: { requiresAuth: true, modulo: 'inventario', accion: 'editar' } },
 
-  // Reportes
   { path: '/reportes/ventas', component: ReporteVentas, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes/compras', component: ReporteCompras, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes/mensual', component: ReporteMensual, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
   { path: '/reportes', redirect: '/reportes/ventas' },
 
-  // Consultar documentos
   { path: '/consultar-documentos', component: ConsultarDocumentos, meta: { requiresAuth: true } },
 
-  // Auditoría
   { path: '/auditoria', component: AuditoriaList, meta: { requiresAuth: true, modulo: 'auditoria', accion: 'ver' } },
 
-  // Usuarios
   { path: '/usuarios', component: UsuariosList, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver' } },
   { path: '/usuarios/nuevo', component: UsuarioForm, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'crear' } },
   { path: '/usuarios/editar/:id', component: UsuarioForm, props: true, meta: { requiresAuth: true, modulo: 'usuarios', accion: 'editar' } },
+
+  { path: '/periodos-cerrados', component: PeriodosCerrados, meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver' } },
 
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
@@ -110,7 +99,6 @@ const router = createRouter({
   routes,
 })
 
-// ===== GUARD DE RUTAS =====
 router.beforeEach(async (to, from, next) => {
   const token = localStorage.getItem('token')
   const publicPages = ['/login']
@@ -124,7 +112,6 @@ router.beforeEach(async (to, from, next) => {
     return next('/login')
   }
 
-  // Si la ruta requiere un permiso específico, verificar
   if (to.meta.modulo && to.meta.accion) {
     try {
       const { cargarPermisos, puede } = usePermisos()

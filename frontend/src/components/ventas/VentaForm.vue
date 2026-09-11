@@ -13,10 +13,11 @@
          'Nuevo Documento' }}
     </h4>
 
+    <AlertaPeriodoCerrado :periodo-cerrado="periodoCerrado" />
+
     <div class="card card-cacao">
       <div class="card-body">
         <form @submit.prevent="guardar" novalidate>
-          <!-- Tipo, Nº y Fecha -->
           <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
@@ -45,7 +46,6 @@
             </div>
           </div>
 
-          <!-- Guía de Remisión (todos los campos) -->
           <div v-if="venta.tipo_documento === 'guia_remision'">
             <div class="row g-3">
               <div class="col-12"><h6>Datos Generales</h6></div>
@@ -69,11 +69,7 @@
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
-                <SelectSRI
-                  v-model="venta.destinatario_tipo"
-                  :lista="catalogos.TIPO_IDENTIFICACION || []"
-                  placeholder="Seleccione..."
-                />
+                <SelectSRI v-model="venta.destinatario_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
@@ -107,11 +103,7 @@
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Tipo Comprobante</label>
-                <SelectSRI
-                  v-model="venta.comprobante_documento"
-                  :lista="catalogos.DOCUMENTO_SUSTENTO || []"
-                  placeholder="Seleccione tipo..."
-                />
+                <SelectSRI v-model="venta.comprobante_documento" :lista="catalogos.DOCUMENTO_SUSTENTO || []" placeholder="Seleccione tipo..." />
               </div>
               <div class="col-md-3">
                 <label class="form-label">Buscar por:</label>
@@ -141,11 +133,7 @@
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
-                <SelectSRI
-                  v-model="venta.transportista_tipo"
-                  :lista="catalogos.TIPO_IDENTIFICACION || []"
-                  placeholder="Seleccione..."
-                />
+                <SelectSRI v-model="venta.transportista_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
               </div>
               <div class="col-md-3">
                 <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
@@ -176,7 +164,6 @@
             </div>
           </div>
 
-          <!-- Cliente (solo para no guías) -->
           <div class="row g-3" v-if="venta.tipo_documento !== 'guia_remision'">
             <div class="col-md-6">
               <label class="form-label"><span class="text-danger">*</span> Cliente</label>
@@ -193,7 +180,6 @@
             </div>
           </div>
 
-          <!-- Detalles de productos -->
           <hr />
           <h5>Detalle de Productos</h5>
           <div class="alert alert-info">
@@ -212,12 +198,10 @@
             <div class="col-md-2">
               <label class="form-label">Cantidad</label>
               <input type="number" class="form-control" v-model.number="item.cantidad" min="0.01" step="0.01" />
-              <div v-if="errores.detalles && errores.detalles[index] && errores.detalles[index].cantidad" class="text-danger small">{{ errores.detalles[index].cantidad }}</div>
             </div>
             <div class="col-md-2">
               <label class="form-label">Precio Unit.</label>
               <input type="number" class="form-control" v-model.number="item.precio_unitario" step="0.01" min="0" />
-              <div v-if="errores.detalles && errores.detalles[index] && errores.detalles[index].precio" class="text-danger small">{{ errores.detalles[index].precio }}</div>
             </div>
             <div class="col-md-2">
               <label class="form-label">Subtotal</label>
@@ -246,7 +230,6 @@
             </router-link>
           </div>
 
-          <!-- Totales -->
           <hr />
           <div class="row g-3">
             <div class="col-md-3 offset-md-6">
@@ -265,17 +248,12 @@
             </div>
           </div>
 
-          <!-- ===== FORMA DE PAGO (NUEVO) ===== -->
           <hr />
           <h5><i class="fas fa-credit-card me-2"></i>Información de Pago</h5>
           <div class="row g-3">
             <div class="col-md-4">
               <label class="form-label">Forma de Pago</label>
-              <SelectSRI
-                v-model="venta.forma_pago"
-                :lista="catalogos.FORMA_PAGO || []"
-                placeholder="Seleccione forma de pago..."
-              />
+              <SelectSRI v-model="venta.forma_pago" :lista="catalogos.FORMA_PAGO || []" placeholder="Seleccione forma de pago..." />
             </div>
             <div class="col-md-4">
               <label class="form-label">Estado de Pago</label>
@@ -303,7 +281,7 @@
           </div>
 
           <div class="mt-4">
-            <button type="submit" class="btn btn-success me-2" :disabled="cargando || !formularioValido">
+            <button type="submit" class="btn btn-success me-2" :disabled="cargando || !formularioValido || !!periodoCerrado">
               <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
               {{ cargando ? 'Guardando...' : 'Guardar' }}
             </button>
@@ -316,13 +294,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
 import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
 import SelectSRI from '../shared/SelectSRI.vue'
+import AlertaPeriodoCerrado from '../shared/AlertaPeriodoCerrado.vue'
+import { api } from '../../services/api'
 
 const toast = useToast()
 const route = useRoute()
@@ -334,6 +314,7 @@ const clientes = ref([])
 const productos = ref([])
 const cargando = ref(false)
 const errorGeneral = ref('')
+const periodoCerrado = ref(null)
 
 const tipoInicial = route.query.tipo || 'factura'
 const id = route.params.id
@@ -376,7 +357,6 @@ const venta = ref({
   comprobante_numero_autorizacion: '',
   comprobante_numero: '',
   comprobante_fecha_emision: '',
-  // ===== NUEVOS CAMPOS DE PAGO =====
   forma_pago: '',
   estado_pago: 'pendiente',
   fecha_pago: '',
@@ -388,17 +368,10 @@ const errores = ref({
   detalles: []
 })
 
-// ===== GENERAR CÓDIGO =====
 const generarCodigoLocal = (tipo) => {
   const prefijos = {
-    'factura': 'FAC',
-    'guia_remision': 'GUI',
-    'exportacion': 'EXP',
-    'reembolso': 'REB',
-    'retencion': 'RET',
-    'liquidacion': 'LIQ',
-    'nota_credito': 'NCR',
-    'proforma': 'PRO'
+    'factura': 'FAC', 'guia_remision': 'GUI', 'exportacion': 'EXP', 'reembolso': 'REB',
+    'retencion': 'RET', 'liquidacion': 'LIQ', 'nota_credito': 'NCR', 'proforma': 'PRO'
   }
   const prefijo = prefijos[tipo] || 'DOC'
   const numero = String(Date.now()).slice(-6)
@@ -453,7 +426,6 @@ const cambiarTipo = () => {
   asignarCodigos()
 }
 
-// ===== AGREGAR / ELIMINAR DETALLE =====
 const agregarDetalle = () => {
   venta.value.detalles.push({ productoId: '', cantidad: 1, precio_unitario: 0, aplica_iva: true })
   errores.value.detalles.push({ producto: '', cantidad: '', precio: '' })
@@ -464,7 +436,6 @@ const eliminarDetalle = (index) => {
   errores.value.detalles.splice(index, 1)
 }
 
-// ===== CARGAR PRECIO =====
 const cargarPrecioVenta = (item) => {
   const prod = productos.value.find(p => p._id === item.productoId)
   if (prod) {
@@ -473,7 +444,6 @@ const cargarPrecioVenta = (item) => {
   }
 }
 
-// ===== CÁLCULOS =====
 const subtotal = computed(() => {
   const total = venta.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.precio_unitario || 0)), 0)
   return roundTo2(total)
@@ -483,18 +453,13 @@ const iva = computed(() => {
   let baseImponible = 0
   venta.value.detalles.forEach(d => {
     const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
-    if (aplicaIVA) {
-      baseImponible += (d.cantidad || 0) * (d.precio_unitario || 0)
-    }
+    if (aplicaIVA) baseImponible += (d.cantidad || 0) * (d.precio_unitario || 0)
   })
   return roundTo2(baseImponible * 0.15)
 })
 
-const total = computed(() => {
-  return roundTo2(subtotal.value + iva.value)
-})
+const total = computed(() => roundTo2(subtotal.value + iva.value))
 
-// ===== VALIDACIÓN =====
 const formularioValido = computed(() => {
   if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) {
     errores.value.cliente = 'Seleccione un cliente'
@@ -505,52 +470,46 @@ const formularioValido = computed(() => {
   let valid = true
   venta.value.detalles.forEach((d, idx) => {
     const err = errores.value.detalles[idx] || { producto: '', cantidad: '', precio: '' }
-    if (!d.productoId) {
-      err.producto = 'Seleccione un producto'
-      valid = false
-    } else {
-      err.producto = ''
-    }
-    if (!d.cantidad || d.cantidad <= 0) {
-      err.cantidad = 'Cantidad > 0'
-      valid = false
-    } else {
-      err.cantidad = ''
-    }
+    if (!d.productoId) { err.producto = 'Seleccione un producto'; valid = false } else err.producto = ''
+    if (!d.cantidad || d.cantidad <= 0) { err.cantidad = 'Cantidad > 0'; valid = false } else err.cantidad = ''
     if (d.precio_unitario === undefined || d.precio_unitario === null || d.precio_unitario < 0) {
-      err.precio = 'Precio >= 0'
-      valid = false
-    } else {
-      err.precio = ''
-    }
+      err.precio = 'Precio >= 0'; valid = false
+    } else err.precio = ''
     errores.value.detalles[idx] = err
   })
   return valid
 })
 
-// ===== CARGAR DATOS SI ES EDICIÓN =====
+const verificarPeriodo = async () => {
+  if (!venta.value.fecha_emision) {
+    periodoCerrado.value = null
+    return
+  }
+  try {
+    const fecha = new Date(venta.value.fecha_emision)
+    const anio = fecha.getFullYear()
+    const mes = fecha.getMonth() + 1
+    const res = await api.request(`/periodos/verificar/${anio}/${mes}`, { method: 'GET' })
+    periodoCerrado.value = res.cerrado ? res.periodo : null
+  } catch (e) {
+    periodoCerrado.value = null
+  }
+}
+
+watch(() => venta.value.fecha_emision, verificarPeriodo, { immediate: true })
+
 onMounted(async () => {
   try {
-    // Cargar catálogos SRI
-    try {
-      await cargarCatalogos()
-    } catch (e) {
-      console.error('No se pudieron cargar los catálogos SRI', e)
-    }
+    try { await cargarCatalogos() } catch (e) { console.error(e) }
 
-    const [clis, prods] = await Promise.all([
-      find('clientes'),
-      find('productos')
-    ])
+    const [clis, prods] = await Promise.all([find('clientes'), find('productos')])
     clientes.value = clis
     productos.value = prods
 
     if (id) {
-      console.log('🔍 Cargando venta con ID:', id)
       const data = await findById('ventas', id)
       if (data) {
         venta.value = { ...venta.value, ...data }
-        // Asegurar valores por defecto
         if (!venta.value.forma_pago) venta.value.forma_pago = ''
         if (!venta.value.estado_pago) venta.value.estado_pago = 'pendiente'
         if (venta.value.detalles.length === 0) agregarDetalle()
@@ -570,8 +529,12 @@ onMounted(async () => {
   }
 })
 
-// ===== GUARDAR =====
 const guardar = async () => {
+  if (periodoCerrado.value) {
+    toast.error(`No se puede guardar: ${periodoCerrado.value.nombre} está cerrado`)
+    return
+  }
+
   if (!formularioValido.value) {
     errorGeneral.value = 'Corrija los errores antes de guardar'
     toast.warning('Corrija los errores antes de guardar')
@@ -628,7 +591,6 @@ const guardar = async () => {
       comprobante_numero_autorizacion: venta.value.comprobante_numero_autorizacion,
       comprobante_numero: venta.value.comprobante_numero,
       comprobante_fecha_emision: venta.value.comprobante_fecha_emision,
-      // ===== NUEVOS CAMPOS DE PAGO =====
       forma_pago: venta.value.forma_pago || '',
       estado_pago: venta.value.estado_pago || 'pendiente',
       fecha_pago: venta.value.fecha_pago || null,

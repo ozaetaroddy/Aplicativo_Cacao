@@ -25,6 +25,7 @@ const retencionesRoutes = require('./routes/retenciones');
 const catalogosRoutes = require('./routes/catalogos');
 const auditoriaRoutes = require('./routes/auditoria');
 const usuariosRoutes = require('./routes/usuarios');
+const periodosRoutes = require('./routes/periodos');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -50,7 +51,6 @@ MongoClient.connect(uri)
   .then(client => {
     db = client.db(dbName);
     console.log('✅ Conectado a MongoDB');
-    // Crear índices únicos
     db.collection('clientes').createIndex({ ruc: 1 }, { unique: true });
     db.collection('proveedores').createIndex({ ruc: 1 }, { unique: true });
     db.collection('productos').createIndex({ codigo: 1 }, { unique: true });
@@ -61,6 +61,7 @@ MongoClient.connect(uri)
     db.collection('auditoria').createIndex({ coleccion: 1, accion: 1, fecha: -1 });
     db.collection('ventas_v2').createIndex({ fecha_emision: -1 });
     db.collection('compras_v2').createIndex({ fecha_emision: -1 });
+    db.collection('periodos_cerrados').createIndex({ anio: 1, mes: 1 }, { unique: true });
   })
   .catch(err => {
     console.error('❌ Error conectando a MongoDB:', err);
@@ -73,7 +74,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ===== RUTAS PÚBLICAS (sin autenticación) =====
+// ===== RUTAS PÚBLICAS =====
 app.use('/api/auth', authRoutes);
 app.use('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 
@@ -98,8 +99,9 @@ app.use('/api/retenciones', retencionesRoutes);
 app.use('/api/catalogos', catalogosRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
 app.use('/api/usuarios', usuariosRoutes);
+app.use('/api/periodos', periodosRoutes);
 
-// ===== ENDPOINT DE PERMISOS DEL USUARIO ACTUAL =====
+// ===== ENDPOINT DE PERMISOS =====
 app.get('/api/auth/permisos', (req, res) => {
   const { PERMISOS } = require('./utils/permisos');
   const rol = req.user?.rol || 'vendedor';
