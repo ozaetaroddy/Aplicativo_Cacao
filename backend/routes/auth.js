@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
 const authMiddleware = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mi-secreto-super-seguro-2026';
 
@@ -30,6 +31,18 @@ router.post('/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '8h' }
     );
+
+    // ===== AUDITORÍA =====
+    // Asignamos req.user manualmente para que el helper de auditoría lo detecte
+    req.user = { userId: user._id, email: user.email, rol: user.rol, nombre: user.nombre };
+    await logAudit(req.db, req, {
+      accion: 'login',
+      coleccion: 'auth',
+      documentoId: user._id,
+      documentoNumero: user.email,
+      detalle: `Login exitoso: ${user.email}`
+    });
+
     res.json({
       token,
       user: {
@@ -46,7 +59,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ===== REGISTER (público, solo para vendedores) =====
+// ===== REGISTER (público, solo vendedores) =====
 router.post('/register', async (req, res) => {
   try {
     const { nombre, email, password } = req.body;
@@ -71,6 +84,17 @@ router.post('/register', async (req, res) => {
       updatedAt: new Date()
     };
     const result = await req.db.collection('usuarios').insertOne(newUser);
+
+    // ===== AUDITORÍA (sin usuario aún, pero registramos el evento) =====
+    await logAudit(req.db, req, {
+      accion: 'crear',
+      coleccion: 'usuarios',
+      documentoId: result.insertedId,
+      documentoNumero: email,
+      datosNuevos: { nombre, email, rol: assignedRol, activo: true },
+      detalle: `Usuario registrado: ${email}`
+    });
+
     res.status(201).json({ message: 'Usuario creado exitosamente', userId: result.insertedId });
   } catch (err) {
     console.error('❌ Error en register:', err);
@@ -78,7 +102,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ===== OBTENER PERFIL DEL USUARIO AUTENTICADO =====
+// ===== OBTENER PERFIL =====
 router.get('/perfil', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -132,6 +156,17 @@ router.put('/perfil', authMiddleware, async (req, res) => {
       { _id: new ObjectId(userId) },
       { projection: { password: 0 } }
     );
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'actualizar',
+      coleccion: 'usuarios',
+      documentoId: userId,
+      documentoNumero: updatedUser.email,
+      datosAnteriores: { nombre: user.nombre, email: user.email, telefono: user.telefono },
+      datosNuevos: { nombre: updatedUser.nombre, email: updatedUser.email, telefono: updatedUser.telefono },
+      detalle: `Perfil actualizado: ${updatedUser.email}${password ? ' (contraseña cambiada)' : ''}`
+    });
 
     res.json({
       message: 'Perfil actualizado correctamente',

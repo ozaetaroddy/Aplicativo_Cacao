@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
-
+const { logAudit } = require('../utils/audit');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 
 router.get('/', async (req, res) => {
@@ -92,7 +92,8 @@ router.post('/', async (req, res) => {
       fecha_emision,
       valor_retenido,
       porcentaje,
-      tipo
+      tipo,
+      tipo_retencion
     } = req.body;
 
     if (!ObjectId.isValid(proveedorId)) {
@@ -107,9 +108,21 @@ router.post('/', async (req, res) => {
       valor_retenido,
       porcentaje: porcentaje || 0,
       tipo: tipo || 'manual',
+      tipo_retencion: tipo_retencion || '',
       createdAt: new Date()
     };
     const result = await req.db.collection('retenciones').insertOne(retencion);
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'crear',
+      coleccion: 'retenciones',
+      documentoId: result.insertedId,
+      documentoNumero: numero_factura || '',
+      datosNuevos: { ...retencion, _id: result.insertedId },
+      detalle: `Retención creada: ${numero_factura || ''} por $${(valor_retenido || 0).toFixed(2)}`
+    });
+
     res.status(201).json({ ...retencion, _id: result.insertedId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -120,8 +133,23 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const retencionAnterior = await req.db.collection('retenciones').findOne({ _id: new ObjectId(id) });
+    if (!retencionAnterior) return res.status(404).json({ error: 'Retención no encontrada' });
+
     const result = await req.db.collection('retenciones').deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) return res.status(404).json({ error: 'Retención no encontrada' });
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'eliminar',
+      coleccion: 'retenciones',
+      documentoId: id,
+      documentoNumero: retencionAnterior.numero_factura || '',
+      datosAnteriores: retencionAnterior,
+      detalle: `Retención eliminada: ${retencionAnterior.numero_factura || ''}`
+    });
+
     res.json({ message: 'Retención eliminada' });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -1,455 +1,441 @@
 <template>
-  <div>
-    <h4 class="section-title"><i class="fas fa-home"></i> Panel de Control</h4>
-
-    <!-- ===== ACCESOS RÁPIDOS ===== -->
-    <div class="row g-3 mb-4">
-      <div class="col-12">
-        <h5 class="section-subtitle"><i class="fas fa-bolt me-2"></i>Accesos Rápidos</h5>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/ventas/nuevo?tipo=factura" class="quick-access">
-          <div class="icon-circle" style="background: #3498db;"><i class="fas fa-file-invoice"></i></div>
-          <span>Factura</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/ventas/nuevo?tipo=guia_remision" class="quick-access">
-          <div class="icon-circle" style="background: #2ecc71;"><i class="fas fa-truck"></i></div>
-          <span>Guía Remisión</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/ventas/nuevo?tipo=nota_credito" class="quick-access">
-          <div class="icon-circle" style="background: #e67e22;"><i class="fas fa-undo-alt"></i></div>
-          <span>Nota Crédito</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/compras/nuevo" class="quick-access">
-          <div class="icon-circle" style="background: #27ae60;"><i class="fas fa-cart-plus"></i></div>
-          <span>Nueva Compra</span>
-        </router-link>
-      </div>
-
-      <!-- ===== NUEVOS ACCESOS A BANDEJAS ===== -->
-      <div class="col-md-2 col-4">
-        <router-link to="/ventas" class="quick-access quick-access-bandeja">
-          <div class="icon-circle" style="background: linear-gradient(135deg, #3498db, #2980b9);">
-            <i class="fas fa-hand-holding-usd"></i>
-          </div>
-          <span>Bandeja Ventas</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/compras" class="quick-access quick-access-bandeja">
-          <div class="icon-circle" style="background: linear-gradient(135deg, #e67e22, #d35400);">
-            <i class="fas fa-inbox"></i>
-          </div>
-          <span>Bandeja Compras</span>
-        </router-link>
-      </div>
-
-      <div class="col-md-2 col-4">
-        <router-link to="/clientes/nuevo" class="quick-access">
-          <div class="icon-circle" style="background: #8e44ad;"><i class="fas fa-user-plus"></i></div>
-          <span>Cliente</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/proveedores/nuevo" class="quick-access">
-          <div class="icon-circle" style="background: #2c3e50;"><i class="fas fa-truck-loading"></i></div>
-          <span>Proveedor</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/productos/nuevo" class="quick-access">
-          <div class="icon-circle" style="background: #f1c40f;"><i class="fas fa-box"></i></div>
-          <span>Producto</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/consultar-documentos" class="quick-access">
-          <div class="icon-circle" style="background: #2980b9;"><i class="fas fa-search"></i></div>
-          <span>Consultar Docs</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/kardex" class="quick-access">
-          <div class="icon-circle" style="background: #1abc9c;"><i class="fas fa-clipboard-list"></i></div>
-          <span>Kardex</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/inventario/stock" class="quick-access">
-          <div class="icon-circle" style="background: #16a085;"><i class="fas fa-boxes"></i></div>
-          <span>Stock Actual</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/reportes/ventas" class="quick-access">
-          <div class="icon-circle" style="background: #e74c3c;"><i class="fas fa-chart-line"></i></div>
-          <span>Reporte Ventas</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/reportes/compras" class="quick-access">
-          <div class="icon-circle" style="background: #d35400;"><i class="fas fa-chart-bar"></i></div>
-          <span>Reporte Compras</span>
-        </router-link>
-      </div>
-      <div class="col-md-2 col-4">
-        <router-link to="/retenciones" class="quick-access">
-          <div class="icon-circle" style="background: #9b59b6;"><i class="fas fa-percent"></i></div>
-          <span>Retenciones</span>
-        </router-link>
-      </div>
-    </div>
-
-    <!-- ===== ESTADÍSTICAS RÁPIDAS ===== -->
-    <div class="row g-4 mb-4">
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #3498db;">
-          <div class="stat-icon-wrapper" style="background: rgba(52,152,219,0.12);">
-            <i class="fas fa-file-invoice" style="color:#3498db;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">${{ ventasHoy.toFixed(2) }}</span>
-            <span class="stat-label">Ventas Hoy</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #2ecc71;">
-          <div class="stat-icon-wrapper" style="background: rgba(46,204,113,0.12);">
-            <i class="fas fa-shopping-cart" style="color:#2ecc71;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">${{ comprasHoy.toFixed(2) }}</span>
-            <span class="stat-label">Compras Hoy</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #f39c12;">
-          <div class="stat-icon-wrapper" style="background: rgba(243,156,18,0.12);">
-            <i class="fas fa-calendar-alt" style="color:#f39c12;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">${{ ventasMes.toFixed(2) }}</span>
-            <span class="stat-label">Ventas del Mes</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #9b59b6;">
-          <div class="stat-icon-wrapper" style="background: rgba(155,89,182,0.12);">
-            <i class="fas fa-calendar-check" style="color:#9b59b6;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">${{ comprasMes.toFixed(2) }}</span>
-            <span class="stat-label">Compras del Mes</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== KPIS AVANZADOS ===== -->
-    <div class="row g-4 mb-4">
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #3498db;">
-          <div class="stat-icon-wrapper" style="background: rgba(52,152,219,0.12);">
-            <i class="fas fa-credit-card" style="color:#3498db;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">${{ totalFacturado.toFixed(2) }}</span>
-            <span class="stat-label">Facturado (mes)</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #e74c3c;">
-          <div class="stat-icon-wrapper" style="background: rgba(231,76,60,0.12);">
-            <i class="fas fa-exclamation-triangle" style="color:#e74c3c;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">{{ cuentasPorPagar }}</span>
-            <span class="stat-label">Cuentas por Pagar</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #f39c12;">
-          <div class="stat-icon-wrapper" style="background: rgba(243,156,18,0.12);">
-            <i class="fas fa-sync-alt" style="color:#f39c12;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">{{ rotacionInventario.toFixed(2) }}</span>
-            <span class="stat-label">Rotación de Inventario</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-3 col-md-6">
-        <div class="stat-card" style="border-left: 4px solid #2ecc71;">
-          <div class="stat-icon-wrapper" style="background: rgba(46,204,113,0.12);">
-            <i class="fas fa-percent" style="color:#2ecc71;"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-number">{{ margenBruto.toFixed(2) }}%</span>
-            <span class="stat-label">Margen Bruto</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== BANDEJAS: VENTAS Y COMPRAS ===== -->
-    <div class="row g-4 mb-4">
-      <div class="col-12">
-        <h5 class="section-subtitle"><i class="fas fa-inbox me-2"></i>Bandejas de Trabajo</h5>
-      </div>
-      <div class="col-lg-6">
-        <div class="card card-cacao h-100">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <span>
-              <i class="fas fa-hand-holding-usd me-2" style="color: #3498db;"></i>
-              Bandeja de Ventas
-            </span>
-            <router-link to="/ventas" class="btn btn-sm btn-outline-primary">
-              <i class="fas fa-list"></i> Ver todas
+  <nav class="navbar navbar-expand-lg navbar-cacao" ref="navbar">
+    <div class="container-fluid">
+      <router-link class="navbar-brand" to="/">
+        <i class="fas fa-calculator"></i> Sistema Contable
+      </router-link>
+      <button
+        class="navbar-toggler"
+        type="button"
+        @click="toggleNavbar"
+        aria-controls="navbarNav"
+        :aria-expanded="navbarAbierto"
+        aria-label="Toggle navigation"
+      >
+        <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
+      </button>
+      <div class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <!-- ===== INICIO ===== -->
+          <li class="nav-item">
+            <router-link class="nav-link" to="/" exact-active-class="active" @click="cerrarTodo">
+              <i class="fas fa-home"></i> Inicio
             </router-link>
-          </div>
-          <div class="card-body">
-            <BandejaVentasWidget />
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="card card-cacao h-100">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <span>
-              <i class="fas fa-shopping-cart me-2" style="color: #e67e22;"></i>
-              Bandeja de Compras
-            </span>
-            <router-link to="/compras" class="btn btn-sm btn-outline-primary">
-              <i class="fas fa-list"></i> Ver todas
+          </li>
+
+          <!-- ===== DOCUMENTOS ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('documentos')"
+            >
+              <i class="fas fa-file-invoice"></i> Documentos
+              <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
+              <li><router-link class="dropdown-item" to="/ventas" @click="cerrarTodo"><i class="fas fa-hand-holding-usd"></i> Bandeja de Ventas</router-link></li>
+              <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=reembolso" @click="cerrarTodo">Factura Reembolso</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">Comprobante Retención</router-link></li>
+              <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><router-link class="dropdown-item" to="/consultar-documentos" @click="cerrarTodo"><i class="fas fa-search"></i> Consultar Documentos</router-link></li>
+            </ul>
+          </li>
+
+          <!-- ===== BASE DE DATOS ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('maestros')"
+            >
+              <i class="fas fa-database"></i> Base de datos
+              <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.maestros }">
+              <li><router-link class="dropdown-item" to="/productos" @click="cerrarTodo"><i class="fas fa-boxes"></i> Productos</router-link></li>
+              <li><router-link class="dropdown-item" to="/categorias" @click="cerrarTodo"><i class="fas fa-tags"></i> Categorías</router-link></li>
+              <li><router-link class="dropdown-item" to="/clientes" @click="cerrarTodo"><i class="fas fa-users"></i> Clientes</router-link></li>
+              <li><router-link class="dropdown-item" to="/proveedores" @click="cerrarTodo"><i class="fas fa-truck"></i> Proveedores</router-link></li>
+            </ul>
+          </li>
+
+          <!-- ===== INVENTARIOS ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.inventarios }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('inventarios')"
+            >
+              <i class="fas fa-warehouse"></i> Inventarios
+              <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.inventarios }">
+              <li><router-link class="dropdown-item" to="/kardex" @click="cerrarTodo"><i class="fas fa-clipboard-list"></i> Kardex</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo"><i class="fas fa-calendar-alt"></i> Planificación de Inventarios</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/stock" @click="cerrarTodo"><i class="fas fa-boxes"></i> Stock Actual</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/conteo" @click="cerrarTodo"><i class="fas fa-clipboard-check"></i> Conteo Físico</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/ajustes" @click="cerrarTodo"><i class="fas fa-edit"></i> Ajustes de Inventario</router-link></li>
+              <li><router-link class="dropdown-item" to="/inventario/valorizado" @click="cerrarTodo"><i class="fas fa-dollar-sign"></i> Inventario Valorizado</router-link></li>
+            </ul>
+          </li>
+
+          <!-- ===== REPORTES ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('reportes')"
+            >
+              <i class="fas fa-chart-bar"></i> Reportes
+              <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.reportes }">
+              <li><router-link class="dropdown-item" to="/reportes/ventas" @click="cerrarTodo"><i class="fas fa-arrow-up"></i> Ventas</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/compras" @click="cerrarTodo"><i class="fas fa-arrow-down"></i> Compras</router-link></li>
+              <li><router-link class="dropdown-item" to="/reportes/mensual" @click="cerrarTodo"><i class="fas fa-file-invoice"></i> Reporte Mensual</router-link></li>
+            </ul>
+          </li>
+
+          <!-- ===== RETENCIONES ===== -->
+          <li class="nav-item dropdown" :class="{ show: dropdowns.retenciones }">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              @click.prevent="toggleDropdown('retenciones')"
+            >
+              <i class="fas fa-percent"></i> Retenciones
+              <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
+            </a>
+            <ul class="dropdown-menu" :class="{ show: dropdowns.retenciones }">
+              <li><router-link class="dropdown-item" to="/retenciones" @click="cerrarTodo">Lista de Retenciones</router-link></li>
+              <li><router-link class="dropdown-item" to="/retenciones/nuevo" @click="cerrarTodo">Nueva Retención</router-link></li>
+            </ul>
+          </li>
+
+          <!-- ===== AUDITORÍA (solo admin) ===== -->
+          <li v-if="isAdmin" class="nav-item">
+            <router-link class="nav-link" to="/auditoria" active-class="active" @click="cerrarTodo">
+              <i class="fas fa-history"></i> Auditoría
             </router-link>
-          </div>
-          <div class="card-body">
-            <BandejaComprasWidget />
+          </li>
+        </ul>
+
+        <!-- ===== BARRA DE BÚSQUEDA Y CONTROLES DE USUARIO ===== -->
+        <div class="nav-user-controls d-flex align-items-center gap-3 flex-wrap">
+          <SearchBar class="search-bar-nav" ref="searchBar" />
+          <ThemeToggle />
+          
+          <div class="dropdown" ref="userDropdown" :class="{ show: userMenuOpen }">
+            <button class="btn btn-outline-light btn-sm dropdown-toggle user-menu-btn" @click="toggleUserMenu">
+              <i class="fas fa-user-circle me-1"></i>
+              <span>{{ user?.nombre || 'Usuario' }}</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" :class="{ show: userMenuOpen }">
+              <li><a class="dropdown-item" href="#" @click.prevent="irPerfil"><i class="fas fa-id-card"></i> Mi Perfil</a></li>
+              <li v-if="isAdmin"><a class="dropdown-item" href="#" @click.prevent="irAuditoria"><i class="fas fa-history"></i> Auditoría</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item text-danger" href="#" @click.prevent="cerrarSesion"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a></li>
+            </ul>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- ===== GRÁFICOS ===== -->
-    <DashboardCharts
-      :ventas-diarias="ventasDiarias"
-      :compras-diarias="comprasDiarias"
-      :dias="dias"
-    />
-
-    <!-- ===== WIDGETS ===== -->
-    <WidgetContainer :initial-widgets="defaultWidgets" />
-
-    <!-- ===== EXPORTAR / IMPORTAR ===== -->
-    <div class="row g-4 mt-2">
-      <div class="col-12">
-        <div class="card card-cacao">
-          <div class="card-header">
-            <i class="fas fa-file-export me-2"></i> Exportar / Importar Datos
-          </div>
-          <div class="card-body">
-            <ExportImport />
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+  </nav>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useMongoDB } from '../composables/useMongoDB'
-import { useEstadisticas } from '../composables/useEstadisticas'
-import DashboardCharts from './dashboard/DashboardCharts.vue'
-import WidgetContainer from './dashboard/WidgetContainer.vue'
-import ExportImport from './ExportImport.vue'
-import BandejaVentasWidget from './dashboard/widgets/BandejaVentasWidget.vue'
-import BandejaComprasWidget from './dashboard/widgets/BandejaComprasWidget.vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
+import SearchBar from './SearchBar.vue'
+import ThemeToggle from './ThemeToggle.vue'
+import { useAuth } from '../composables/useAuth'
 
-const { find } = useMongoDB()
-const {
-  ventasHoy,
-  ventasMes,
-  comprasHoy,
-  comprasMes,
-  ventasDiarias,
-  comprasDiarias,
-  dias,
-  cargarEstadisticas
-} = useEstadisticas()
+const router = useRouter()
+const { user, logout, isAdmin } = useAuth()
 
-// ===== KPIS =====
-const totalFacturado = ref(0)
-const cuentasPorPagar = ref(0)
-const rotacionInventario = ref(0)
-const margenBruto = ref(0)
+const navbarAbierto = ref(false)
+const userMenuOpen = ref(false)
+const navbar = ref(null)
+const userDropdown = ref(null)
+const searchBar = ref(null)
 
-const defaultWidgets = [
-  { id: 'stats', title: 'Estadísticas', component: 'StatsWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'ventas-chart', title: 'Ventas (7 días)', component: 'VentasChartWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'compras-chart', title: 'Compras (7 días)', component: 'ComprasChartWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'top-productos', title: 'Top Productos', component: 'TopProductosWidget', size: 'col-12 col-md-6', props: {} },
-  { id: 'actividad-reciente', title: 'Actividad Reciente', component: 'ActividadRecienteWidget', size: 'col-12 col-md-6', props: {} }
-]
+const dropdowns = ref({
+  documentos: false,
+  maestros: false,
+  inventarios: false,
+  reportes: false,
+  retenciones: false
+})
 
-// ===== CALCULAR KPIS =====
-const calcularKPIs = async () => {
-  try {
-    const [ventas, compras, productos] = await Promise.all([
-      find('ventas'),
-      find('compras'),
-      find('productos')
-    ])
-
-    const hoy = new Date()
-    const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
-
-    const facturadoMes = ventas
-      .filter(v => new Date(v.fecha_emision) >= inicioMes)
-      .reduce((sum, v) => sum + (v.total || 0), 0)
-    totalFacturado.value = facturadoMes
-
-    cuentasPorPagar.value = compras.filter(c => c.estado_pago === 'pendiente').length
-
-    const totalVentas = ventas.reduce((sum, v) => sum + (v.total || 0), 0)
-    const stockTotal = productos.reduce((sum, p) => sum + (p.stock || 0), 0)
-    rotacionInventario.value = stockTotal > 0 ? totalVentas / stockTotal : 0
-
-    const totalCompras = compras.reduce((sum, c) => sum + (c.total || 0), 0)
-    margenBruto.value = totalVentas > 0 ? ((totalVentas - totalCompras) / totalVentas) * 100 : 0
-
-  } catch (e) {
-    console.error('Error calculando KPIs:', e)
+// ===== TOGGLES =====
+const toggleNavbar = () => {
+  navbarAbierto.value = !navbarAbierto.value
+  if (!navbarAbierto.value) {
+    Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
   }
 }
 
-onMounted(async () => {
-  await cargarEstadisticas()
-  await calcularKPIs()
+const toggleDropdown = (nombre) => {
+  if (navbarAbierto.value) {
+    dropdowns.value[nombre] = !dropdowns.value[nombre]
+    return
+  }
+  Object.keys(dropdowns.value).forEach(key => {
+    dropdowns.value[key] = (key === nombre) ? !dropdowns.value[nombre] : false
+  })
+}
+
+const toggleUserMenu = () => {
+  userMenuOpen.value = !userMenuOpen.value
+}
+
+const cerrarTodo = () => {
+  navbarAbierto.value = false
+  Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
+  userMenuOpen.value = false
+}
+
+// ===== CERRAR AL HACER CLICK FUERA =====
+const handleClickOutside = (event) => {
+  if (navbar.value && navbar.value.contains(event.target)) return
+  if (searchBar.value && searchBar.value.$el && searchBar.value.$el.contains(event.target)) return
+  cerrarTodo()
+}
+
+// ===== ACCIONES DE USUARIO =====
+const irPerfil = () => {
+  cerrarTodo()
+  router.push('/mi-perfil')
+}
+
+const irAuditoria = () => {
+  cerrarTodo()
+  router.push('/auditoria')
+}
+
+const cerrarSesion = () => {
+  cerrarTodo()
+  logout()
+}
+
+// ===== MONTAJE Y LIMPIEZA =====
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>
 
 <style scoped>
-.stat-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  box-shadow: 0 2px 8px var(--shadow-color);
-  transition: var(--transition);
-  height: 90px;
+.search-bar-nav { max-width: 280px; }
+
+/* Botón de usuario: sin cursor pointer */
+.user-menu-btn {
+  cursor: default;
 }
-.stat-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px var(--shadow-hover);
+.user-menu-btn:hover {
+  background: transparent !important;
+  transform: none !important;
+  box-shadow: none !important;
 }
-.stat-icon-wrapper {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.stat-icon-wrapper i {
-  font-size: 1.6rem;
-}
-.stat-info {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-.stat-number {
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.2;
-}
-.stat-label {
+
+/* Flecha indicadora para móvil */
+.toggle-icon {
+  display: none;
+  transition: transform 0.3s ease;
   font-size: 0.75rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-weight: 600;
+  margin-left: 8px;
 }
 
-.quick-access {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-decoration: none;
-  color: var(--text-primary);
-  padding: 8px 4px;
-  border-radius: 12px;
-  transition: var(--transition);
-  background: var(--bg-card);
-  box-shadow: 0 1px 4px var(--shadow-color);
-  border: 1px solid var(--border-color);
-}
-.quick-access:hover {
-  background: var(--bg-table-stripe);
-  transform: translateY(-3px);
-  box-shadow: 0 6px 16px var(--shadow-hover);
-  text-decoration: none;
-  color: var(--primary-dark);
-}
-.quick-access .icon-circle {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 1.4rem;
-  margin-bottom: 6px;
-}
-.quick-access span {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-align: center;
-  line-height: 1.2;
+/* ============================================
+   DESKTOP: Dropdowns flotantes
+   ============================================ */
+@media (min-width: 993px) {
+  .navbar-cacao .dropdown-menu {
+    display: block;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s;
+    background: #2c3e50;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  }
+  .navbar-cacao .dropdown-menu.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+  .navbar-cacao .dropdown-item {
+    color: #fff !important;
+    padding: 8px 20px;
+    transition: var(--transition);
+  }
+  .navbar-cacao .dropdown-item:hover {
+    background: #3498db;
+    color: #fff !important;
+    border-radius: 8px;
+  }
 }
 
-/* Estilo especial para los accesos a bandejas */
-.quick-access-bandeja {
-  background: linear-gradient(135deg, rgba(52,152,219,0.08), rgba(230,126,34,0.05));
-  border: 1.5px solid rgba(52,152,219,0.3);
-}
-.quick-access-bandeja:hover {
-  border-color: var(--primary-color);
-  box-shadow: 0 6px 16px rgba(52,152,219,0.2);
+/* ============================================
+   MÓVIL Y TABLET: Acordeón colapsado
+   ============================================ */
+@media (max-width: 992px) {
+  .navbar-cacao .navbar-collapse {
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--bg-navbar);
+    padding: 12px;
+    border-radius: 12px;
+    margin-top: 10px;
+  }
+
+  .navbar-cacao .navbar-nav {
+    width: 100%;
+  }
+
+  .navbar-cacao .nav-item {
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .navbar-cacao .nav-item:last-child {
+    border-bottom: none;
+  }
+
+  .navbar-cacao .nav-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    border-radius: 8px;
+    margin: 0;
+    color: rgba(255,255,255,0.9) !important;
+  }
+
+  .navbar-cacao .nav-link.active {
+    background: var(--primary-color);
+    color: #fff !important;
+  }
+
+  .toggle-icon {
+    display: inline-block;
+  }
+
+  .nav-item.dropdown.show .toggle-icon {
+    transform: rotate(180deg);
+  }
+
+  .navbar-cacao .dropdown-menu {
+    position: static !important;
+    float: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    display: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+
+  .navbar-cacao .dropdown-menu.show {
+    display: block !important;
+    max-height: 600px;
+    padding: 6px 0 10px 20px !important;
+    border-left: 2px solid var(--primary-color) !important;
+    margin-left: 16px !important;
+  }
+
+  .navbar-cacao .dropdown-item {
+    color: rgba(255,255,255,0.75) !important;
+    padding: 10px 14px !important;
+    font-size: 0.85rem !important;
+    border-radius: 6px;
+    transition: var(--transition);
+  }
+
+  .navbar-cacao .dropdown-item:hover {
+    background: rgba(255,255,255,0.08) !important;
+    color: #fff !important;
+  }
+
+  .navbar-cacao .dropdown-divider {
+    border-color: rgba(255,255,255,0.1);
+    margin: 6px 0;
+  }
+
+  .nav-user-controls {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px !important;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    width: 100%;
+  }
+
+  .search-bar-nav {
+    max-width: 100%;
+    margin: 0;
+  }
 }
 
-.section-subtitle {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 12px;
-  border-bottom: 2px solid var(--border-color);
-  padding-bottom: 6px;
-}
-.section-subtitle i {
-  color: var(--primary-color);
+/* ============================================
+   MÓVILES PEQUEÑOS
+   ============================================ */
+@media (max-width: 576px) {
+  .navbar-cacao .navbar-brand {
+    font-size: 1rem;
+  }
+  .navbar-cacao .nav-link {
+    font-size: 0.9rem;
+    padding: 12px 14px;
+  }
+  .navbar-cacao .dropdown-item {
+    font-size: 0.8rem !important;
+  }
 }
 
-.card-cacao .card-header {
-  display: flex;
-  align-items: center;
+/* ============================================
+   MODO OSCURO
+   ============================================ */
+body.dark-mode .navbar-cacao .navbar-collapse {
+  background: #1a1a2e;
+}
+body.dark-mode .navbar-cacao .nav-item {
+  border-bottom-color: rgba(255,255,255,0.05);
+}
+body.dark-mode .navbar-cacao .dropdown-menu {
+  background: #1e2a4a;
+  border-color: #2d3748;
+}
+body.dark-mode .navbar-cacao .dropdown-item {
+  color: #e0e0e0 !important;
+}
+body.dark-mode .navbar-cacao .dropdown-item:hover {
+  background: #2d3748;
 }
 </style>

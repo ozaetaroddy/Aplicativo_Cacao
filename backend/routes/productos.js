@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { body, validationResult } = require('express-validator');
+const { logAudit } = require('../utils/audit');
+const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 
 const validarProducto = [
   body('nombre').trim().notEmpty().withMessage('Nombre obligatorio'),
@@ -10,8 +12,6 @@ const validarProducto = [
   body('precio_compra').optional().isNumeric().withMessage('Precio de compra debe ser número'),
   body('stock_minimo').optional().isNumeric().withMessage('Stock mínimo debe ser número'),
 ];
-
-const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 
 router.get('/', async (req, res) => {
   try {
@@ -82,7 +82,6 @@ router.post('/', validarProducto, async (req, res) => {
       aplica_iva, tipo_medida
     } = req.body;
 
-    // Verificar unicidad de código y nombre
     const existente = await req.db.collection('productos').findOne({
       $or: [{ codigo }, { nombre }]
     });
@@ -110,6 +109,17 @@ router.post('/', validarProducto, async (req, res) => {
       updatedAt: new Date()
     };
     const result = await req.db.collection('productos').insertOne(nuevoProducto);
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'crear',
+      coleccion: 'productos',
+      documentoId: result.insertedId,
+      documentoNumero: nuevoProducto.codigo,
+      datosNuevos: { ...nuevoProducto, _id: result.insertedId },
+      detalle: `Producto creado: ${nuevoProducto.nombre}`
+    });
+
     res.status(201).json({ ...nuevoProducto, _id: result.insertedId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -131,7 +141,6 @@ router.put('/:id', validarProducto, async (req, res) => {
       aplica_iva, tipo_medida
     } = req.body;
 
-    // Verificar unicidad excluyendo el propio producto
     const existente = await req.db.collection('productos').findOne({
       _id: { $ne: new ObjectId(id) },
       $or: [{ codigo }, { nombre }]
@@ -139,6 +148,9 @@ router.put('/:id', validarProducto, async (req, res) => {
     if (existente) {
       return res.status(400).json({ error: 'Ya existe otro producto con ese código o nombre' });
     }
+
+    const productoAnterior = await req.db.collection('productos').findOne({ _id: new ObjectId(id) });
+    if (!productoAnterior) return res.status(404).json({ error: 'Producto no encontrado' });
 
     const updateData = {
       nombre,
@@ -161,6 +173,18 @@ router.put('/:id', validarProducto, async (req, res) => {
       { $set: updateData }
     );
     if (result.matchedCount === 0) return res.status(404).json({ error: 'Producto no encontrado' });
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'actualizar',
+      coleccion: 'productos',
+      documentoId: id,
+      documentoNumero: codigo,
+      datosAnteriores: productoAnterior,
+      datosNuevos: updateData,
+      detalle: `Producto actualizado: ${nombre}`
+    });
+
     res.json({ message: 'Producto actualizado' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -171,8 +195,23 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const productoAnterior = await req.db.collection('productos').findOne({ _id: new ObjectId(id) });
+    if (!productoAnterior) return res.status(404).json({ error: 'Producto no encontrado' });
+
     const result = await req.db.collection('productos').deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) return res.status(404).json({ error: 'Producto no encontrado' });
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'eliminar',
+      coleccion: 'productos',
+      documentoId: id,
+      documentoNumero: productoAnterior.codigo || '',
+      datosAnteriores: productoAnterior,
+      detalle: `Producto eliminado: ${productoAnterior.nombre || ''}`
+    });
+
     res.json({ message: 'Producto eliminado' });
   } catch (err) {
     res.status(500).json({ error: err.message });

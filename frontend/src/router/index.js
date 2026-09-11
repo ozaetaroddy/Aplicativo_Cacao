@@ -37,6 +37,12 @@ const ReporteMensual = () => import('../components/reportes/ReporteMensual.vue')
 // Importar Facturas
 const ImportarFacturas = () => import('../components/compras/ImportarFacturas.vue')
 
+// Perfil de usuario
+const PerfilUsuario = () => import('../components/PerfilUsuario.vue')
+
+// Auditoría
+const AuditoriaList = () => import('../components/auditoria/AuditoriaList.vue')
+
 // ===== RUTAS =====
 const routes = [
   { path: '/login', component: Login },
@@ -74,7 +80,8 @@ const routes = [
   { path: '/retenciones/nuevo', component: RetencionForm, meta: { requiresAuth: true } },
   { path: '/retenciones/editar/:id', component: RetencionForm, props: true, meta: { requiresAuth: true } },
   { path: '/importar-facturas', component: ImportarFacturas, meta: { requiresAuth: true } },
-  { path: '/mi-perfil', component: () => import('../components/PerfilUsuario.vue'), meta: { requiresAuth: true } },
+  { path: '/mi-perfil', component: PerfilUsuario, meta: { requiresAuth: true } },
+  { path: '/auditoria', component: AuditoriaList, meta: { requiresAuth: true, requiresAdmin: true } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
@@ -83,13 +90,14 @@ const router = createRouter({
   routes,
 })
 
-// ===== GUARD DE RUTAS CORREGIDO =====
+// ===== GUARD DE RUTAS =====
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
+  const user = JSON.parse(localStorage.getItem('user') || 'null')
   const publicPages = ['/login']
   const authRequired = !publicPages.includes(to.path)
 
-  // Si está en login y tiene token, redirige al home (evita bucle)
+  // Si está en login y tiene token, redirige al home
   if (to.path === '/login' && token) {
     return next('/')
   }
@@ -99,7 +107,11 @@ router.beforeEach((to, from, next) => {
     return next('/login')
   }
 
-  // En cualquier otro caso, permite el acceso
+  // Si la ruta requiere admin y el usuario no lo es
+  if (to.meta.requiresAdmin && user?.rol !== 'admin') {
+    return next('/')
+  }
+
   next()
 })
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { body, validationResult } = require('express-validator');
+const { logAudit } = require('../utils/audit');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 
 const validarVenta = [
@@ -13,6 +14,7 @@ const validarVenta = [
   body('total').isNumeric().withMessage('Total debe ser número'),
 ];
 
+// OBTENER TODAS (con paginación, búsqueda y filtros)
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -20,7 +22,6 @@ router.get('/', async (req, res) => {
     const search = (req.query.search || '').trim();
     const { desde, hasta, tipo_documento, estado_pago } = req.query;
 
-    // Filtros base
     const matchStage = {};
     if (desde || hasta) {
       matchStage.fecha_emision = {};
@@ -52,7 +53,6 @@ router.get('/', async (req, res) => {
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ];
 
-    // Búsqueda (después del lookup para permitir buscar por nombre de cliente)
     if (search) {
       const regex = new RegExp(escapeRegex(search), 'i');
       pipeline.push({
@@ -68,14 +68,12 @@ router.get('/', async (req, res) => {
 
     const sort = parseSort(req.query);
 
-    // Sin paginación explícita: devolver todo (retrocompatible)
     if (!paginar) {
       pipeline.push({ $sort: sort });
       const ventas = await req.db.collection('ventas_v2').aggregate(pipeline).toArray();
       return res.json(ventas);
     }
 
-    // Con paginación: contar total y paginar
     const countPipeline = [...pipeline, { $count: 'total' }];
     const countResult = await req.db.collection('ventas_v2').aggregate(countPipeline).toArray();
     const total = countResult[0]?.total || 0;
@@ -99,6 +97,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// OBTENER POR ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -113,7 +112,7 @@ router.get('/:id', async (req, res) => {
           as: 'cliente'
         }
       },
-      { $unwind: '$cliente' }
+      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ]).toArray();
     if (venta.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
     res.json(venta[0]);
@@ -122,6 +121,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// CREAR
 router.post('/', validarVenta, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -140,14 +140,14 @@ router.post('/', validarVenta, async (req, res) => {
       destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
       destinatario_direccion, ruta, motivo, documento_aduana,
       comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
-      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision
+      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
+      forma_pago, estado_pago, fecha_pago, observaciones
     } = req.body;
 
     const session = req.db.client.startSession();
     let result;
 
     await session.withTransaction(async () => {
-      // Validar stock de cada producto antes de continuar
       for (const detalle of detalles) {
         const producto = await req.db.collection('productos').findOne({ _id: new ObjectId(detalle.productoId) }, { session });
         if (!producto) throw new Error(`Producto ${detalle.productoId} no existe`);
@@ -160,7 +160,7 @@ router.post('/', validarVenta, async (req, res) => {
       const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
         { _id: tipoDoc },
         { $inc: { valor: 1 } },
-        { upsert: true, returnDocument: 'after' }
+        { upsert: true, returnDocument: 'after', session }
       );
       const prefijos = {
         'factura': 'FAC',
@@ -180,7 +180,7 @@ router.post('/', validarVenta, async (req, res) => {
         const expContador = await req.db.collection('contadores').findOneAndUpdate(
           { _id: 'exportacion_numero' },
           { $inc: { valor: 1 } },
-          { upsert: true, returnDocument: 'after' }
+          { upsert: true, returnDocument: 'after', session }
         );
         exportacionCodigo = `EXP-${String(expContador.valor).padStart(6, '0')}`;
       }
@@ -225,6 +225,10 @@ router.post('/', validarVenta, async (req, res) => {
         comprobante_numero_autorizacion: comprobante_numero_autorizacion || '',
         comprobante_numero: comprobante_numero || '',
         comprobante_fecha_emision: comprobante_fecha_emision || '',
+        forma_pago: forma_pago || '',
+        estado_pago: estado_pago || 'pendiente',
+        fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
+        observaciones: observaciones || '',
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -232,7 +236,6 @@ router.post('/', validarVenta, async (req, res) => {
       const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
       const ventaId = ventaResult.insertedId;
 
-      // Actualizar stock y kardex (solo si no es nota crédito ni guía)
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
@@ -249,7 +252,6 @@ router.post('/', validarVenta, async (req, res) => {
           );
 
           const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
-          const saldoActual = productoActualizado.stock;
 
           await req.db.collection('kardex').insertOne({
             productoId,
@@ -257,7 +259,7 @@ router.post('/', validarVenta, async (req, res) => {
             tipo_movimiento: 'venta',
             cantidad: -cantidad,
             costo_unitario: precioUnitario,
-            saldo: saldoActual,
+            saldo: productoActualizado.stock,
             referencia_id: ventaId,
             referencia_tipo: 'venta',
             createdAt: new Date()
@@ -278,8 +280,18 @@ router.post('/', validarVenta, async (req, res) => {
           as: 'cliente'
         }
       },
-      { $unwind: '$cliente' }
+      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ]).toArray();
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'crear',
+      coleccion: 'ventas',
+      documentoId: result.insertedId,
+      documentoNumero: ventaCreada[0]?.numero_factura || '',
+      datosNuevos: ventaCreada[0],
+      detalle: `Venta creada: ${ventaCreada[0]?.numero_factura || ''} por $${(ventaCreada[0]?.total || 0).toFixed(2)}`
+    });
 
     if (req.io) req.io.emit('nueva-venta', ventaCreada[0]);
     res.status(201).json(ventaCreada[0]);
@@ -314,12 +326,12 @@ router.put('/:id', validarVenta, async (req, res) => {
       destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
       destinatario_direccion, ruta, motivo, documento_aduana,
       comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
-      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision
+      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
+      forma_pago, estado_pago, fecha_pago, observaciones
     } = req.body;
 
     const session = req.db.client.startSession();
     await session.withTransaction(async () => {
-      // Revertir venta anterior (si no era nota crédito ni guía)
       if (ventaActual.tipo_documento !== 'nota_credito' && ventaActual.tipo_documento !== 'guia_remision') {
         for (const detalle of ventaActual.detalles) {
           const productoId = new ObjectId(detalle.productoId);
@@ -335,19 +347,15 @@ router.put('/:id', validarVenta, async (req, res) => {
         }
       }
 
-      // Validar stock para los nuevos detalles
       for (const detalle of detalles) {
         const producto = await req.db.collection('productos').findOne({ _id: new ObjectId(detalle.productoId) }, { session });
         if (!producto) throw new Error(`Producto ${detalle.productoId} no existe`);
-        // El stock actual ya incluye la reversión anterior, pero debemos considerar que otros usuarios puedan haber cambiado
-        // En una aplicación real, se debe manejar concurrencia. Aquí simplificamos.
         const stockDisponible = producto.stock;
         if (stockDisponible < detalle.cantidad) {
           throw new Error(`Stock insuficiente para producto ${producto.nombre}. Disponible: ${stockDisponible}, requerido: ${detalle.cantidad}`);
         }
       }
 
-      // Actualizar datos de la venta
       const updateData = {
         clienteId: new ObjectId(clienteId),
         numero_factura,
@@ -388,6 +396,10 @@ router.put('/:id', validarVenta, async (req, res) => {
         comprobante_numero_autorizacion,
         comprobante_numero,
         comprobante_fecha_emision,
+        forma_pago: forma_pago || '',
+        estado_pago: estado_pago || 'pendiente',
+        fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
+        observaciones: observaciones || '',
         updatedAt: new Date()
       };
       await req.db.collection('ventas_v2').updateOne(
@@ -396,7 +408,6 @@ router.put('/:id', validarVenta, async (req, res) => {
         { session }
       );
 
-      // Aplicar nuevo efecto si no es nota crédito ni guía
       if (tipo_documento !== 'nota_credito' && tipo_documento !== 'guia_remision') {
         for (const detalle of detalles) {
           const productoId = new ObjectId(detalle.productoId);
@@ -434,8 +445,19 @@ router.put('/:id', validarVenta, async (req, res) => {
           as: 'cliente'
         }
       },
-      { $unwind: '$cliente' }
+      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ]).toArray();
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'actualizar',
+      coleccion: 'ventas',
+      documentoId: id,
+      documentoNumero: ventaActualizada[0]?.numero_factura || ventaActual.numero_factura || '',
+      datosAnteriores: ventaActual,
+      datosNuevos: ventaActualizada[0],
+      detalle: `Venta actualizada: ${ventaActualizada[0]?.numero_factura || ventaActual.numero_factura || ''}`
+    });
 
     if (req.io) req.io.emit('venta-actualizada', ventaActualizada[0]);
     res.json(ventaActualizada[0]);
@@ -456,7 +478,6 @@ router.delete('/:id', async (req, res) => {
 
     const session = req.db.client.startSession();
     await session.withTransaction(async () => {
-      // Revertir inventario si no era nota crédito ni guía
       if (venta.tipo_documento !== 'nota_credito' && venta.tipo_documento !== 'guia_remision') {
         for (const detalle of venta.detalles) {
           const productoId = new ObjectId(detalle.productoId);
@@ -473,6 +494,16 @@ router.delete('/:id', async (req, res) => {
       }
 
       await req.db.collection('ventas_v2').deleteOne({ _id: new ObjectId(id) }, { session });
+    });
+
+    // ===== AUDITORÍA =====
+    await logAudit(req.db, req, {
+      accion: 'eliminar',
+      coleccion: 'ventas',
+      documentoId: id,
+      documentoNumero: venta.numero_factura || '',
+      datosAnteriores: venta,
+      detalle: `Venta eliminada: ${venta.numero_factura || ''} por $${(venta.total || 0).toFixed(2)}`
     });
 
     if (req.io) req.io.emit('venta-eliminada', { id });

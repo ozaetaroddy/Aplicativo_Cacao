@@ -23,6 +23,7 @@ const secuenciasRoutes = require('./routes/secuencias');
 const contadoresRoutes = require('./routes/contadores');
 const retencionesRoutes = require('./routes/retenciones');
 const catalogosRoutes = require('./routes/catalogos');
+const auditoriaRoutes = require('./routes/auditoria');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -89,6 +90,7 @@ app.use('/api/secuencias', secuenciasRoutes);
 app.use('/api/contadores', contadoresRoutes);
 app.use('/api/retenciones', retencionesRoutes);
 app.use('/api/catalogos', catalogosRoutes);
+app.use('/api/auditoria', auditoriaRoutes);
 
 // ===== MANEJO DE ERRORES (debe ir al final) =====
 const errorHandler = require('./middleware/errorHandler');
