@@ -1106,4 +1106,13 @@ kbd {
     padding: 6px 4px;
   }
 }
+/* Fix: evitar que las tarjetas se estiren en la columna principal */
+.col-lg-8 > .card-cacao {
+  height: auto !important;
+}
+
+/* Asegurar que el sidebar no se estire más de lo necesario */
+.sidebar-sticky > .card-cacao {
+  height: auto !important;
+}
 </style>
