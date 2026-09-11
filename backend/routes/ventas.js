@@ -32,6 +32,103 @@ const TIPO_COMPROBANTE_SRI = {
 const DOCS_CON_CLAVE = ['factura', 'liquidacion', 'nota_credito', 'nota_debito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'];
 
 // ============================================================
+// Helper: asegurar que la venta tenga clave de acceso y XML
+// Si faltan, los genera al vuelo y los persiste.
+// ============================================================
+async function asegurarClaveYXml(db, venta) {
+  const tipoDoc = venta.tipo_documento || 'factura';
+
+  // Si no es un documento que requiera clave, devolver null
+  if (!DOCS_CON_CLAVE.includes(tipoDoc)) {
+    return { claveAcceso: null, xml: null, motivo: 'Este tipo de documento no requiere clave de acceso (ej: proforma)' };
+  }
+
+  // Cargar config de empresa
+  const config = await db.collection('configuracion').findOne({ _id: 'empresa' });
+  if (!config || !config.ruc || config.ruc.length !== 13) {
+    return { claveAcceso: null, xml: null, motivo: 'Debe configurar primero el RUC de la empresa en Administración → Configuración Empresa' };
+  }
+
+  let claveAcceso = venta.clave_acceso;
+  let serieFormateada = venta.serie;
+  let numeroSecuencial = venta.secuencial_sri;
+
+  // Si no hay clave, generarla
+  if (!claveAcceso) {
+    const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
+    const est = venta.establecimiento || config.establecimiento || '001';
+    const pe = venta.punto_emision || config.punto_emision || '001';
+    serieFormateada = formatearSerie(est, pe);
+
+    // Usar el último número del número_factura si tiene dígitos, o generar uno
+    let sec = 1;
+    if (venta.numero_factura) {
+      const match = String(venta.numero_factura).match(/(\d+)/g);
+      if (match) {
+        const ultimo = match[match.length - 1];
+        sec = parseInt(ultimo, 10) || 1;
+      }
+    }
+
+    try {
+      claveAcceso = generarClaveAcceso({
+        fechaEmision: new Date(venta.fecha_emision),
+        tipoComprobante: codigoSRI,
+        ruc: config.ruc,
+        ambiente: config.ambiente || '1',
+        serie: serieFormateada,
+        secuencial: sec,
+        tipoEmision: config.tipo_emision || '1'
+      });
+      numeroSecuencial = String(sec).padStart(9, '0');
+    } catch (e) {
+      return { claveAcceso: null, xml: null, motivo: 'Error generando clave: ' + e.message };
+    }
+  }
+
+  // Generar XML si falta
+  let xml = venta.xml_generado;
+  if (!xml) {
+    try {
+      const cliente = await db.collection('clientes').findOne({ _id: venta.clienteId });
+      // Preparar venta con la clave por si fue generada al vuelo
+      const ventaParaXml = {
+        ...venta,
+        clave_acceso: claveAcceso,
+        serie: serieFormateada || venta.serie,
+        secuencial_sri: numeroSecuencial || venta.secuencial_sri
+      };
+      xml = generarXMLComprobante(ventaParaXml, cliente, config);
+    } catch (e) {
+      return { claveAcceso, xml: null, motivo: 'Error generando XML: ' + e.message };
+    }
+  }
+
+  // Persistir cambios si hubo generación al vuelo
+  if (!venta.clave_acceso || !venta.xml_generado) {
+    try {
+      await db.collection('ventas_v2').updateOne(
+        { _id: venta._id },
+        {
+          $set: {
+            clave_acceso: claveAcceso,
+            serie: serieFormateada || venta.serie,
+            secuencial_sri: numeroSecuencial || venta.secuencial_sri,
+            xml_generado: xml,
+            estado_sri: venta.estado_sri === 'NO_APLICA' ? 'PENDIENTE' : venta.estado_sri,
+            updatedAt: new Date()
+          }
+        }
+      );
+    } catch (e) {
+      console.warn('No se pudo persistir clave/XML:', e.message);
+    }
+  }
+
+  return { claveAcceso, xml, motivo: null };
+}
+
+// ============================================================
 // LISTAR
 // ============================================================
 router.get('/', async (req, res) => {
@@ -62,6 +159,7 @@ router.get('/', async (req, res) => {
 
     const pipeline = [
       { $match: matchStage },
+      { $project: { xml_generado: 0, xml_firmado: 0 } },
       {
         $lookup: {
           from: 'clientes',
@@ -143,24 +241,14 @@ router.get('/:id/xml', async (req, res) => {
     const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
 
-    if (!venta.clave_acceso) {
-      return res.status(400).json({ error: 'Este documento no tiene clave de acceso (no es un comprobante electrónico)' });
-    }
+    const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
 
-    // Si ya tiene XML guardado, devolverlo
-    if (venta.xml_generado) {
-      res.setHeader('Content-Type', 'application/xml');
-      res.setHeader('Content-Disposition', `attachment; filename="${venta.clave_acceso}.xml"`);
-      return res.send(venta.xml_generado);
+    if (!claveAcceso || !xml) {
+      return res.status(400).json({ error: motivo || 'No se pudo generar la clave de acceso' });
     }
-
-    // Generar XML al vuelo
-    const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
-    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
-    const xml = generarXMLComprobante(venta, cliente, config || {});
 
     res.setHeader('Content-Type', 'application/xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${venta.clave_acceso}.xml"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${claveAcceso}.xml"`);
     res.send(xml);
   } catch (err) {
     console.error('Error generando XML:', err);
@@ -179,18 +267,13 @@ router.get('/:id/xml-preview', async (req, res) => {
     const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
 
-    if (!venta.clave_acceso) {
-      return res.status(400).json({ error: 'Este documento no tiene clave de acceso' });
+    const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
+
+    if (!claveAcceso || !xml) {
+      return res.status(400).json({ error: motivo || 'No se pudo generar la clave de acceso' });
     }
 
-    let xml = venta.xml_generado;
-    if (!xml) {
-      const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
-      const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
-      xml = generarXMLComprobante(venta, cliente, config || {});
-    }
-
-    res.json({ xml });
+    res.json({ xml, clave_acceso: claveAcceso });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -205,6 +288,7 @@ router.get('/:id', async (req, res) => {
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
     const venta = await req.db.collection('ventas_v2').aggregate([
       { $match: { _id: new ObjectId(id) } },
+      { $project: { xml_generado: 0, xml_firmado: 0 } },
       {
         $lookup: {
           from: 'clientes',
@@ -275,7 +359,6 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
       const prefijo = prefijos[tipoDoc] || 'DOC';
       const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
 
-      // ===== GENERAR CLAVE DE ACCESO =====
       let claveAcceso = null;
       let partesClave = null;
       let serieFormateada = null;
@@ -316,7 +399,6 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         exportacionCodigo = `EXP-${String(expContador.valor).padStart(6, '0')}`;
       }
 
-      // Cargar cliente para el XML
       const cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) }, { session });
 
       const venta = {
@@ -371,14 +453,12 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         estado_pago: estado_pago || 'pendiente',
         fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
         observaciones: observaciones || '',
-        // ===== XML generado =====
         xml_generado: '',
         xml_firmado: '',
         createdAt: new Date(),
         updatedAt: new Date()
       };
 
-      // Generar XML antes de guardar
       if (claveAcceso && config) {
         try {
           venta.xml_generado = generarXMLComprobante(venta, cliente, config);
@@ -441,7 +521,7 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
       documentoId: result.ventaResult.insertedId,
       documentoNumero: ventaCreada[0]?.numero_factura || '',
       datosNuevos: ventaCreada[0],
-      detalle: `Venta creada: ${ventaCreada[0]?.numero_factura || ''} por $${(ventaCreada[0]?.total || 0).toFixed(2)}${result.claveAcceso ? ' (Clave: ' + result.claveAcceso.substring(0, 20) + '...)' : ''}`
+      detalle: `Venta creada: ${ventaCreada[0]?.numero_factura || ''} por $${(ventaCreada[0]?.total || 0).toFixed(2)}`
     });
 
     if (req.io) req.io.emit('nueva-venta', ventaCreada[0]);
@@ -472,7 +552,7 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
 
     if (ventaActual.estado_sri === 'AUTORIZADO') {
       return res.status(400).json({
-        error: 'Esta factura ya fue autorizada por el SRI. No se puede modificar. Genere una nota de crédito si es necesario.'
+        error: 'Esta factura ya fue autorizada por el SRI. No se puede modificar.'
       });
     }
 
@@ -521,12 +601,11 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
         }
       }
 
-      // Regenerar clave si cambia fecha o tipo
       let nuevaClave = ventaActual.clave_acceso || '';
       const fechaCambio = new Date(fecha_emision).getTime() !== new Date(ventaActual.fecha_emision).getTime();
       const tipoCambio = (tipo_documento || 'factura') !== ventaActual.tipo_documento;
 
-      if (fechaCambio || tipoCambio) {
+      if (fechaCambio || tipoCambio || !ventaActual.clave_acceso) {
         const tipoDoc = tipo_documento || 'factura';
         const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && config?.ruc && config.ruc.length === 13;
 
@@ -603,7 +682,6 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
         updatedAt: new Date()
       };
 
-      // Regenerar XML
       const ventaParaXML = { ...ventaActual, ...updateData };
       if (nuevaClave && config) {
         try {
@@ -718,7 +796,7 @@ router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
       documentoId: id,
       documentoNumero: venta.numero_factura || '',
       datosAnteriores: venta,
-      detalle: `Venta eliminada: ${venta.numero_factura || ''} por $${(venta.total || 0).toFixed(2)}`
+      detalle: `Venta eliminada: ${venta.numero_factura || ''}`
     });
 
     if (req.io) req.io.emit('venta-eliminada', { id });
