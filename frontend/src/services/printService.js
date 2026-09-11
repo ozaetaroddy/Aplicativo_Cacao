@@ -41,33 +41,63 @@ export const printService = {
     const iva = parseFloat(doc.iva || 0)
     const total = parseFloat(doc.total || 0)
 
-    // Construir tabla de detalles
+    const esTicket = formato === 'ticket'
+
+    // ===== TABLA DE DETALLES =====
+    // En ticket usamos tabla simplificada (4 columnas), en A4/A2 usamos la completa
     let detallesHtml = ''
     if (doc.detalles && doc.detalles.length > 0) {
-      detallesHtml = doc.detalles.map((d, idx) => {
-        const cantidad = parseFloat(d.cantidad || 0)
-        const precioUnit = parseFloat(d.precio_unitario || d.costo_unitario || 0)
-        const descuento = 0
-        const subtotalItem = cantidad * precioUnit - descuento
-        const aplicaIVA = d.aplica_iva !== false
-        const nombreProducto = d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
-        const codigo = d.codigo || ''
+      if (esTicket) {
+        // TABLA SIMPLIFICADA PARA TICKET (80mm)
+        detallesHtml = doc.detalles.map((d, idx) => {
+          const cantidad = parseFloat(d.cantidad || 0)
+          const precioUnit = parseFloat(d.precio_unitario || d.costo_unitario || 0)
+          const subtotalItem = cantidad * precioUnit
+          const aplicaIVA = d.aplica_iva !== false
+          const nombreProducto = d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
+          const codigo = d.codigo || ''
 
-        return `
-          <tr>
-            <td class="text-center">${idx + 1}</td>
-            <td>
-              <div class="product-name">${nombreProducto}</div>
-              ${codigo ? `<div class="product-code">Código: ${codigo}</div>` : ''}
-            </td>
-            <td class="text-center">${cantidad}</td>
-            <td class="text-right">$${precioUnit.toFixed(2)}</td>
-            <td class="text-right">$${descuento.toFixed(2)}</td>
-            <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
-            <td class="text-right">$${subtotalItem.toFixed(2)}</td>
-          </tr>
-        `
-      }).join('')
+          return `
+            <tr>
+              <td class="text-center">${idx + 1}</td>
+              <td>
+                <div class="product-name">${nombreProducto}</div>
+                ${codigo ? `<div class="product-code">${codigo}</div>` : ''}
+                <div class="product-meta">IVA ${aplicaIVA ? '15%' : '0%'}</div>
+              </td>
+              <td class="text-center">${cantidad}</td>
+              <td class="text-right">$${precioUnit.toFixed(2)}</td>
+              <td class="text-right fw-bold">$${subtotalItem.toFixed(2)}</td>
+            </tr>
+          `
+        }).join('')
+      } else {
+        // TABLA COMPLETA PARA A4/A2
+        detallesHtml = doc.detalles.map((d, idx) => {
+          const cantidad = parseFloat(d.cantidad || 0)
+          const precioUnit = parseFloat(d.precio_unitario || d.costo_unitario || 0)
+          const descuento = 0
+          const subtotalItem = cantidad * precioUnit - descuento
+          const aplicaIVA = d.aplica_iva !== false
+          const nombreProducto = d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
+          const codigo = d.codigo || ''
+
+          return `
+            <tr>
+              <td class="text-center">${idx + 1}</td>
+              <td>
+                <div class="product-name">${nombreProducto}</div>
+                ${codigo ? `<div class="product-code">Código: ${codigo}</div>` : ''}
+              </td>
+              <td class="text-center">${cantidad}</td>
+              <td class="text-right">$${precioUnit.toFixed(2)}</td>
+              <td class="text-right">$${descuento.toFixed(2)}</td>
+              <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
+              <td class="text-right">$${subtotalItem.toFixed(2)}</td>
+            </tr>
+          `
+        }).join('')
+      }
     }
 
     // Configuración según formato
@@ -76,7 +106,6 @@ export const printService = {
     let fontSize = '11px'
     let formatoClase = 'a4'
     let barcodeHeight = 45
-    let barcodeWidth = 240
 
     if (formato === 'A2') {
       ancho = '420mm'
@@ -84,23 +113,21 @@ export const printService = {
       fontSize = '14px'
       formatoClase = 'a2'
       barcodeHeight = 55
-      barcodeWidth = 340
     } else if (formato === 'ticket') {
       ancho = '80mm'
       padding = '3mm'
       fontSize = '9px'
       formatoClase = 'ticket'
       barcodeHeight = 32
-      barcodeWidth = 200 // Más angosto para el ticket
     }
 
-    // Generar código de barras con ancho controlado
     const barcodeHtml = claveAcceso
-      ? this.generarBarcodeHTML(claveAcceso, formato, barcodeWidth, barcodeHeight)
+      ? this.generarBarcodeHTML(claveAcceso, formato, barcodeHeight)
       : ''
 
-    // Dividir la clave en trozos para que se ajuste al ticket
-    const claveChunks = claveAcceso.match(/.{1,16}/g) || []
+    // Formatear clave en trozos de 12 para que quepa en ticket
+    const chunkSize = esTicket ? 12 : 16
+    const claveChunks = claveAcceso.match(new RegExp(`.{1,${chunkSize}}`, 'g')) || []
     const claveFormateada = claveChunks.join(' ')
 
     return `<!DOCTYPE html>
@@ -109,11 +136,7 @@ export const printService = {
   <meta charset="UTF-8">
   <title>${tipoDoc} ${numero}</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
       background: #fff;
@@ -196,10 +219,7 @@ export const printService = {
       margin-bottom: 3px;
       font-family: 'Courier New', monospace;
     }
-    .doc-meta {
-      font-size: 0.72em;
-      color: #555;
-    }
+    .doc-meta { font-size: 0.72em; color: #555; }
     .ambiente-badge {
       display: inline-block;
       padding: 3px 10px;
@@ -321,7 +341,7 @@ export const printService = {
       word-break: break-word;
     }
 
-    /* ============ TABLA DETALLES ============ */
+    /* ============ TABLA DETALLES (A4/A2) ============ */
     .detalles-section { margin-bottom: 10px; }
     .detalles-title {
       font-size: 0.72em;
@@ -337,7 +357,6 @@ export const printService = {
       border-collapse: collapse;
       margin-top: 4px;
       font-size: 0.8em;
-      table-layout: fixed;
     }
     .detalles-table thead {
       background: #1a3a5c;
@@ -350,17 +369,13 @@ export const printService = {
       font-size: 0.68em;
       text-transform: uppercase;
       letter-spacing: 0.2px;
-      word-wrap: break-word;
     }
     .detalles-table tbody td {
       padding: 7px 5px;
       border-bottom: 1px solid #e9ecef;
       vertical-align: top;
-      word-break: break-word;
     }
-    .detalles-table tbody tr:nth-child(even) {
-      background: #f8f9fa;
-    }
+    .detalles-table tbody tr:nth-child(even) { background: #f8f9fa; }
     .detalles-table .text-center { text-align: center; }
     .detalles-table .text-right { text-align: right; }
     .product-name {
@@ -374,6 +389,12 @@ export const printService = {
       color: #888;
       font-family: 'Courier New', monospace;
     }
+    .product-meta {
+      font-size: 0.7em;
+      color: #888;
+      font-style: italic;
+    }
+    .fw-bold { font-weight: 700; }
 
     /* ============ TOTALES ============ */
     .totales-section {
@@ -461,9 +482,8 @@ export const printService = {
     /* ==================================================
        TICKET (80mm) — Reglas específicas
        ================================================== */
-    .ticket {
-      padding: 3mm;
-    }
+    .ticket { padding: 3mm; }
+
     .ticket .header {
       flex-direction: column;
       align-items: center;
@@ -478,37 +498,22 @@ export const printService = {
       flex: none;
       width: 100%;
     }
-    .ticket .logo-empresa {
-      justify-content: center;
-    }
-    .ticket .logo-icon {
-      width: 34px;
-      height: 34px;
-      font-size: 18px;
-    }
+    .ticket .logo-empresa { justify-content: center; }
+    .ticket .logo-icon { width: 34px; height: 34px; font-size: 18px; }
     .ticket .empresa-nombre { font-size: 1em; }
     .ticket .empresa-info { font-size: 0.7em; }
-
-    .ticket .doc-tipo {
-      padding: 4px 12px;
-      font-size: 0.9em;
-    }
+    .ticket .doc-tipo { padding: 4px 12px; font-size: 0.9em; }
     .ticket .doc-numero { font-size: 0.85em; }
 
-    /* CLAVE: apilada verticalmente y más compacta */
+    /* CLAVE apilada verticalmente */
     .ticket .clave-section {
       flex-direction: column;
       gap: 6px;
       padding: 8px;
       text-align: center;
     }
-    .ticket .clave-left {
-      width: 100%;
-      text-align: center;
-    }
-    .ticket .clave-label {
-      font-size: 0.62em;
-    }
+    .ticket .clave-left { width: 100%; text-align: center; }
+    .ticket .clave-label { font-size: 0.62em; }
     .ticket .clave-valor {
       font-size: 0.6em;
       letter-spacing: 0;
@@ -519,14 +524,8 @@ export const printService = {
       font-size: 0.6em;
       text-align: center;
     }
-    .ticket .autorizacion-info div {
-      word-break: break-all;
-    }
-    .ticket .barcode-container {
-      width: 100%;
-      max-width: 100%;
-      text-align: center;
-    }
+    .ticket .autorizacion-info div { word-break: break-all; }
+    .ticket .barcode-container { width: 100%; max-width: 100%; text-align: center; }
     .ticket .barcode-svg {
       height: ${barcodeHeight}px;
       width: 100%;
@@ -543,55 +542,67 @@ export const printService = {
     }
 
     /* Cliente apilado */
-    .ticket .cliente-section {
-      flex-direction: column;
-      gap: 6px;
-    }
-    .ticket .cliente-box {
-      padding: 6px 8px;
-    }
-    .ticket .cliente-row-label {
-      min-width: 65px;
-      font-size: 0.95em;
-    }
+    .ticket .cliente-section { flex-direction: column; gap: 6px; }
+    .ticket .cliente-box { padding: 6px 8px; }
+    .ticket .cliente-row-label { min-width: 65px; font-size: 0.95em; }
 
-    /* Tabla compacta */
+    /* ============================================
+       TABLA SIMPLIFICADA PARA TICKET (5 columnas)
+       ============================================ */
     .ticket .detalles-table {
-      font-size: 0.7em;
+      font-size: 0.75em;
+      table-layout: fixed;
+      width: 100%;
     }
     .ticket .detalles-table thead th {
-      padding: 4px 2px;
-      font-size: 0.6em;
+      padding: 5px 3px;
+      font-size: 0.65em;
+      text-transform: uppercase;
     }
     .ticket .detalles-table tbody td {
-      padding: 5px 2px;
+      padding: 6px 3px;
+      vertical-align: top;
+      word-wrap: break-word;
     }
-    .ticket .product-name { font-size: 0.9em; }
+    /* Anchos de columnas específicos para ticket */
+    .ticket .detalles-table thead th:nth-child(1) { width: 22px; }   /* # */
+    .ticket .detalles-table thead th:nth-child(2) { width: auto; }   /* Descripción */
+    .ticket .detalles-table thead th:nth-child(3) { width: 38px; }   /* Cant */
+    .ticket .detalles-table thead th:nth-child(4) { width: 55px; }   /* P. Unit */
+    .ticket .detalles-table thead th:nth-child(5) { width: 65px; }   /* Subtotal */
 
-    .ticket .totales-box {
-      max-width: 100%;
+    .ticket .product-name {
+      font-size: 0.95em;
+      font-weight: 600;
+      /* IMPORTANTE: ahora el nombre del producto NO se rompe letra por letra */
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      hyphens: auto;
     }
-    .ticket .total-row {
-      padding: 5px 10px;
+    .ticket .product-code {
       font-size: 0.75em;
+      color: #999;
+      margin-top: 1px;
     }
-    .ticket .total-final {
-      padding: 8px 10px;
-      font-size: 0.9em;
+    .ticket .product-meta {
+      font-size: 0.7em;
+      color: #999;
+      font-style: italic;
+      margin-top: 1px;
     }
+
+    .ticket .totales-box { max-width: 100%; }
+    .ticket .total-row { padding: 5px 10px; font-size: 0.75em; }
+    .ticket .total-final { padding: 8px 10px; font-size: 0.9em; }
 
     .ticket .firma-section {
       flex-direction: column;
       gap: 15px;
       margin-top: 20px;
     }
-    .ticket .firma-line {
-      margin: 25px 30px 5px;
-    }
+    .ticket .firma-line { margin: 25px 30px 5px; }
 
-    .ticket .footer {
-      font-size: 0.6em;
-    }
+    .ticket .footer { font-size: 0.6em; }
 
     /* ============ IMPRESIÓN ============ */
     @media print {
@@ -628,7 +639,7 @@ export const printService = {
         <div class="empresa-info">
           <div><strong>RUC:</strong> ${rucEmisor}</div>
           <div><strong>Dir. Matriz:</strong> ${dirMatriz}</div>
-          ${formato !== 'ticket' ? `<div><strong>Dir. Sucursal:</strong> ${dirSucursal}</div>` : ''}
+          ${!esTicket ? `<div><strong>Dir. Sucursal:</strong> ${dirSucursal}</div>` : ''}
         </div>
       </div>
 
@@ -720,19 +731,33 @@ export const printService = {
     <div class="detalles-section">
       <div class="detalles-title">Detalle de Productos y Servicios</div>
       <table class="detalles-table">
-        <thead>
-          <tr>
-            <th style="width:26px;" class="text-center">#</th>
-            <th>Descripción</th>
-            <th style="width:55px;" class="text-center">Cant.</th>
-            <th style="width:70px;" class="text-right">P. Unit.</th>
-            <th style="width:55px;" class="text-right">Desc.</th>
-            <th style="width:50px;" class="text-center">IVA</th>
-            <th style="width:80px;" class="text-right">Subtotal</th>
-          </tr>
-        </thead>
+        ${esTicket ? `
+          <!-- Tabla simplificada para ticket -->
+          <thead>
+            <tr>
+              <th class="text-center">#</th>
+              <th>Producto</th>
+              <th class="text-center">Cant</th>
+              <th class="text-right">P.U.</th>
+              <th class="text-right">Total</th>
+            </tr>
+          </thead>
+        ` : `
+          <!-- Tabla completa para A4/A2 -->
+          <thead>
+            <tr>
+              <th style="width:30px;" class="text-center">#</th>
+              <th>Descripción</th>
+              <th style="width:70px;" class="text-center">Cant.</th>
+              <th style="width:80px;" class="text-right">P. Unit.</th>
+              <th style="width:70px;" class="text-right">Desc.</th>
+              <th style="width:60px;" class="text-center">IVA</th>
+              <th style="width:90px;" class="text-right">Subtotal</th>
+            </tr>
+          </thead>
+        `}
         <tbody>
-          ${detallesHtml || `<tr><td colspan="7" class="text-center" style="padding:20px;color:#888;">Sin detalles registrados</td></tr>`}
+          ${detallesHtml || `<tr><td colspan="${esTicket ? 5 : 7}" class="text-center" style="padding:20px;color:#888;">Sin detalles registrados</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -801,12 +826,12 @@ export const printService = {
   },
 
   /**
-   * Genera el código de barras SVG con ancho controlado según el formato.
+   * Genera el código de barras SVG.
    */
-  generarBarcodeHTML(texto, formato = 'A4', maxWidth = 240, maxHeight = 45) {
+  generarBarcodeHTML(texto, formato = 'A4', maxHeight = 45) {
     if (!texto) return ''
 
-    // Para el ticket, mostramos solo los últimos 22 dígitos visibles (el código completo va arriba)
+    // En ticket mostramos solo los últimos 22 dígitos
     const textoBarras = formato === 'ticket' && texto.length > 30
       ? texto.slice(-22)
       : texto
@@ -823,11 +848,7 @@ export const printService = {
 
     const totalWidth = barras.reduce((a, b) => a + b, 0) + barras.length
 
-    // Ajustar ancho para ticket
-    const viewBoxWidth = totalWidth
-    const aspectRatio = viewBoxWidth / maxHeight
-
-    let svg = `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewBoxWidth} 60" preserveAspectRatio="none" style="max-width: 100%; height: ${maxHeight}px;">`
+    let svg = `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} 60" preserveAspectRatio="none" style="max-width: 100%; height: ${maxHeight}px;">`
     let x = 0
     let black = true
     for (let i = 0; i < barras.length; i++) {
