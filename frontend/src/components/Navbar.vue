@@ -35,6 +35,9 @@
               <i class="fas fa-chevron-down ms-auto toggle-icon"></i>
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
+              <li><router-link class="dropdown-item" to="/ventas" @click="cerrarTodo"><i class="fas fa-hand-holding-usd"></i> Bandeja de Ventas</router-link></li>
+              <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
+              <li><hr class="dropdown-divider"></li>
               <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">Nueva Factura</router-link></li>
               <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">Guía de Remisión</router-link></li>
               <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=exportacion" @click="cerrarTodo">Factura Exportación</router-link></li>
@@ -43,7 +46,6 @@
               <li><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo">Liquidación Compra</router-link></li>
               <li><hr class="dropdown-divider"></li>
               <li><router-link class="dropdown-item" to="/consultar-documentos" @click="cerrarTodo"><i class="fas fa-search"></i> Consultar Documentos</router-link></li>
-              <li><router-link class="dropdown-item" to="/compras" @click="cerrarTodo"><i class="fas fa-inbox"></i> Bandeja de Compras</router-link></li>
             </ul>
           </li>
 
@@ -121,6 +123,13 @@
               <li><router-link class="dropdown-item" to="/retenciones/nuevo" @click="cerrarTodo">Nueva Retención</router-link></li>
             </ul>
           </li>
+
+          <!-- ===== AUDITORÍA (solo admin) ===== -->
+          <li v-if="isAdmin" class="nav-item">
+            <router-link class="nav-link" to="/auditoria" active-class="active" @click="cerrarTodo">
+              <i class="fas fa-history"></i> Auditoría
+            </router-link>
+          </li>
         </ul>
 
         <!-- ===== BARRA DE BÚSQUEDA Y CONTROLES DE USUARIO ===== -->
@@ -129,12 +138,13 @@
           <ThemeToggle />
           
           <div class="dropdown" ref="userDropdown" :class="{ show: userMenuOpen }">
-            <button class="btn btn-outline-light btn-sm dropdown-toggle" @click="toggleUserMenu">
+            <button class="btn btn-outline-light btn-sm dropdown-toggle user-menu-btn" @click="toggleUserMenu">
               <i class="fas fa-user-circle me-1"></i>
               <span>{{ user?.nombre || 'Usuario' }}</span>
             </button>
             <ul class="dropdown-menu dropdown-menu-end" :class="{ show: userMenuOpen }">
               <li><a class="dropdown-item" href="#" @click.prevent="irPerfil"><i class="fas fa-id-card"></i> Mi Perfil</a></li>
+              <li v-if="isAdmin"><a class="dropdown-item" href="#" @click.prevent="irAuditoria"><i class="fas fa-history"></i> Auditoría</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item text-danger" href="#" @click.prevent="cerrarSesion"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a></li>
             </ul>
@@ -153,7 +163,7 @@ import ThemeToggle from './ThemeToggle.vue'
 import { useAuth } from '../composables/useAuth'
 
 const router = useRouter()
-const { user, logout } = useAuth()
+const { user, logout, isAdmin } = useAuth()
 
 const navbarAbierto = ref(false)
 const userMenuOpen = ref(false)
@@ -169,21 +179,19 @@ const dropdowns = ref({
   retenciones: false
 })
 
+// ===== TOGGLES =====
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
   if (!navbarAbierto.value) {
-    // Al cerrar el navbar, cerrar todos los dropdowns
     Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
   }
 }
 
 const toggleDropdown = (nombre) => {
-  // Si el navbar está abierto (modo móvil), toggle individual sin cerrar los demás
   if (navbarAbierto.value) {
     dropdowns.value[nombre] = !dropdowns.value[nombre]
     return
   }
-  // En desktop, cerrar los demás y abrir el seleccionado
   Object.keys(dropdowns.value).forEach(key => {
     dropdowns.value[key] = (key === nombre) ? !dropdowns.value[nombre] : false
   })
@@ -199,15 +207,22 @@ const cerrarTodo = () => {
   userMenuOpen.value = false
 }
 
+// ===== CERRAR AL HACER CLICK FUERA =====
 const handleClickOutside = (event) => {
   if (navbar.value && navbar.value.contains(event.target)) return
   if (searchBar.value && searchBar.value.$el && searchBar.value.$el.contains(event.target)) return
   cerrarTodo()
 }
 
+// ===== ACCIONES DE USUARIO =====
 const irPerfil = () => {
   cerrarTodo()
   router.push('/mi-perfil')
+}
+
+const irAuditoria = () => {
+  cerrarTodo()
+  router.push('/auditoria')
 }
 
 const cerrarSesion = () => {
@@ -215,6 +230,7 @@ const cerrarSesion = () => {
   logout()
 }
 
+// ===== MONTAJE Y LIMPIEZA =====
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
 })
@@ -227,7 +243,15 @@ onBeforeUnmount(() => {
 <style scoped>
 .search-bar-nav { max-width: 280px; }
 
-/* Flecha indicadora para móvil (oculta en desktop) */
+.user-menu-btn {
+  cursor: default;
+}
+.user-menu-btn:hover {
+  background: transparent !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 .toggle-icon {
   display: none;
   transition: transform 0.3s ease;
@@ -235,9 +259,6 @@ onBeforeUnmount(() => {
   margin-left: 8px;
 }
 
-/* ============================================
-   ESTILOS DESKTOP (Dropdowns flotantes)
-   ============================================ */
 @media (min-width: 993px) {
   .navbar-cacao .dropdown-menu {
     display: block;
@@ -267,9 +288,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ============================================
-   ESTILOS MÓVIL Y TABLET (Acordeón colapsado)
-   ============================================ */
 @media (max-width: 992px) {
   .navbar-cacao .navbar-collapse {
     max-height: 80vh;
@@ -279,18 +297,9 @@ onBeforeUnmount(() => {
     border-radius: 12px;
     margin-top: 10px;
   }
-
-  .navbar-cacao .navbar-nav {
-    width: 100%;
-  }
-
-  .navbar-cacao .nav-item {
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-  }
-  .navbar-cacao .nav-item:last-child {
-    border-bottom: none;
-  }
-
+  .navbar-cacao .navbar-nav { width: 100%; }
+  .navbar-cacao .nav-item { border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .navbar-cacao .nav-item:last-child { border-bottom: none; }
   .navbar-cacao .nav-link {
     display: flex;
     align-items: center;
@@ -302,23 +311,12 @@ onBeforeUnmount(() => {
     margin: 0;
     color: rgba(255,255,255,0.9) !important;
   }
-
   .navbar-cacao .nav-link.active {
     background: var(--primary-color);
     color: #fff !important;
   }
-
-  /* Mostrar la flecha en móvil */
-  .toggle-icon {
-    display: inline-block;
-  }
-
-  /* Rotar la flecha cuando está abierto */
-  .nav-item.dropdown.show .toggle-icon {
-    transform: rotate(180deg);
-  }
-
-  /* Submenús colapsados por defecto */
+  .toggle-icon { display: inline-block; }
+  .nav-item.dropdown.show .toggle-icon { transform: rotate(180deg); }
   .navbar-cacao .dropdown-menu {
     position: static !important;
     float: none !important;
@@ -329,7 +327,6 @@ onBeforeUnmount(() => {
     border: none !important;
     box-shadow: none !important;
     border-radius: 0 !important;
-    /* OCULTO POR DEFECTO */
     display: none !important;
     opacity: 1 !important;
     visibility: visible !important;
@@ -338,16 +335,13 @@ onBeforeUnmount(() => {
     overflow: hidden;
     transition: max-height 0.3s ease;
   }
-
-  /* Al aplicar .show, se despliega con animación */
   .navbar-cacao .dropdown-menu.show {
     display: block !important;
-    max-height: 500px;
+    max-height: 600px;
     padding: 6px 0 10px 20px !important;
     border-left: 2px solid var(--primary-color) !important;
     margin-left: 16px !important;
   }
-
   .navbar-cacao .dropdown-item {
     color: rgba(255,255,255,0.75) !important;
     padding: 10px 14px !important;
@@ -355,18 +349,14 @@ onBeforeUnmount(() => {
     border-radius: 6px;
     transition: var(--transition);
   }
-
   .navbar-cacao .dropdown-item:hover {
     background: rgba(255,255,255,0.08) !important;
     color: #fff !important;
   }
-
   .navbar-cacao .dropdown-divider {
     border-color: rgba(255,255,255,0.1);
     margin: 6px 0;
   }
-
-  /* Controles de usuario: apilados en columna */
   .nav-user-controls {
     flex-direction: column;
     align-items: stretch !important;
@@ -376,36 +366,18 @@ onBeforeUnmount(() => {
     border-top: 1px solid rgba(255,255,255,0.1);
     width: 100%;
   }
-
-  .search-bar-nav {
-    max-width: 100%;
-    margin: 0;
-  }
+  .search-bar-nav { max-width: 100%; margin: 0; }
 }
 
-/* ============================================
-   MÓVILES PEQUEÑOS
-   ============================================ */
 @media (max-width: 576px) {
-  .navbar-cacao .navbar-brand {
-    font-size: 1rem;
-  }
-  .navbar-cacao .nav-link {
-    font-size: 0.9rem;
-    padding: 12px 14px;
-  }
-  .navbar-cacao .dropdown-item {
-    font-size: 0.8rem !important;
-  }
+  .navbar-cacao .navbar-brand { font-size: 1rem; }
+  .navbar-cacao .nav-link { font-size: 0.9rem; padding: 12px 14px; }
+  .navbar-cacao .dropdown-item { font-size: 0.8rem !important; }
 }
 
-/* ============================================
-   MODO OSCURO
-   ============================================ */
-body.dark-mode .navbar-cacao .navbar-collapse {
-  background: #1a1a2e;
-}
-body.dark-mode .navbar-cacao .nav-item {
-  border-bottom-color: rgba(255,255,255,0.05);
-}
+body.dark-mode .navbar-cacao .navbar-collapse { background: #1a1a2e; }
+body.dark-mode .navbar-cacao .nav-item { border-bottom-color: rgba(255,255,255,0.05); }
+body.dark-mode .navbar-cacao .dropdown-menu { background: #1e2a4a; border-color: #2d3748; }
+body.dark-mode .navbar-cacao .dropdown-item { color: #e0e0e0 !important; }
+body.dark-mode .navbar-cacao .dropdown-item:hover { background: #2d3748; }
 </style>
