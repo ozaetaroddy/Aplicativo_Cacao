@@ -13,10 +13,35 @@ const validarCompra = [
   body('total').isNumeric().withMessage('Total debe ser número'),
 ];
 
-// OBTENER TODAS
+const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+
 router.get('/', async (req, res) => {
   try {
-    const compras = await req.db.collection('compras_v2').aggregate([
+    const { page, limit, skip } = parsePagination(req.query);
+    const paginar = wantsPagination(req.query);
+    const search = (req.query.search || '').trim();
+    const { desde, hasta, tipo_compra, estado_pago } = req.query;
+
+    const matchStage = {};
+    if (desde || hasta) {
+      matchStage.fecha_emision = {};
+      if (desde) {
+        const d = new Date(desde);
+        if (!isNaN(d)) matchStage.fecha_emision.$gte = d;
+      }
+      if (hasta) {
+        const h = new Date(hasta);
+        if (!isNaN(h)) {
+          h.setHours(23, 59, 59, 999);
+          matchStage.fecha_emision.$lte = h;
+        }
+      }
+    }
+    if (tipo_compra) matchStage.tipo_compra = tipo_compra;
+    if (estado_pago) matchStage.estado_pago = estado_pago;
+
+    const pipeline = [
+      { $match: matchStage },
       {
         $lookup: {
           from: 'proveedores',
@@ -25,11 +50,49 @@ router.get('/', async (req, res) => {
           as: 'proveedor'
         }
       },
-      { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } },
-      { $sort: { fecha_emision: -1 } }
-    ]).toArray();
-    res.json(compras);
+      { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
+    ];
+
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { numero_factura: regex },
+            { 'proveedor.nombre': regex },
+            { 'proveedor.ruc': regex }
+          ]
+        }
+      });
+    }
+
+    const sort = parseSort(req.query);
+
+    if (!paginar) {
+      pipeline.push({ $sort: sort });
+      const compras = await req.db.collection('compras_v2').aggregate(pipeline).toArray();
+      return res.json(compras);
+    }
+
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await req.db.collection('compras_v2').aggregate(countPipeline).toArray();
+    const total = countResult[0]?.total || 0;
+
+    pipeline.push({ $sort: sort });
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const compras = await req.db.collection('compras_v2').aggregate(pipeline).toArray();
+
+    res.json({
+      data: compras,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
+    console.error('Error listando compras:', err);
     res.status(500).json({ error: err.message });
   }
 });

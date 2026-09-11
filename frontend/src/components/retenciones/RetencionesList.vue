@@ -8,69 +8,68 @@
     </div>
 
     <div class="card card-cacao">
-      <div class="card-body table-responsive">
-        <table class="table table-cacao">
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Proveedor</th>
-              <th>Nº Factura</th>
-              <th>Valor Retenido</th>
-              <th>%</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in retenciones" :key="r._id">
-              <td>{{ new Date(r.fecha_emision).toLocaleDateString() }}</td>
-              <td>{{ r.proveedor?.nombre || 'N/A' }}</td>
-              <td>{{ r.numero_factura }}</td>
-              <td>${{ r.valor_retenido.toFixed(2) }}</td>
-              <td>{{ r.porcentaje }}%</td>
-              <td>
-                <button class="btn btn-sm btn-outline-danger" @click="eliminar(r._id)">
-                  <i class="fas fa-trash"></i>
-                </button>
-              </td>
-            </tr>
-            <tr v-if="retenciones.length === 0">
-              <td colspan="6" class="text-muted text-center">No hay retenciones registradas</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="card-body">
+        <DataTablePaged
+          ref="tablaRef"
+          endpoint="/retenciones"
+          :columns="columnas"
+          :actions="acciones"
+          :default-limit="20"
+          default-sort="fecha_emision"
+          default-sort-dir="desc"
+        >
+          <template #fecha_emision="{ row }">
+            {{ new Date(row.fecha_emision).toLocaleDateString('es-EC') }}
+          </template>
+          <template #proveedor="{ row }">
+            {{ row.proveedor?.nombre || 'N/A' }}
+          </template>
+          <template #valor_retenido="{ value }">
+            ${{ (value || 0).toFixed(2) }}
+          </template>
+          <template #porcentaje="{ value }">
+            {{ value || 0 }}%
+          </template>
+        </DataTablePaged>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useMongoDB } from '../../composables/useMongoDB'
+import DataTablePaged from '../shared/DataTablePaged.vue'
 import { useToast } from 'vue-toastification'
 
 const toast = useToast()
-const { find, deleteOne } = useMongoDB()
-const retenciones = ref([])
+const { deleteOne } = useMongoDB()
+const tablaRef = ref(null)
 
-const cargar = async () => {
-  try {
-    retenciones.value = await find('retenciones')
-  } catch (e) {
-    toast.error('Error al cargar retenciones: ' + e.message)
-  }
-}
+const columnas = [
+  { key: 'fecha_emision', label: 'Fecha', sortable: true, width: '110px' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'numero_factura', label: 'Nº Factura' },
+  { key: 'valor_retenido', label: 'Valor Retenido', sortable: true, width: '130px' },
+  { key: 'porcentaje', label: '%', width: '80px' }
+]
 
-const eliminar = async (id) => {
-  if (confirm('¿Eliminar esta retención?')) {
-    try {
-      await deleteOne('retenciones', id)
-      await cargar()
-      toast.success('Retención eliminada')
-    } catch (e) {
-      toast.error('Error al eliminar: ' + e.message)
+const acciones = [
+  {
+    key: 'delete',
+    icon: 'fas fa-trash',
+    class: 'btn-outline-danger',
+    title: 'Eliminar',
+    handler: async (row) => {
+      if (!confirm('¿Eliminar esta retención?')) return
+      try {
+        await deleteOne('retenciones', row._id)
+        tablaRef.value?.reload()
+        toast.success('Retención eliminada')
+      } catch (e) {
+        toast.error('Error al eliminar: ' + e.message)
+      }
     }
   }
-}
-
-onMounted(cargar)
+]
 </script>

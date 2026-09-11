@@ -13,105 +13,101 @@
     </div>
 
     <div class="card card-cacao">
-      <div class="card-body table-responsive">
-        <table class="table table-cacao" id="tablaClientes">
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>RUC/Cédula</th>
-              <th>Teléfono</th>
-              <th>Email</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in clientes" :key="c._id">
-              <td>{{ c.nombre }}</td>
-              <td>{{ c.ruc }}</td>
-              <td>{{ c.telefono }}</td>
-              <td>{{ c.email }}</td>
-              <td>
-                <router-link :to="`/clientes/editar/${c._id}`" class="btn btn-sm btn-outline-primary me-1">
-                  <i class="fas fa-edit"></i>
-                </router-link>
-                <button class="btn btn-sm btn-outline-danger" @click="eliminar(c._id)">
-                  <i class="fas fa-trash"></i>
-                </button>
-              </td>
-            </tr>
-            <tr v-if="clientes.length === 0">
-              <td colspan="5" class="text-muted text-center">No hay clientes registrados</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="card-body">
+        <DataTablePaged
+          ref="tablaRef"
+          endpoint="/clientes"
+          :columns="columnas"
+          :actions="acciones"
+          :default-limit="20"
+          default-sort="nombre"
+          default-sort-dir="asc"
+        />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
+import DataTablePaged from '../shared/DataTablePaged.vue'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import { useToast } from 'vue-toastification'
+import { api } from '../../services/api'
 
+const router = useRouter()
 const toast = useToast()
-const { find, deleteOne } = useMongoDB()
-const clientes = ref([])
+const { deleteOne } = useMongoDB()
+const tablaRef = ref(null)
 
-const cargar = async () => {
-  try {
-    clientes.value = await find('clientes')
-  } catch (e) {
-    console.error(e)
-    toast.error('Error al cargar clientes: ' + e.message)
-  }
-}
+const columnas = [
+  { key: 'nombre', label: 'Nombre', sortable: true },
+  { key: 'ruc', label: 'RUC/Cédula', sortable: true },
+  { key: 'telefono', label: 'Teléfono' },
+  { key: 'email', label: 'Email' }
+]
 
-const eliminar = async (id) => {
-  if (confirm('¿Eliminar este cliente?')) {
-    try {
-      await deleteOne('clientes', id)
-      await cargar()
-      toast.success('Cliente eliminado correctamente')
-    } catch (e) {
-      toast.error('Error al eliminar: ' + e.message)
+const acciones = [
+  {
+    key: 'edit',
+    icon: 'fas fa-edit',
+    class: 'btn-outline-primary',
+    title: 'Editar',
+    handler: (row) => router.push(`/clientes/editar/${row._id}`)
+  },
+  {
+    key: 'delete',
+    icon: 'fas fa-trash',
+    class: 'btn-outline-danger',
+    title: 'Eliminar',
+    handler: async (row) => {
+      if (!confirm('¿Eliminar este cliente?')) return
+      try {
+        await deleteOne('clientes', row._id)
+        tablaRef.value?.reload()
+        toast.success('Cliente eliminado correctamente')
+      } catch (e) {
+        toast.error('Error al eliminar: ' + e.message)
+      }
     }
   }
-}
+]
 
-const imprimirLista = () => {
-  if (clientes.value.length === 0) {
-    toast.warning('No hay clientes para imprimir')
-    return
+// Imprime TODOS los clientes (no solo la página actual)
+const imprimirLista = async () => {
+  try {
+    const datos = await api.request('/clientes', { method: 'GET' })
+    if (!Array.isArray(datos) || datos.length === 0) {
+      toast.warning('No hay clientes para imprimir')
+      return
+    }
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    pdf.setFontSize(16)
+    pdf.text('Lista de Clientes', 14, 20)
+    pdf.setFontSize(10)
+    pdf.text(`Generado: ${new Date().toLocaleString()}`, 14, 28)
+
+    pdf.autoTable({
+      startY: 35,
+      head: [['Nombre', 'RUC/Cédula', 'Teléfono', 'Email']],
+      body: datos.map(c => [
+        c.nombre || 'N/A',
+        c.ruc || 'N/A',
+        c.telefono || 'N/A',
+        c.email || 'N/A'
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [41, 128, 185] },
+      styles: { fontSize: 9 }
+    })
+
+    pdf.save('lista_clientes.pdf')
+    toast.success('PDF generado correctamente')
+  } catch (e) {
+    toast.error('Error al generar PDF: ' + e.message)
   }
-
-  const pdf = new jsPDF('p', 'mm', 'a4')
-  pdf.setFontSize(16)
-  pdf.text('Lista de Clientes', 14, 20)
-  pdf.setFontSize(10)
-  pdf.text(`Generado: ${new Date().toLocaleString()}`, 14, 28)
-
-  const tableData = clientes.value.map(c => [
-    c.nombre || 'N/A',
-    c.ruc || 'N/A',
-    c.telefono || 'N/A',
-    c.email || 'N/A'
-  ])
-
-  pdf.autoTable({
-    startY: 35,
-    head: [['Nombre', 'RUC/Cédula', 'Teléfono', 'Email']],
-    body: tableData,
-    theme: 'striped',
-    headStyles: { fillColor: [41, 128, 185] },
-    styles: { fontSize: 9 }
-  })
-
-  pdf.save('lista_clientes.pdf')
-  toast.success('PDF generado correctamente')
 }
-
-onMounted(cargar)
 </script>

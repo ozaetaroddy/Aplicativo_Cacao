@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { body, validationResult } = require('express-validator');
+const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 
 const validarVenta = [
   body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
@@ -14,7 +15,32 @@ const validarVenta = [
 
 router.get('/', async (req, res) => {
   try {
-    const ventas = await req.db.collection('ventas_v2').aggregate([
+    const { page, limit, skip } = parsePagination(req.query);
+    const paginar = wantsPagination(req.query);
+    const search = (req.query.search || '').trim();
+    const { desde, hasta, tipo_documento, estado_pago } = req.query;
+
+    // Filtros base
+    const matchStage = {};
+    if (desde || hasta) {
+      matchStage.fecha_emision = {};
+      if (desde) {
+        const d = new Date(desde);
+        if (!isNaN(d)) matchStage.fecha_emision.$gte = d;
+      }
+      if (hasta) {
+        const h = new Date(hasta);
+        if (!isNaN(h)) {
+          h.setHours(23, 59, 59, 999);
+          matchStage.fecha_emision.$lte = h;
+        }
+      }
+    }
+    if (tipo_documento) matchStage.tipo_documento = tipo_documento;
+    if (estado_pago) matchStage.estado_pago = estado_pago;
+
+    const pipeline = [
+      { $match: matchStage },
       {
         $lookup: {
           from: 'clientes',
@@ -23,11 +49,52 @@ router.get('/', async (req, res) => {
           as: 'cliente'
         }
       },
-      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
-      { $sort: { fecha_emision: -1 } }
-    ]).toArray();
-    res.json(ventas);
+      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
+    ];
+
+    // Búsqueda (después del lookup para permitir buscar por nombre de cliente)
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { numero_factura: regex },
+            { 'cliente.nombre': regex },
+            { 'cliente.ruc': regex }
+          ]
+        }
+      });
+    }
+
+    const sort = parseSort(req.query);
+
+    // Sin paginación explícita: devolver todo (retrocompatible)
+    if (!paginar) {
+      pipeline.push({ $sort: sort });
+      const ventas = await req.db.collection('ventas_v2').aggregate(pipeline).toArray();
+      return res.json(ventas);
+    }
+
+    // Con paginación: contar total y paginar
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await req.db.collection('ventas_v2').aggregate(countPipeline).toArray();
+    const total = countResult[0]?.total || 0;
+
+    pipeline.push({ $sort: sort });
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const ventas = await req.db.collection('ventas_v2').aggregate(pipeline).toArray();
+
+    res.json({
+      data: ventas,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
+    console.error('Error listando ventas:', err);
     res.status(500).json({ error: err.message });
   }
 });

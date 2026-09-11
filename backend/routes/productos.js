@@ -11,10 +11,50 @@ const validarProducto = [
   body('stock_minimo').optional().isNumeric().withMessage('Stock mínimo debe ser número'),
 ];
 
+const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+
 router.get('/', async (req, res) => {
   try {
-    const productos = await req.db.collection('productos').find({}).toArray();
-    res.json(productos);
+    const { page, limit, skip } = parsePagination(req.query);
+    const paginar = wantsPagination(req.query);
+    const search = (req.query.search || '').trim();
+    const { categoriaId } = req.query;
+
+    const matchStage = {};
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      matchStage.$or = [
+        { nombre: regex },
+        { codigo: regex },
+        { codigo_barras: regex }
+      ];
+    }
+    if (categoriaId && ObjectId.isValid(categoriaId)) {
+      matchStage.categoriaId = new ObjectId(categoriaId);
+    }
+
+    const sort = parseSort(req.query, { nombre: 1 });
+
+    if (!paginar) {
+      const productos = await req.db.collection('productos').find(matchStage).sort(sort).toArray();
+      return res.json(productos);
+    }
+
+    const total = await req.db.collection('productos').countDocuments(matchStage);
+    const data = await req.db.collection('productos')
+      .find(matchStage)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.json({
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

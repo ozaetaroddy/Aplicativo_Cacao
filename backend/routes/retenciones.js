@@ -2,9 +2,33 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 
+const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+
 router.get('/', async (req, res) => {
   try {
-    const retenciones = await req.db.collection('retenciones').aggregate([
+    const { page, limit, skip } = parsePagination(req.query);
+    const paginar = wantsPagination(req.query);
+    const search = (req.query.search || '').trim();
+    const { desde, hasta } = req.query;
+
+    const matchStage = {};
+    if (desde || hasta) {
+      matchStage.fecha_emision = {};
+      if (desde) {
+        const d = new Date(desde);
+        if (!isNaN(d)) matchStage.fecha_emision.$gte = d;
+      }
+      if (hasta) {
+        const h = new Date(hasta);
+        if (!isNaN(h)) {
+          h.setHours(23, 59, 59, 999);
+          matchStage.fecha_emision.$lte = h;
+        }
+      }
+    }
+
+    const pipeline = [
+      { $match: matchStage },
       {
         $lookup: {
           from: 'proveedores',
@@ -13,10 +37,47 @@ router.get('/', async (req, res) => {
           as: 'proveedor'
         }
       },
-      { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } },
-      { $sort: { fecha_emision: -1 } }
-    ]).toArray();
-    res.json(retenciones);
+      { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
+    ];
+
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { numero_factura: regex },
+            { 'proveedor.nombre': regex },
+            { 'proveedor.ruc': regex }
+          ]
+        }
+      });
+    }
+
+    const sort = parseSort(req.query);
+
+    if (!paginar) {
+      pipeline.push({ $sort: sort });
+      const retenciones = await req.db.collection('retenciones').aggregate(pipeline).toArray();
+      return res.json(retenciones);
+    }
+
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await req.db.collection('retenciones').aggregate(countPipeline).toArray();
+    const total = countResult[0]?.total || 0;
+
+    pipeline.push({ $sort: sort });
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const retenciones = await req.db.collection('retenciones').aggregate(pipeline).toArray();
+
+    res.json({
+      data: retenciones,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

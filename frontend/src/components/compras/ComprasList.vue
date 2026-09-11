@@ -14,55 +14,37 @@
 
     <!-- ===== TABLA DE COMPRAS ===== -->
     <div class="card card-cacao">
-      <div class="card-body table-responsive">
-        <table class="table table-cacao">
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Proveedor</th>
-              <th>Nº Factura</th>
-              <th>Tipo</th>
-              <th>Estado Pago</th>
-              <th>Subtotal</th>
-              <th>IVA</th>
-              <th>Total</th>
-              <th>Retención</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in compras" :key="c._id">
-              <td>{{ new Date(c.fecha_emision).toLocaleDateString() }}</td>
-              <td>{{ c.proveedor?.nombre || 'N/A' }}</td>
-              <td>{{ c.numero_factura }}</td>
-              <td>
-                <span class="badge" :class="c.tipo_compra === 'inventario' ? 'bg-success' : 'bg-warning'">
-                  {{ c.tipo_compra || 'inventario' }}
-                </span>
-              </td>
-              <td>
-                <span class="badge" :class="c.estado_pago === 'pagado' ? 'bg-success' : 'bg-danger'">
-                  {{ c.estado_pago || 'pendiente' }}
-                </span>
-              </td>
-              <td>${{ c.subtotal?.toFixed(2) }}</td>
-              <td>${{ c.iva?.toFixed(2) }}</td>
-              <td><strong>${{ c.total?.toFixed(2) }}</strong></td>
-              <td>${{ c.retencion_valor?.toFixed(2) || '0.00' }}</td>
-              <td>
-                <router-link :to="`/compras/editar/${c._id}`" class="btn btn-sm btn-outline-primary me-1">
-                  <i class="fas fa-edit"></i>
-                </router-link>
-                <button class="btn btn-sm btn-outline-danger" @click="eliminar(c._id)">
-                  <i class="fas fa-trash"></i>
-                </button>
-              </td>
-            </tr>
-            <tr v-if="compras.length === 0">
-              <td colspan="10" class="text-muted text-center">No hay compras registradas</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="card-body">
+        <DataTablePaged
+          ref="tablaRef"
+          endpoint="/compras"
+          :columns="columnas"
+          :actions="acciones"
+          :default-limit="20"
+          default-sort="fecha_emision"
+          default-sort-dir="desc"
+        >
+          <template #fecha_emision="{ row }">
+            {{ new Date(row.fecha_emision).toLocaleDateString('es-EC') }}
+          </template>
+          <template #proveedor="{ row }">
+            {{ row.proveedor?.nombre || 'N/A' }}
+          </template>
+          <template #tipo_compra="{ row }">
+            <span class="badge" :class="row.tipo_compra === 'inventario' ? 'bg-success' : 'bg-warning text-dark'">
+              {{ row.tipo_compra || 'inventario' }}
+            </span>
+          </template>
+          <template #estado_pago="{ row }">
+            <span class="badge" :class="row.estado_pago === 'pagado' ? 'bg-success' : 'bg-danger'">
+              {{ row.estado_pago || 'pendiente' }}
+            </span>
+          </template>
+          <template #subtotal="{ value }">${{ (value || 0).toFixed(2) }}</template>
+          <template #iva="{ value }">${{ (value || 0).toFixed(2) }}</template>
+          <template #total="{ value }"><strong>${{ (value || 0).toFixed(2) }}</strong></template>
+          <template #retencion_valor="{ value }">${{ (value || 0).toFixed(2) }}</template>
+        </DataTablePaged>
       </div>
     </div>
 
@@ -81,7 +63,6 @@
               Puede seleccionar individualmente si cada factura es de <strong>Inventario</strong> o <strong>Gasto</strong>.
             </div>
 
-            <!-- Selección de archivo -->
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label"><span class="text-danger">*</span> Archivo TXT</label>
@@ -101,7 +82,6 @@
               </div>
             </div>
 
-            <!-- Tabla con selección individual por línea -->
             <div v-if="lineas.length > 0" class="mt-3">
               <h6>Vista previa ({{ lineas.length }} líneas)</h6>
               <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
@@ -135,7 +115,6 @@
               </div>
             </div>
 
-            <!-- Resultados de la importación -->
             <div v-if="resultadoImportacion" class="mt-3">
               <div class="alert alert-success">
                 <i class="fas fa-check-circle me-2"></i>
@@ -167,41 +146,63 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
 import { Modal } from 'bootstrap'
-import { api } from '../../services/api' // <-- Importamos api
+import { api } from '../../services/api'
+import DataTablePaged from '../shared/DataTablePaged.vue'
 
+const router = useRouter()
 const toast = useToast()
-const { find, deleteOne } = useMongoDB()
-const compras = ref([])
+const { deleteOne } = useMongoDB()
+const tablaRef = ref(null)
 const modalInstance = ref(null)
 
 // Estado para importación
 const fileInput = ref(null)
-const lineas = ref([]) // Cada línea: { ruc, razonSocial, fecha, total, tipo }
+const lineas = ref([])
 const importando = ref(false)
 const resultadoImportacion = ref(null)
 
-const cargarCompras = async () => {
-  try {
-    compras.value = await find('compras')
-  } catch (e) {
-    toast.error('Error al cargar compras: ' + e.message)
-  }
-}
+const columnas = [
+  { key: 'fecha_emision', label: 'Fecha', sortable: true, width: '110px' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'numero_factura', label: 'Nº Factura', sortable: true },
+  { key: 'tipo_compra', label: 'Tipo', width: '110px' },
+  { key: 'estado_pago', label: 'Estado Pago', width: '110px' },
+  { key: 'subtotal', label: 'Subtotal', width: '100px' },
+  { key: 'iva', label: 'IVA', width: '80px' },
+  { key: 'total', label: 'Total', sortable: true, width: '110px' },
+  { key: 'retencion_valor', label: 'Retención', width: '100px' }
+]
 
-const eliminar = async (id) => {
-  if (!confirm('¿Eliminar esta compra?')) return
-  try {
-    await deleteOne('compras', id)
-    await cargarCompras()
-    toast.success('Compra eliminada')
-  } catch (e) {
-    toast.error('Error al eliminar: ' + e.message)
+const acciones = [
+  {
+    key: 'edit',
+    icon: 'fas fa-edit',
+    class: 'btn-outline-primary',
+    title: 'Editar',
+    handler: (row) => router.push(`/compras/editar/${row._id}`)
+  },
+  {
+    key: 'delete',
+    icon: 'fas fa-trash',
+    class: 'btn-outline-danger',
+    title: 'Eliminar',
+    handler: async (row) => {
+      if (!confirm('¿Eliminar esta compra?')) return
+      try {
+        await deleteOne('compras', row._id)
+        tablaRef.value?.reload()
+        toast.success('Compra eliminada')
+      } catch (e) {
+        toast.error('Error al eliminar: ' + e.message)
+      }
+    }
   }
-}
+]
 
 // ===== MODAL IMPORTAR =====
 const abrirModalImportar = () => {
@@ -216,7 +217,6 @@ const abrirModalImportar = () => {
   modalInstance.value.show()
 }
 
-// Procesar archivo TXT
 const procesarArchivo = (event) => {
   const file = event.target.files[0]
   if (!file) return
@@ -226,7 +226,6 @@ const procesarArchivo = (event) => {
     const contenido = e.target.result
     const lineasRaw = contenido.split('\n').filter(line => line.trim() !== '')
 
-    // Saltar encabezado (si existe)
     const dataLines = lineasRaw[0].toLowerCase().includes('ruc_emisor') ? lineasRaw.slice(1) : lineasRaw
 
     const parsed = dataLines.map(line => {
@@ -256,14 +255,12 @@ const procesarArchivo = (event) => {
   reader.readAsText(file)
 }
 
-// Seleccionar todos con un tipo específico
 const seleccionarTodos = (tipo) => {
   lineas.value.forEach(linea => {
     linea.tipo = tipo
   })
 }
 
-// Importar facturas usando api.request (con token)
 const importarFacturas = async () => {
   if (lineas.value.length === 0) {
     toast.warning('No hay líneas para importar')
@@ -288,14 +285,14 @@ const importarFacturas = async () => {
 
     const data = await api.request('/compras/importar-txt', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      loaderMessage: 'Importando facturas...'
     })
 
     resultadoImportacion.value = data
     toast.success(`Importación completada: ${data.importados} facturas`)
 
-    // Recargar lista de compras
-    await cargarCompras()
+    tablaRef.value?.reload()
 
     if (data.errores.length === 0) {
       setTimeout(() => {
@@ -309,10 +306,6 @@ const importarFacturas = async () => {
     importando.value = false
   }
 }
-
-onMounted(() => {
-  cargarCompras()
-})
 </script>
 
 <style scoped>

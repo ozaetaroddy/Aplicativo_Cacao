@@ -21,10 +21,47 @@ const validarProveedor = [
     .isEmail().withMessage('Email inválido').normalizeEmail()
 ];
 
+const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+
 router.get('/', async (req, res) => {
   try {
-    const proveedores = await req.db.collection('proveedores').find({}).toArray();
-    res.json(proveedores);
+    const { page, limit, skip } = parsePagination(req.query);
+    const paginar = wantsPagination(req.query);
+    const search = (req.query.search || '').trim();
+
+    const matchStage = {};
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      matchStage.$or = [
+        { nombre: regex },
+        { ruc: regex },
+        { telefono: regex },
+        { email: regex }
+      ];
+    }
+
+    const sort = parseSort(req.query, { nombre: 1 });
+
+    if (!paginar) {
+      const proveedores = await req.db.collection('proveedores').find(matchStage).sort(sort).toArray();
+      return res.json(proveedores);
+    }
+
+    const total = await req.db.collection('proveedores').countDocuments(matchStage);
+    const data = await req.db.collection('proveedores')
+      .find(matchStage)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.json({
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
