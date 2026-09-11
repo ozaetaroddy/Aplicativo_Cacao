@@ -1,314 +1,543 @@
 <template>
-  <div>
-    <h4 class="section-title">
-      <i class="fas fa-file-invoice"></i>
-      {{ tipoDocumento === 'factura' ? 'Nueva Factura' :
-         tipoDocumento === 'guia_remision' ? 'Guía de Remisión' :
-         tipoDocumento === 'exportacion' ? 'Factura de Exportación' :
-         tipoDocumento === 'reembolso' ? 'Factura de Reembolso' :
-         tipoDocumento === 'retencion' ? 'Comprobante de Retención' :
-         tipoDocumento === 'liquidacion' ? 'Liquidación de Compra' :
-         tipoDocumento === 'nota_credito' ? 'Nota de Crédito' :
-         tipoDocumento === 'proforma' ? 'Proforma' :
-         'Nuevo Documento' }}
-    </h4>
+  <div class="venta-form-wrapper">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+      <h4 class="section-title mb-0">
+        <i class="fas fa-file-invoice"></i>
+        {{ tituloDocumento }}
+      </h4>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" @click="mostrarAyuda = !mostrarAyuda">
+          <i class="fas fa-keyboard"></i> Atajos
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" @click="$router.push('/ventas')">
+          <i class="fas fa-arrow-left"></i> Volver
+        </button>
+      </div>
+    </div>
+
+    <!-- Ayuda de atajos -->
+    <div v-if="mostrarAyuda" class="alert alert-info mb-3">
+      <strong><i class="fas fa-keyboard me-2"></i>Atajos de teclado:</strong>
+      <ul class="mb-0 mt-1 small">
+        <li><kbd>F2</kbd> — Enfocar búsqueda de productos</li>
+        <li><kbd>F3</kbd> — Enfocar búsqueda de clientes</li>
+        <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> — Guardar factura</li>
+        <li><kbd>Esc</kbd> — Limpiar búsqueda / Cerrar dropdown</li>
+      </ul>
+    </div>
 
     <AlertaPeriodoCerrado :periodo-cerrado="periodoCerrado" />
 
-    <div class="card card-cacao">
-      <div class="card-body">
-        <form @submit.prevent="guardar" novalidate>
-          <div class="row g-3 mb-3">
-            <div class="col-md-4">
-              <label class="form-label"><span class="text-danger">*</span> Tipo de Documento</label>
-              <select class="form-select" v-model="venta.tipo_documento" @change="cambiarTipo">
-                <optgroup label="Documentos de Venta">
-                  <option value="factura">01 - Factura</option>
-                  <option value="nota_credito">04 - Nota de Crédito</option>
-                  <option value="guia_remision">06 - Guía de Remisión</option>
-                  <option value="retencion">07 - Comprobante de Retención</option>
-                  <option value="liquidacion">03 - Liquidación de Compra</option>
-                </optgroup>
-                <optgroup label="Documentos Especiales">
-                  <option value="exportacion">42 - Factura de Exportación</option>
-                  <option value="reembolso">41 - Factura de Reembolso</option>
-                  <option value="proforma">Proforma (no fiscal)</option>
-                </optgroup>
-              </select>
+    <form @submit.prevent="guardar" novalidate>
+      <div class="row g-3">
+        <!-- ==================== COLUMNA PRINCIPAL ==================== -->
+        <div class="col-lg-8">
+
+          <!-- SECCIÓN: DATOS DEL DOCUMENTO -->
+          <div class="card card-cacao mb-3">
+            <div class="card-header">
+              <i class="fas fa-file-alt me-2"></i> Datos del documento
             </div>
-            <div class="col-md-4">
-              <label class="form-label">Nº Documento</label>
-              <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Automático" />
-            </div>
-            <div class="col-md-4">
-              <label class="form-label"><span class="text-danger">*</span> Fecha Emisión</label>
-              <input type="date" class="form-control" v-model="venta.fecha_emision" required />
-            </div>
-          </div>
-
-          <div v-if="venta.tipo_documento === 'guia_remision'">
-            <div class="row g-3">
-              <div class="col-12"><h6>Datos Generales</h6></div>
-              <div class="col-md-4">
-                <label class="form-label"><span class="text-danger">*</span> Establecimiento</label>
-                <input type="text" class="form-control" v-model="venta.establecimiento" required />
-              </div>
-              <div class="col-md-4">
-                <label class="form-label"><span class="text-danger">*</span> Nombre Comercial</label>
-                <input type="text" class="form-control" v-model="venta.nombre_comercial" required />
-              </div>
-              <div class="col-md-4">
-                <label class="form-label"><span class="text-danger">*</span> Punto de Emisión</label>
-                <input type="text" class="form-control" v-model="venta.punto_emision" required />
-              </div>
-
-              <div class="col-12 mt-3"><h6>Destinatario / Cliente</h6></div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Identificación</label>
-                <input type="text" class="form-control" v-model="venta.destinatario_identificacion" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
-                <SelectSRI v-model="venta.destinatario_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
-                <input type="text" class="form-control" v-model="venta.destinatario_razon_social" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Dirección Destino</label>
-                <input type="text" class="form-control" v-model="venta.destinatario_direccion" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Ruta</label>
-                <input type="text" class="form-control" v-model="venta.ruta" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Motivo</label>
-                <input type="text" class="form-control" v-model="venta.motivo" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label">Documento Aduanero</label>
-                <input type="text" class="form-control" v-model="venta.documento_aduana" />
-              </div>
-
-              <div class="col-12 mt-3"><h6>Comprobante Sustento</h6></div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Tipo Emisión</label>
-                <select class="form-select" v-model="venta.comprobante_tipo_emision" required>
-                  <option value="">Seleccione</option>
-                  <option value="Física">Física</option>
-                  <option value="Electrónica">Electrónica</option>
-                </select>
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Tipo Comprobante</label>
-                <SelectSRI v-model="venta.comprobante_documento" :lista="catalogos.DOCUMENTO_SUSTENTO || []" placeholder="Seleccione tipo..." />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label">Buscar por:</label>
-                <input type="text" class="form-control" v-model="venta.comprobante_buscar" placeholder="Clave de acceso" />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Clave de Acceso</label>
-                <input type="text" class="form-control" v-model="venta.comprobante_clave_acceso" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Número Autorización</label>
-                <input type="text" class="form-control" v-model="venta.comprobante_numero_autorizacion" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Fecha Emisión Comprobante</label>
-                <input type="date" class="form-control" v-model="venta.comprobante_fecha_emision" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Número Comprobante</label>
-                <input type="text" class="form-control" v-model="venta.comprobante_numero" required />
-              </div>
-
-              <div class="col-12 mt-3"><h6>Transportista</h6></div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Identificación</label>
-                <input type="text" class="form-control" v-model="venta.transportista_identificacion" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
-                <SelectSRI v-model="venta.transportista_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
-                <input type="text" class="form-control" v-model="venta.transportista_razon_social" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Correo Electrónico</label>
-                <input type="email" class="form-control" v-model="venta.transportista_correo" required />
-              </div>
-
-              <div class="col-12 mt-3"><h6>Traslado</h6></div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Dirección Partida</label>
-                <input type="text" class="form-control" v-model="venta.direccion_partida" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Inicio Transporte</label>
-                <input type="datetime-local" class="form-control" v-model="venta.inicio_transporte" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Fin Transporte</label>
-                <input type="datetime-local" class="form-control" v-model="venta.fin_transporte" required />
-              </div>
-              <div class="col-md-3">
-                <label class="form-label"><span class="text-danger">*</span> Placa</label>
-                <input type="text" class="form-control" v-model="venta.placa_transporte" required />
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-5">
+                  <label class="form-label"><span class="text-danger">*</span> Tipo de documento</label>
+                  <select class="form-select" v-model="venta.tipo_documento" @change="cambiarTipo">
+                    <optgroup label="Documentos de Venta">
+                      <option value="factura">01 - Factura</option>
+                      <option value="nota_credito">04 - Nota de Crédito</option>
+                      <option value="guia_remision">06 - Guía de Remisión</option>
+                      <option value="retencion">07 - Comprobante de Retención</option>
+                      <option value="liquidacion">03 - Liquidación de Compra</option>
+                    </optgroup>
+                    <optgroup label="Documentos Especiales">
+                      <option value="exportacion">42 - Factura de Exportación</option>
+                      <option value="reembolso">41 - Factura de Reembolso</option>
+                      <option value="proforma">Proforma (no fiscal)</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Nº documento</label>
+                  <input type="text" class="form-control" v-model="venta.numero_factura" placeholder="Automático" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label"><span class="text-danger">*</span> Fecha emisión</label>
+                  <input type="date" class="form-control" v-model="venta.fecha_emision" required />
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="row g-3" v-if="venta.tipo_documento !== 'guia_remision'">
-            <div class="col-md-6">
-              <label class="form-label"><span class="text-danger">*</span> Cliente</label>
-              <select class="form-select" v-model="venta.clienteId" required>
-                <option value="">Seleccionar Cliente</option>
-                <option v-for="c in clientes" :key="c._id" :value="c._id">{{ c.nombre }}</option>
-              </select>
-              <div v-if="errores.cliente" class="text-danger small">{{ errores.cliente }}</div>
-            </div>
-            <div class="col-md-6 d-flex align-items-end">
-              <router-link to="/clientes/nuevo" class="btn btn-outline-primary w-100">
-                <i class="fas fa-plus"></i> Nuevo Cliente
+          <!-- SECCIÓN: CLIENTE -->
+          <div class="card card-cacao mb-3" v-if="venta.tipo_documento !== 'guia_remision'">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span><i class="fas fa-user me-2"></i> Cliente</span>
+              <router-link to="/clientes/nuevo" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-plus"></i> Nuevo
               </router-link>
             </div>
+            <div class="card-body">
+              <!-- Buscador de cliente -->
+              <div class="position-relative">
+                <label class="form-label"><span class="text-danger">*</span> Buscar cliente</label>
+                <div class="input-group">
+                  <span class="input-group-text"><i class="fas fa-search"></i></span>
+                  <input
+                    ref="inputCliente"
+                    type="text"
+                    class="form-control"
+                    placeholder="Escribe nombre, RUC o cédula..."
+                    v-model="busquedaCliente"
+                    @focus="mostrarListaClientes = true"
+                    @input="filtrarClientes"
+                    @blur="cerrarListaClientes"
+                  />
+                  <button
+                    v-if="venta.clienteId"
+                    class="btn btn-outline-secondary"
+                    type="button"
+                    @click="limpiarCliente"
+                    title="Cambiar cliente"
+                  >
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+
+                <!-- Dropdown de clientes -->
+                <div v-if="mostrarListaClientes && clientesFiltrados.length > 0" class="dropdown-custom">
+                  <div
+                    v-for="c in clientesFiltrados.slice(0, 8)"
+                    :key="c._id"
+                    class="dropdown-item-custom"
+                    @mousedown.prevent="seleccionarCliente(c)"
+                  >
+                    <div class="d-flex justify-content-between align-items-center">
+                      <div>
+                        <div class="fw-bold">{{ c.nombre }}</div>
+                        <div class="small text-muted">
+                          <i class="fas fa-id-card"></i> {{ c.ruc }}
+                          <span v-if="c.telefono" class="ms-2"><i class="fas fa-phone"></i> {{ c.telefono }}</span>
+                        </div>
+                      </div>
+                      <i class="fas fa-check-circle text-primary" v-if="venta.clienteId === c._id"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Preview del cliente seleccionado -->
+              <div v-if="clienteActual" class="cliente-preview mt-3">
+                <div class="d-flex align-items-start gap-3">
+                  <div class="cliente-avatar">{{ getInitials(clienteActual.nombre) }}</div>
+                  <div class="flex-grow-1">
+                    <div class="fw-bold">{{ clienteActual.nombre }}</div>
+                    <div class="row small text-muted mt-1">
+                      <div class="col-md-6"><strong>RUC/CI:</strong> {{ clienteActual.ruc }}</div>
+                      <div class="col-md-6" v-if="clienteActual.telefono"><strong>Tel:</strong> {{ clienteActual.telefono }}</div>
+                      <div class="col-md-6" v-if="clienteActual.email"><strong>Email:</strong> {{ clienteActual.email }}</div>
+                      <div class="col-md-6" v-if="clienteActual.direccion"><strong>Dir:</strong> {{ clienteActual.direccion }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <hr />
-          <h5>Detalle de Productos</h5>
-          <div class="alert alert-info">
-            <i class="fas fa-info-circle"></i> Seleccione el producto y complete cantidad y precio.
-          </div>
-
-          <div v-for="(item, index) in venta.detalles" :key="index" class="row g-2 align-items-end mb-2">
-            <div class="col-md-3">
-              <label class="form-label">Producto</label>
-              <select class="form-select" v-model="item.productoId" @change="cargarPrecioVenta(item)">
-                <option value="">Seleccionar</option>
-                <option v-for="prod in productos" :key="prod._id" :value="prod._id">{{ prod.nombre }}</option>
-              </select>
-              <div v-if="errores.detalles && errores.detalles[index] && errores.detalles[index].producto" class="text-danger small">{{ errores.detalles[index].producto }}</div>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Cantidad</label>
-              <input type="number" class="form-control" v-model.number="item.cantidad" min="0.01" step="0.01" />
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Precio Unit.</label>
-              <input type="number" class="form-control" v-model.number="item.precio_unitario" step="0.01" min="0" />
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="formatCurrency((item.cantidad || 0) * (item.precio_unitario || 0))" readonly />
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">¿Aplica IVA?</label>
-              <select class="form-select" v-model="item.aplica_iva">
-                <option :value="true">Sí</option>
-                <option :value="false">No</option>
-              </select>
-            </div>
-            <div class="col-md-1">
-              <button type="button" class="btn btn-danger btn-sm mt-2" @click="eliminarDetalle(index)">
-                <i class="fas fa-trash"></i>
+          <!-- SECCIÓN: PRODUCTOS -->
+          <div class="card card-cacao mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span><i class="fas fa-boxes me-2"></i> Productos <span class="badge bg-primary ms-1">{{ venta.detalles.length }}</span></span>
+              <button type="button" class="btn btn-sm btn-success" @click="focusBusquedaProducto">
+                <i class="fas fa-search"></i> Buscar (F2)
               </button>
             </div>
+            <div class="card-body">
+              <!-- Buscador de productos -->
+              <div class="position-relative mb-3">
+                <div class="input-group">
+                  <span class="input-group-text bg-primary text-white"><i class="fas fa-barcode"></i></span>
+                  <input
+                    ref="inputProducto"
+                    type="text"
+                    class="form-control"
+                    placeholder="Escribe el nombre o código del producto y presiona Enter..."
+                    v-model="busquedaProducto"
+                    @focus="mostrarListaProductos = true"
+                    @input="filtrarProductos"
+                    @keydown.enter.prevent="agregarPrimerProducto"
+                    @keydown.esc="limpiarBusquedaProducto"
+                    @blur="cerrarListaProductos"
+                  />
+                </div>
+
+                <!-- Dropdown de productos -->
+                <div v-if="mostrarListaProductos && productosFiltrados.length > 0" class="dropdown-custom">
+                  <div
+                    v-for="p in productosFiltrados.slice(0, 10)"
+                    :key="p._id"
+                    class="dropdown-item-custom"
+                    @mousedown.prevent="agregarProducto(p)"
+                  >
+                    <div class="d-flex justify-content-between align-items-center">
+                      <div>
+                        <div class="fw-bold">{{ p.nombre }}</div>
+                        <div class="small text-muted">
+                          <code>{{ p.codigo }}</code>
+                          <span class="ms-2">Stock: <strong :class="p.stock <= 0 ? 'text-danger' : 'text-success'">{{ p.stock || 0 }}</strong></span>
+                        </div>
+                      </div>
+                      <div class="text-end">
+                        <div class="fw-bold text-primary">${{ (p.precio_venta || 0).toFixed(2) }}</div>
+                        <small class="text-muted">precio venta</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-else-if="mostrarListaProductos && busquedaProducto.length > 0"
+                  class="dropdown-custom p-3 text-center text-muted"
+                >
+                  <i class="fas fa-search"></i> Sin resultados para "{{ busquedaProducto }}"
+                </div>
+              </div>
+
+              <!-- Tabla de productos agregados -->
+              <div v-if="venta.detalles.length === 0" class="text-center py-4 text-muted">
+                <i class="fas fa-box-open fa-3x mb-2 opacity-50"></i>
+                <p class="mb-0">No has agregado productos</p>
+                <small>Busca un producto arriba o presiona <kbd>F2</kbd></small>
+              </div>
+
+              <div v-else class="table-responsive">
+                <table class="table items-table">
+                  <thead>
+                    <tr>
+                      <th style="min-width:200px;">Producto</th>
+                      <th style="width:150px;">Cantidad</th>
+                      <th style="width:120px;">Precio</th>
+                      <th style="width:100px;">IVA</th>
+                      <th style="width:100px;" class="text-end">Subtotal</th>
+                      <th style="width:50px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, index) in venta.detalles" :key="index">
+                      <td>
+                        <div class="fw-bold">{{ item.nombre || 'Producto' }}</div>
+                        <small class="text-muted">{{ item.codigo || '' }}</small>
+                        <div v-if="item.stockDisponible !== undefined" class="small" :class="item.cantidad > item.stockDisponible ? 'text-danger' : 'text-muted'">
+                          Stock: {{ item.stockDisponible }}
+                        </div>
+                      </td>
+                      <td>
+                        <div class="input-group input-group-sm">
+                          <button type="button" class="btn btn-outline-secondary" @click="cambiarCantidad(index, -1)">
+                            <i class="fas fa-minus"></i>
+                          </button>
+                          <input
+                            type="number"
+                            class="form-control text-center"
+                            v-model.number="item.cantidad"
+                            min="0.01"
+                            step="0.01"
+                            @blur="validarCantidad(index)"
+                          />
+                          <button type="button" class="btn btn-outline-secondary" @click="cambiarCantidad(index, 1)">
+                            <i class="fas fa-plus"></i>
+                          </button>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="input-group input-group-sm">
+                          <span class="input-group-text">$</span>
+                          <input
+                            type="number"
+                            class="form-control"
+                            v-model.number="item.precio_unitario"
+                            min="0"
+                            step="0.01"
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <select class="form-select form-select-sm" v-model="item.aplica_iva">
+                          <option :value="true">15%</option>
+                          <option :value="false">0%</option>
+                        </select>
+                      </td>
+                      <td class="text-end fw-bold">
+                        ${{ ((item.cantidad || 0) * (item.precio_unitario || 0)).toFixed(2) }}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          class="btn btn-sm btn-outline-danger"
+                          @click="eliminarDetalle(index)"
+                          title="Quitar"
+                        >
+                          <i class="fas fa-times"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
-          <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-primary btn-sm" @click="agregarDetalle">
-              <i class="fas fa-plus"></i> Agregar producto
-            </button>
-            <router-link to="/productos/nuevo" class="btn btn-outline-success btn-sm">
-              <i class="fas fa-box"></i> Crear Producto
-            </router-link>
+          <!-- SECCIÓN: GUÍA DE REMISIÓN (colapsable) -->
+          <div v-if="venta.tipo_documento === 'guia_remision'" class="card card-cacao mb-3">
+            <div class="card-header" role="button" @click="seccionesExpandidas.guia = !seccionesExpandidas.guia">
+              <div class="d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-truck me-2"></i> Datos de la Guía de Remisión</span>
+                <i :class="seccionesExpandidas.guia ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
+              </div>
+            </div>
+            <div v-show="seccionesExpandidas.guia" class="card-body">
+              <div class="row g-3">
+                <div class="col-12"><h6 class="text-primary">Datos Generales</h6></div>
+                <div class="col-md-4">
+                  <label class="form-label"><span class="text-danger">*</span> Establecimiento</label>
+                  <input type="text" class="form-control" v-model="venta.establecimiento" required />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label"><span class="text-danger">*</span> Nombre Comercial</label>
+                  <input type="text" class="form-control" v-model="venta.nombre_comercial" required />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label"><span class="text-danger">*</span> Punto de Emisión</label>
+                  <input type="text" class="form-control" v-model="venta.punto_emision" required />
+                </div>
+
+                <div class="col-12 mt-3"><h6 class="text-primary">Destinatario</h6></div>
+                <div class="col-md-3">
+                  <label class="form-label"><span class="text-danger">*</span> Identificación</label>
+                  <input type="text" class="form-control" v-model="venta.destinatario_identificacion" required />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label"><span class="text-danger">*</span> Tipo Identificación</label>
+                  <SelectSRI v-model="venta.destinatario_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label"><span class="text-danger">*</span> Razón Social</label>
+                  <input type="text" class="form-control" v-model="venta.destinatario_razon_social" required />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label"><span class="text-danger">*</span> Dirección Destino</label>
+                  <input type="text" class="form-control" v-model="venta.destinatario_direccion" required />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Ruta</label>
+                  <input type="text" class="form-control" v-model="venta.ruta" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label"><span class="text-danger">*</span> Motivo</label>
+                  <input type="text" class="form-control" v-model="venta.motivo" required />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Documento Aduanero</label>
+                  <input type="text" class="form-control" v-model="venta.documento_aduana" />
+                </div>
+
+                <div class="col-12 mt-3"><h6 class="text-primary">Comprobante Sustento</h6></div>
+                <div class="col-md-3">
+                  <label class="form-label">Tipo Emisión</label>
+                  <select class="form-select" v-model="venta.comprobante_tipo_emision">
+                    <option value="">Seleccione</option>
+                    <option value="Física">Física</option>
+                    <option value="Electrónica">Electrónica</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Tipo Comprobante</label>
+                  <SelectSRI v-model="venta.comprobante_documento" :lista="catalogos.DOCUMENTO_SUSTENTO || []" placeholder="Seleccione..." />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Clave de Acceso</label>
+                  <input type="text" class="form-control" v-model="venta.comprobante_clave_acceso" />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Número Autorización</label>
+                  <input type="text" class="form-control" v-model="venta.comprobante_numero_autorizacion" />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Número Comprobante</label>
+                  <input type="text" class="form-control" v-model="venta.comprobante_numero" />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Fecha Emisión Comp.</label>
+                  <input type="date" class="form-control" v-model="venta.comprobante_fecha_emision" />
+                </div>
+
+                <div class="col-12 mt-3"><h6 class="text-primary">Transportista</h6></div>
+                <div class="col-md-3">
+                  <label class="form-label">Identificación</label>
+                  <input type="text" class="form-control" v-model="venta.transportista_identificacion" />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Tipo Identificación</label>
+                  <SelectSRI v-model="venta.transportista_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Razón Social</label>
+                  <input type="text" class="form-control" v-model="venta.transportista_razon_social" />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Correo</label>
+                  <input type="email" class="form-control" v-model="venta.transportista_correo" />
+                </div>
+
+                <div class="col-12 mt-3"><h6 class="text-primary">Traslado</h6></div>
+                <div class="col-md-4">
+                  <label class="form-label">Dirección Partida</label>
+                  <input type="text" class="form-control" v-model="venta.direccion_partida" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Inicio Transporte</label>
+                  <input type="datetime-local" class="form-control" v-model="venta.inicio_transporte" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Fin Transporte</label>
+                  <input type="datetime-local" class="form-control" v-model="venta.fin_transporte" />
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Placa</label>
+                  <input type="text" class="form-control" v-model="venta.placa_transporte" />
+                </div>
+              </div>
+            </div>
           </div>
 
-          <hr />
-          <div class="row g-3">
-            <div class="col-md-3 offset-md-6">
-              <label class="form-label">Subtotal</label>
-              <input type="text" class="form-control" :value="formatCurrency(subtotal)" readonly />
+          <!-- SECCIÓN: INFORMACIÓN DE PAGO (colapsable) -->
+          <div v-if="venta.tipo_documento !== 'guia_remision'" class="card card-cacao mb-3">
+            <div class="card-header" role="button" @click="seccionesExpandidas.pago = !seccionesExpandidas.pago">
+              <div class="d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-credit-card me-2"></i> Información de pago</span>
+                <i :class="seccionesExpandidas.pago ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
+              </div>
             </div>
-            <div class="col-md-3">
-              <label class="form-label">IVA (15%)</label>
-              <input type="text" class="form-control" :value="formatCurrency(iva)" readonly />
+            <div v-show="seccionesExpandidas.pago" class="card-body">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label">Forma de pago</label>
+                  <SelectSRI v-model="venta.forma_pago" :lista="catalogos.FORMA_PAGO || []" placeholder="Seleccione..." />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Estado de pago</label>
+                  <select class="form-select" v-model="venta.estado_pago">
+                    <option value="pendiente">Pendiente</option>
+                    <option value="pagado">Pagado</option>
+                    <option value="parcial">Pago Parcial</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Fecha de pago</label>
+                  <input type="date" class="form-control" v-model="venta.fecha_pago" />
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Observaciones</label>
+                  <textarea class="form-control" v-model="venta.observaciones" rows="2" placeholder="Notas adicionales..."></textarea>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="row g-3">
-            <div class="col-md-3 offset-md-6">
-              <label class="form-label">Total</label>
-              <input type="text" class="form-control" :value="formatCurrency(total)" readonly style="font-weight:700;" />
-            </div>
-          </div>
+        </div>
 
-          <hr />
-          <h5><i class="fas fa-credit-card me-2"></i>Información de Pago</h5>
-          <div class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label">Forma de Pago</label>
-              <SelectSRI v-model="venta.forma_pago" :lista="catalogos.FORMA_PAGO || []" placeholder="Seleccione forma de pago..." />
+        <!-- ==================== SIDEBAR RESUMEN ==================== -->
+        <div class="col-lg-4">
+          <div class="sidebar-sticky">
+            <!-- RESUMEN -->
+            <div class="card card-cacao resumen-card">
+              <div class="card-header">
+                <i class="fas fa-calculator me-2"></i> Resumen
+              </div>
+              <div class="card-body">
+                <div class="resumen-line">
+                  <span>Productos</span>
+                  <span class="fw-bold">{{ venta.detalles.length }}</span>
+                </div>
+                <div class="resumen-line">
+                  <span>Subtotal</span>
+                  <span>{{ formatCurrency(subtotal) }}</span>
+                </div>
+                <div class="resumen-line">
+                  <span>IVA 15%</span>
+                  <span>{{ formatCurrency(iva) }}</span>
+                </div>
+                <hr />
+                <div class="resumen-total">
+                  <div>TOTAL</div>
+                  <div class="monto-total">{{ formatCurrency(total) }}</div>
+                </div>
+              </div>
             </div>
-            <div class="col-md-4">
-              <label class="form-label">Estado de Pago</label>
-              <select class="form-select" v-model="venta.estado_pago">
-                <option value="pendiente">Pendiente</option>
-                <option value="pagado">Pagado</option>
-                <option value="parcial">Pago Parcial</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Fecha de Pago</label>
-              <input type="date" class="form-control" v-model="venta.fecha_pago" />
-            </div>
-          </div>
 
-          <div class="row g-3 mt-1">
-            <div class="col-md-12">
-              <label class="form-label">Observaciones</label>
-              <textarea class="form-control" v-model="venta.observaciones" rows="2" placeholder="Notas adicionales sobre el pago, referencias, etc."></textarea>
+            <!-- ACCIONES -->
+            <div class="card card-cacao mt-3">
+              <div class="card-body">
+                <button
+                  type="submit"
+                  class="btn btn-success w-100 mb-2"
+                  :disabled="cargando || !formularioValido || !!periodoCerrado"
+                >
+                  <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
+                  {{ cargando ? 'Guardando...' : 'Guardar' }}
+                  <small class="d-block opacity-75">(Ctrl + Enter)</small>
+                </button>
+                <button type="button" class="btn btn-outline-secondary w-100" @click="$router.push('/ventas')">
+                  Cancelar
+                </button>
+
+                <div v-if="errores.cliente || venta.detalles.length === 0" class="alert alert-warning mt-3 mb-0 small">
+                  <i class="fas fa-exclamation-triangle me-1"></i>
+                  <span v-if="!venta.clienteId">Selecciona un cliente</span>
+                  <span v-else-if="venta.detalles.length === 0">Agrega al menos un producto</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- INFO CLAVE DE ACCESO -->
+            <div v-if="puedeGenerarClave" class="card card-cacao mt-3">
+              <div class="card-body">
+                <div class="small text-muted">
+                  <i class="fas fa-key me-1"></i>
+                  Al guardar se generará automáticamente la <strong>clave de acceso de 49 dígitos</strong> para el SRI.
+                </div>
+              </div>
             </div>
           </div>
-
-          <div v-if="errorGeneral" class="alert alert-danger mt-3">
-            <i class="fas fa-exclamation-circle"></i> {{ errorGeneral }}
-          </div>
-
-          <div class="mt-4">
-            <button type="submit" class="btn btn-success me-2" :disabled="cargando || !formularioValido || !!periodoCerrado">
-              <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
-              {{ cargando ? 'Guardando...' : 'Guardar' }}
-            </button>
-            <router-link to="/ventas" class="btn btn-secondary">Cancelar</router-link>
-          </div>
-        </form>
+        </div>
       </div>
-    </div>
+
+      <!-- Errores generales -->
+      <div v-if="errorGeneral" class="alert alert-danger mt-3">
+        <i class="fas fa-exclamation-circle me-2"></i> {{ errorGeneral }}
+      </div>
+    </form>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { roundTo2, formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
 import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
+import { usePermisos } from '../../composables/usePermisos'
 import SelectSRI from '../shared/SelectSRI.vue'
 import AlertaPeriodoCerrado from '../shared/AlertaPeriodoCerrado.vue'
 import { api } from '../../services/api'
+import Fuse from 'fuse.js'
 
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const { find, findById, insertOne, updateOne } = useMongoDB()
 const { catalogos, cargarCatalogos } = useCatalogosSRI()
+const { puede } = usePermisos()
 
 const clientes = ref([])
 const productos = ref([])
@@ -318,6 +547,25 @@ const periodoCerrado = ref(null)
 
 const tipoInicial = route.query.tipo || 'factura'
 const id = route.params.id
+
+// ===== BÚSQUEDA =====
+const inputCliente = ref(null)
+const inputProducto = ref(null)
+const busquedaCliente = ref('')
+const busquedaProducto = ref('')
+const mostrarListaClientes = ref(false)
+const mostrarListaProductos = ref(false)
+let fuseClientes = null
+let fuseProductos = null
+
+// ===== ATAJOS =====
+const mostrarAyuda = ref(false)
+
+// ===== SECCIONES COLAPSABLES =====
+const seccionesExpandidas = ref({
+  guia: false,
+  pago: true
+})
 
 const venta = ref({
   clienteId: '',
@@ -363,10 +611,72 @@ const venta = ref({
   observaciones: ''
 })
 
-const errores = ref({
-  cliente: '',
-  detalles: []
+const errores = ref({ cliente: '', detalles: [] })
+
+// ===== COMPUTED =====
+const tituloDocumento = computed(() => {
+  const titulos = {
+    factura: 'Nueva Factura',
+    guia_remision: 'Guía de Remisión',
+    exportacion: 'Factura de Exportación',
+    reembolso: 'Factura de Reembolso',
+    retencion: 'Comprobante de Retención',
+    liquidacion: 'Liquidación de Compra',
+    nota_credito: 'Nota de Crédito',
+    proforma: 'Proforma'
+  }
+  return id ? `Editar ${titulos[venta.value.tipo_documento] || 'Documento'}` : (titulos[venta.value.tipo_documento] || 'Nuevo Documento')
 })
+
+const clienteActual = computed(() => {
+  if (!venta.value.clienteId) return null
+  return clientes.value.find(c => c._id === venta.value.clienteId)
+})
+
+const clientesFiltrados = computed(() => {
+  if (!busquedaCliente.value.trim()) return clientes.value.slice(0, 20)
+  if (!fuseClientes) return []
+  return fuseClientes.search(busquedaCliente.value.trim()).map(r => r.item)
+})
+
+const productosFiltrados = computed(() => {
+  if (!busquedaProducto.value.trim()) return productos.value.slice(0, 20)
+  if (!fuseProductos) return []
+  return fuseProductos.search(busquedaProducto.value.trim()).map(r => r.item)
+})
+
+const subtotal = computed(() => {
+  const total = venta.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.precio_unitario || 0)), 0)
+  return roundTo2(total)
+})
+
+const iva = computed(() => {
+  let baseImponible = 0
+  venta.value.detalles.forEach(d => {
+    if (d.aplica_iva !== false) {
+      baseImponible += (d.cantidad || 0) * (d.precio_unitario || 0)
+    }
+  })
+  return roundTo2(baseImponible * 0.15)
+})
+
+const total = computed(() => roundTo2(subtotal.value + iva.value))
+
+const formularioValido = computed(() => {
+  if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) return false
+  if (venta.value.detalles.length === 0) return false
+  return venta.value.detalles.every(d => d.productoId && d.cantidad > 0 && d.precio_unitario >= 0)
+})
+
+const puedeGenerarClave = computed(() => {
+  return ['factura', 'liquidacion', 'nota_credito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'].includes(venta.value.tipo_documento)
+})
+
+// ===== HELPERS =====
+const getInitials = (nombre) => {
+  if (!nombre) return '?'
+  return nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+}
 
 const generarCodigoLocal = (tipo) => {
   const prefijos = {
@@ -378,57 +688,84 @@ const generarCodigoLocal = (tipo) => {
   return `${prefijo}-${numero}`
 }
 
-const asignarCodigos = () => {
-  const tipo = venta.value.tipo_documento
-  venta.value.numero_factura = generarCodigoLocal(tipo)
-  if (tipo === 'exportacion') venta.value.numero_exportacion = generarCodigoLocal('exportacion')
-  else venta.value.numero_exportacion = ''
-  if (tipo === 'guia_remision') venta.value.numero_guia = generarCodigoLocal('guia_remision')
-  else venta.value.numero_guia = ''
-  if (tipo === 'retencion') venta.value.numero_retencion = generarCodigoLocal('retencion')
-  else venta.value.numero_retencion = ''
+// ===== BÚSQUEDA DE CLIENTES =====
+const filtrarClientes = () => { mostrarListaClientes.value = true }
+
+const cerrarListaClientes = () => {
+  setTimeout(() => { mostrarListaClientes.value = false }, 200)
 }
 
-const cambiarTipo = () => {
-  venta.value.numero_guia = ''
-  venta.value.transportista = ''
-  venta.value.placa = ''
-  venta.value.numero_exportacion = ''
-  venta.value.pais_destino = ''
-  venta.value.numero_retencion = ''
-  venta.value.porcentaje_retencion = 0
-  venta.value.establecimiento = ''
-  venta.value.nombre_comercial = ''
-  venta.value.punto_emision = ''
-  venta.value.transportista_identificacion = ''
-  venta.value.transportista_tipo = ''
-  venta.value.transportista_razon_social = ''
-  venta.value.transportista_correo = ''
-  venta.value.direccion_partida = ''
-  venta.value.inicio_transporte = ''
-  venta.value.fin_transporte = ''
-  venta.value.placa_transporte = ''
-  venta.value.destinatario_identificacion = ''
-  venta.value.destinatario_tipo = ''
-  venta.value.destinatario_razon_social = ''
-  venta.value.destinatario_direccion = ''
-  venta.value.ruta = ''
-  venta.value.motivo = ''
-  venta.value.documento_aduana = ''
-  venta.value.comprobante_tipo_emision = ''
-  venta.value.comprobante_documento = ''
-  venta.value.comprobante_buscar = ''
-  venta.value.comprobante_clave_acceso = ''
-  venta.value.comprobante_numero_autorizacion = ''
-  venta.value.comprobante_numero = ''
-  venta.value.comprobante_fecha_emision = ''
-  if (venta.value.detalles.length === 0) agregarDetalle()
-  asignarCodigos()
+const seleccionarCliente = (c) => {
+  venta.value.clienteId = c._id
+  busquedaCliente.value = ''
+  mostrarListaClientes.value = false
+  errores.value.cliente = ''
 }
 
-const agregarDetalle = () => {
-  venta.value.detalles.push({ productoId: '', cantidad: 1, precio_unitario: 0, aplica_iva: true })
-  errores.value.detalles.push({ producto: '', cantidad: '', precio: '' })
+const limpiarCliente = () => {
+  venta.value.clienteId = ''
+  busquedaCliente.value = ''
+  nextTick(() => inputCliente.value?.focus())
+}
+
+// ===== BÚSQUEDA DE PRODUCTOS =====
+const filtrarProductos = () => { mostrarListaProductos.value = true }
+
+const cerrarListaProductos = () => {
+  setTimeout(() => { mostrarListaProductos.value = false }, 200)
+}
+
+const limpiarBusquedaProducto = () => {
+  busquedaProducto.value = ''
+  mostrarListaProductos.value = false
+}
+
+const focusBusquedaProducto = () => {
+  inputProducto.value?.focus()
+}
+
+const agregarPrimerProducto = () => {
+  if (productosFiltrados.value.length > 0) {
+    agregarProducto(productosFiltrados.value[0])
+  }
+}
+
+const agregarProducto = (p) => {
+  // Verificar si ya existe
+  const existente = venta.value.detalles.find(d => d.productoId === p._id)
+  if (existente) {
+    existente.cantidad = (existente.cantidad || 1) + 1
+    toast.info(`${p.nombre} aumentado a ${existente.cantidad}`)
+  } else {
+    venta.value.detalles.push({
+      productoId: p._id,
+      codigo: p.codigo,
+      nombre: p.nombre,
+      cantidad: 1,
+      precio_unitario: roundTo2(p.precio_venta || 0),
+      aplica_iva: p.aplica_iva !== undefined ? p.aplica_iva : true,
+      stockDisponible: p.stock || 0
+    })
+    errores.value.detalles.push({ producto: '', cantidad: '', precio: '' })
+  }
+  busquedaProducto.value = ''
+  mostrarListaProductos.value = false
+  nextTick(() => inputProducto.value?.focus())
+}
+
+const cambiarCantidad = (index, delta) => {
+  const item = venta.value.detalles[index]
+  const nueva = (item.cantidad || 0) + delta
+  if (nueva < 0.01) return
+  item.cantidad = roundTo2(nueva)
+  validarCantidad(index)
+}
+
+const validarCantidad = (index) => {
+  const item = venta.value.detalles[index]
+  if (!item.cantidad || item.cantidad <= 0) {
+    item.cantidad = 1
+  }
 }
 
 const eliminarDetalle = (index) => {
@@ -436,50 +773,32 @@ const eliminarDetalle = (index) => {
   errores.value.detalles.splice(index, 1)
 }
 
-const cargarPrecioVenta = (item) => {
-  const prod = productos.value.find(p => p._id === item.productoId)
-  if (prod) {
-    item.precio_unitario = roundTo2(prod.precio_venta || 0)
-    item.aplica_iva = prod.aplica_iva !== undefined ? prod.aplica_iva : true
-  }
+// ===== TIPO =====
+const asignarCodigos = () => {
+  const tipo = venta.value.tipo_documento
+  venta.value.numero_factura = generarCodigoLocal(tipo)
+  if (tipo === 'exportacion') venta.value.numero_exportacion = generarCodigoLocal('exportacion')
+  if (tipo === 'guia_remision') venta.value.numero_guia = generarCodigoLocal('guia_remision')
+  if (tipo === 'retencion') venta.value.numero_retencion = generarCodigoLocal('retencion')
 }
 
-const subtotal = computed(() => {
-  const total = venta.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.precio_unitario || 0)), 0)
-  return roundTo2(total)
-})
-
-const iva = computed(() => {
-  let baseImponible = 0
-  venta.value.detalles.forEach(d => {
-    const aplicaIVA = d.aplica_iva !== undefined ? d.aplica_iva : true
-    if (aplicaIVA) baseImponible += (d.cantidad || 0) * (d.precio_unitario || 0)
+const cambiarTipo = () => {
+  Object.assign(venta.value, {
+    numero_guia: '', transportista: '', placa: '', numero_exportacion: '', pais_destino: '',
+    numero_retencion: '', porcentaje_retencion: 0, establecimiento: '', nombre_comercial: '',
+    punto_emision: '', transportista_identificacion: '', transportista_tipo: '',
+    transportista_razon_social: '', transportista_correo: '', direccion_partida: '',
+    inicio_transporte: '', fin_transporte: '', placa_transporte: '',
+    destinatario_identificacion: '', destinatario_tipo: '', destinatario_razon_social: '',
+    destinatario_direccion: '', ruta: '', motivo: '', documento_aduana: '',
+    comprobante_tipo_emision: '', comprobante_documento: '', comprobante_buscar: '',
+    comprobante_clave_acceso: '', comprobante_numero_autorizacion: '', comprobante_numero: '',
+    comprobante_fecha_emision: ''
   })
-  return roundTo2(baseImponible * 0.15)
-})
+  if (!id) asignarCodigos()
+}
 
-const total = computed(() => roundTo2(subtotal.value + iva.value))
-
-const formularioValido = computed(() => {
-  if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) {
-    errores.value.cliente = 'Seleccione un cliente'
-    return false
-  } else {
-    errores.value.cliente = ''
-  }
-  let valid = true
-  venta.value.detalles.forEach((d, idx) => {
-    const err = errores.value.detalles[idx] || { producto: '', cantidad: '', precio: '' }
-    if (!d.productoId) { err.producto = 'Seleccione un producto'; valid = false } else err.producto = ''
-    if (!d.cantidad || d.cantidad <= 0) { err.cantidad = 'Cantidad > 0'; valid = false } else err.cantidad = ''
-    if (d.precio_unitario === undefined || d.precio_unitario === null || d.precio_unitario < 0) {
-      err.precio = 'Precio >= 0'; valid = false
-    } else err.precio = ''
-    errores.value.detalles[idx] = err
-  })
-  return valid
-})
-
+// ===== PERIODO =====
 const verificarPeriodo = async () => {
   if (!venta.value.fecha_emision) {
     periodoCerrado.value = null
@@ -487,17 +806,30 @@ const verificarPeriodo = async () => {
   }
   try {
     const fecha = new Date(venta.value.fecha_emision)
-    const anio = fecha.getFullYear()
-    const mes = fecha.getMonth() + 1
-    const res = await api.request(`/periodos/verificar/${anio}/${mes}`, { method: 'GET' })
+    const res = await api.request(`/periodos/verificar/${fecha.getFullYear()}/${fecha.getMonth() + 1}`, {
+      method: 'GET'
+    })
     periodoCerrado.value = res.cerrado ? res.periodo : null
   } catch (e) {
     periodoCerrado.value = null
   }
 }
 
-watch(() => venta.value.fecha_emision, verificarPeriodo, { immediate: true })
+// ===== ATAJOS DE TECLADO =====
+const handleKeydown = (e) => {
+  if (e.key === 'F2') {
+    e.preventDefault()
+    inputProducto.value?.focus()
+  } else if (e.key === 'F3') {
+    e.preventDefault()
+    inputCliente.value?.focus()
+  } else if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault()
+    if (formularioValido.value && !cargando.value) guardar()
+  }
+}
 
+// ===== CARGAR DATOS =====
 onMounted(async () => {
   try {
     try { await cargarCatalogos() } catch (e) { console.error(e) }
@@ -506,38 +838,64 @@ onMounted(async () => {
     clientes.value = clis
     productos.value = prods
 
+    // Configurar Fuse para búsqueda inteligente
+    fuseClientes = new Fuse(clis, {
+      keys: ['nombre', 'ruc', 'telefono', 'email'],
+      threshold: 0.3
+    })
+    fuseProductos = new Fuse(prods, {
+      keys: ['nombre', 'codigo', 'codigo_barras'],
+      threshold: 0.3
+    })
+
     if (id) {
       const data = await findById('ventas', id)
       if (data) {
+        // Preservar nombre y código en cada detalle
+        if (data.detalles) {
+          data.detalles = data.detalles.map(d => {
+            const prod = prods.find(p => p._id === d.productoId)
+            return {
+              ...d,
+              codigo: prod?.codigo || d.codigo || '',
+              nombre: prod?.nombre || d.nombre || 'Producto',
+              stockDisponible: prod?.stock || 0
+            }
+          })
+        }
         venta.value = { ...venta.value, ...data }
-        if (!venta.value.forma_pago) venta.value.forma_pago = ''
-        if (!venta.value.estado_pago) venta.value.estado_pago = 'pendiente'
-        if (venta.value.detalles.length === 0) agregarDetalle()
-        if (!venta.value.numero_factura) asignarCodigos()
+        if (venta.value.detalles.length === 0) venta.value.detalles = []
       } else {
-        errorGeneral.value = 'No se encontró la venta'
-        toast.warning('No se encontró la venta')
+        errorGeneral.value = 'No se encontró el documento'
       }
     } else {
-      if (venta.value.detalles.length === 0) agregarDetalle()
-      if (!route.params.id) asignarCodigos()
+      asignarCodigos()
     }
+
+    document.addEventListener('keydown', handleKeydown)
   } catch (e) {
-    console.error('Error al cargar venta:', e)
-    errorGeneral.value = 'Error al cargar los datos: ' + e.message
-    toast.error('Error al cargar los datos: ' + e.message)
+    console.error(e)
+    toast.error('Error al cargar datos: ' + e.message)
   }
 })
 
+// Remover listener al desmontar
+import { onBeforeUnmount } from 'vue'
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
+
+watch(() => venta.value.fecha_emision, verificarPeriodo, { immediate: true })
+
+// ===== GUARDAR =====
 const guardar = async () => {
   if (periodoCerrado.value) {
     toast.error(`No se puede guardar: ${periodoCerrado.value.nombre} está cerrado`)
     return
   }
-
   if (!formularioValido.value) {
     errorGeneral.value = 'Corrija los errores antes de guardar'
-    toast.warning('Corrija los errores antes de guardar')
+    toast.warning('Verifica los datos')
     return
   }
 
@@ -559,47 +917,26 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
-      numero_guia: venta.value.numero_guia,
-      transportista: venta.value.transportista,
-      placa: venta.value.placa,
-      numero_exportacion: venta.value.numero_exportacion,
-      pais_destino: venta.value.pais_destino,
-      numero_retencion: venta.value.numero_retencion,
-      porcentaje_retencion: venta.value.porcentaje_retencion,
-      establecimiento: venta.value.establecimiento,
-      nombre_comercial: venta.value.nombre_comercial,
-      punto_emision: venta.value.punto_emision,
-      transportista_identificacion: venta.value.transportista_identificacion,
-      transportista_tipo: venta.value.transportista_tipo,
-      transportista_razon_social: venta.value.transportista_razon_social,
-      transportista_correo: venta.value.transportista_correo,
-      direccion_partida: venta.value.direccion_partida,
-      inicio_transporte: venta.value.inicio_transporte,
-      fin_transporte: venta.value.fin_transporte,
-      placa_transporte: venta.value.placa_transporte,
-      destinatario_identificacion: venta.value.destinatario_identificacion,
-      destinatario_tipo: venta.value.destinatario_tipo,
-      destinatario_razon_social: venta.value.destinatario_razon_social,
-      destinatario_direccion: venta.value.destinatario_direccion,
-      ruta: venta.value.ruta,
-      motivo: venta.value.motivo,
-      documento_aduana: venta.value.documento_aduana,
-      comprobante_tipo_emision: venta.value.comprobante_tipo_emision,
-      comprobante_documento: venta.value.comprobante_documento,
-      comprobante_buscar: venta.value.comprobante_buscar,
-      comprobante_clave_acceso: venta.value.comprobante_clave_acceso,
-      comprobante_numero_autorizacion: venta.value.comprobante_numero_autorizacion,
-      comprobante_numero: venta.value.comprobante_numero,
-      comprobante_fecha_emision: venta.value.comprobante_fecha_emision,
-      forma_pago: venta.value.forma_pago || '',
-      estado_pago: venta.value.estado_pago || 'pendiente',
-      fecha_pago: venta.value.fecha_pago || null,
-      observaciones: venta.value.observaciones || ''
+      ...Object.fromEntries(
+        [
+          'numero_guia', 'transportista', 'placa', 'numero_exportacion', 'pais_destino',
+          'numero_retencion', 'porcentaje_retencion', 'establecimiento', 'nombre_comercial',
+          'punto_emision', 'transportista_identificacion', 'transportista_tipo',
+          'transportista_razon_social', 'transportista_correo', 'direccion_partida',
+          'inicio_transporte', 'fin_transporte', 'placa_transporte',
+          'destinatario_identificacion', 'destinatario_tipo', 'destinatario_razon_social',
+          'destinatario_direccion', 'ruta', 'motivo', 'documento_aduana',
+          'comprobante_tipo_emision', 'comprobante_documento', 'comprobante_buscar',
+          'comprobante_clave_acceso', 'comprobante_numero_autorizacion', 'comprobante_numero',
+          'comprobante_fecha_emision', 'forma_pago', 'estado_pago', 'observaciones'
+        ].map(k => [k, venta.value[k] || ''])
+      ),
+      fecha_pago: venta.value.fecha_pago || null
     }
 
     if (id) {
       await updateOne('ventas', id, payload)
-      toast.success('Documento actualizado exitosamente')
+      toast.success('Documento actualizado')
     } else {
       await insertOne('ventas', payload)
       toast.success('Documento creado exitosamente')
@@ -607,9 +944,166 @@ const guardar = async () => {
     router.push('/ventas')
   } catch (e) {
     errorGeneral.value = 'Error al guardar: ' + e.message
-    toast.error('Error al guardar: ' + e.message)
+    toast.error('Error: ' + e.message)
   } finally {
     cargando.value = false
   }
 }
 </script>
+
+<style scoped>
+.venta-form-wrapper {
+  padding-bottom: 40px;
+}
+
+/* ===== SECCIONES COLAPSABLES ===== */
+.card-header[role="button"] {
+  cursor: pointer;
+  user-select: none;
+}
+.card-header[role="button"]:hover {
+  background: var(--bg-table-stripe);
+}
+
+/* ===== DROPDOWN CUSTOM ===== */
+.dropdown-custom {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--shadow-hover);
+  max-height: 350px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.dropdown-item-custom {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.dropdown-item-custom:last-child {
+  border-bottom: none;
+}
+.dropdown-item-custom:hover {
+  background: var(--bg-table-stripe);
+}
+
+/* ===== CLIENTE PREVIEW ===== */
+.cliente-preview {
+  padding: 14px;
+  background: var(--bg-table-stripe);
+  border-radius: 10px;
+  border-left: 3px solid var(--primary-color);
+}
+.cliente-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  color: #fff;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ===== TABLA DE ITEMS ===== */
+.items-table {
+  margin-bottom: 0;
+}
+.items-table thead {
+  background: var(--bg-table-stripe);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+}
+.items-table th {
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--border-color);
+  font-weight: 700;
+}
+.items-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+.items-table tbody tr:hover {
+  background: rgba(52,152,219,0.03);
+}
+
+/* ===== SIDEBAR STICKY ===== */
+.sidebar-sticky {
+  position: sticky;
+  top: 80px;
+}
+
+.resumen-card .card-body {
+  padding: 20px;
+}
+.resumen-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+.resumen-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  border-top: 2px solid var(--primary-color);
+  margin-top: 8px;
+}
+.monto-total {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--primary-color);
+}
+
+/* ===== INPUT GROUP MINI ===== */
+.input-group-sm .form-control {
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+/* ===== BADGES ===== */
+kbd {
+  background: #2c3e50;
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 992px) {
+  .sidebar-sticky {
+    position: static;
+  }
+  .monto-total {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .items-table {
+    font-size: 0.85rem;
+  }
+  .items-table th,
+  .items-table td {
+    padding: 6px 4px;
+  }
+}
+</style>
