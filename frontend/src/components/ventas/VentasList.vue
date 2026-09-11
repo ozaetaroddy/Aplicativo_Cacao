@@ -41,32 +41,75 @@
               {{ row.estado_pago || 'pendiente' }}
             </span>
           </template>
+          <template #estado_sri="{ row }">
+            <span
+              class="badge"
+              :class="{
+                'bg-success': row.estado_sri === 'AUTORIZADO',
+                'bg-info': row.estado_sri === 'PENDIENTE' || row.estado_sri === 'RECIBIDA',
+                'bg-danger': row.estado_sri === 'RECHAZADA' || row.estado_sri === 'DEVUELTA',
+                'bg-secondary': !row.estado_sri || row.estado_sri === 'NO_APLICA'
+              }"
+            >
+              {{ row.estado_sri || 'N/A' }}
+            </span>
+          </template>
+          <template #clave_acceso="{ row }">
+            <span v-if="row.clave_acceso" class="clave-corta" :title="row.clave_acceso">
+              {{ row.clave_acceso.substring(0, 12) }}...
+            </span>
+            <span v-else class="text-muted">—</span>
+          </template>
         </DataTablePaged>
       </div>
     </div>
+
+    <!-- Modal XML -->
+    <XmlPreviewModal ref="xmlModalRef" :venta="ventaParaXml" />
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Modal } from 'bootstrap'
 import DataTablePaged from '../shared/DataTablePaged.vue'
+import XmlPreviewModal from './XmlPreviewModal.vue'
+import { api } from '../../services/api'
+import { useToast } from 'vue-toastification'
 
 const router = useRouter()
+const toast = useToast()
 const tablaRef = ref(null)
+const xmlModalRef = ref(null)
+const ventaParaXml = ref(null)
 
 const columnas = [
-  { key: 'fecha_emision', label: 'Fecha', sortable: true, width: '110px' },
+  { key: 'fecha_emision', label: 'Fecha', sortable: true, width: '100px' },
+  { key: 'numero_factura', label: 'Nº Factura', sortable: true, width: '120px' },
   { key: 'cliente', label: 'Cliente' },
-  { key: 'numero_factura', label: 'Nº Factura', sortable: true },
-  { key: 'tipo_documento', label: 'Tipo', width: '100px' },
-  { key: 'subtotal', label: 'Subtotal', width: '110px' },
-  { key: 'iva', label: 'IVA', width: '90px' },
-  { key: 'total', label: 'Total', sortable: true, width: '120px' },
-  { key: 'estado_pago', label: 'Estado', width: '100px' }
+  { key: 'tipo_documento', label: 'Tipo', width: '90px' },
+  { key: 'total', label: 'Total', sortable: true, width: '100px' },
+  { key: 'estado_pago', label: 'Pago', width: '90px' },
+  { key: 'estado_sri', label: 'SRI', width: '110px' },
+  { key: 'clave_acceso', label: 'Clave Acceso', width: '150px' }
 ]
 
 const acciones = [
+  {
+    key: 'xml',
+    icon: 'fas fa-file-code',
+    class: 'btn-outline-success',
+    title: 'Ver/Descargar XML',
+    handler: async (row) => {
+      ventaParaXml.value = row
+      const modalEl = document.getElementById('modalXmlPreview')
+      let modal = Modal.getInstance(modalEl)
+      if (!modal) modal = new Modal(modalEl)
+      modal.show()
+      await xmlModalRef.value?.cargar(row)
+    }
+  },
   {
     key: 'ver',
     icon: 'fas fa-eye',
@@ -79,7 +122,22 @@ const acciones = [
     icon: 'fas fa-edit',
     class: 'btn-outline-secondary',
     title: 'Editar',
-    handler: (row) => router.push(`/ventas/editar/${row._id}`)
+    handler: (row) => {
+      if (row.estado_sri === 'AUTORIZADO') {
+        toast.warning('Esta factura ya fue autorizada por el SRI. No se puede editar.')
+        return
+      }
+      router.push(`/ventas/editar/${row._id}`)
+    }
   }
 ]
 </script>
+
+<style scoped>
+.clave-corta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--primary-color);
+  cursor: help;
+}
+</style>
