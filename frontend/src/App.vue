@@ -23,8 +23,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, inject } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref, inject, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
@@ -32,10 +32,13 @@ import NotificationStock from './components/NotificationStock.vue'
 import LoaderOverlay from './components/LoaderOverlay.vue'
 import { useInactivityTimeout } from './composables/useInactivityTimeout'
 import { usePermisos } from './composables/usePermisos'
+import { useAuth } from './composables/useAuth'
 
 const route = useRoute()
+const router = useRouter()
 const toast = useToast()
-const { cargarPermisos } = usePermisos()
+const { cargarPermisos, limpiarCache } = usePermisos()
+const { user: authUser, isAuthenticated: authIsAuthenticated } = useAuth()
 
 const isLoginPage = computed(() => route.path === '/login')
 const isAuthenticated = computed(() => !!localStorage.getItem('token'))
@@ -45,14 +48,42 @@ const socket = inject('socket')
 
 useInactivityTimeout(30)
 
+// ===== DETECTAR CAMBIO DE USUARIO =====
+// Escucha cambios en la ruta: cada vez que entramos o salimos del login,
+// refrescamos el usuario y los permisos
+watch(
+  () => route.path,
+  async (newPath, oldPath) => {
+    if (newPath === '/login') {
+      // Entrando al login: limpiar todo
+      limpiarCache()
+      user.value = null
+      return
+    }
+
+    // Al cambiar de ruta y estando autenticado, verificar que los permisos
+    // correspondan al usuario actual. Si cambió, recargar.
+    if (localStorage.getItem('token')) {
+      user.value = JSON.parse(localStorage.getItem('user') || 'null')
+      try {
+        await cargarPermisos()
+      } catch (e) {
+        console.warn('No se pudieron cargar permisos:', e)
+      }
+    }
+  }
+)
+
 onMounted(async () => {
-  // Cargar permisos del usuario al iniciar la app
+  // Si hay sesión, cargar permisos al iniciar
   if (isAuthenticated.value) {
     try {
       await cargarPermisos()
     } catch (e) {
       console.warn('No se pudieron cargar permisos:', e)
     }
+  } else {
+    limpiarCache()
   }
 
   if (socket) {
