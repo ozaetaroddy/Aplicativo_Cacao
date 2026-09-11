@@ -8,7 +8,6 @@ const { verificarPeriodoAbierto } = require('../utils/periodos');
 const { generarClaveAcceso, formatearSerie, descomponerClave, validarClave } = require('../utils/claveAcceso');
 const { generarXMLComprobante } = require('../utils/xmlComprobante');
 const { cargarCertificado, firmarXML, validarFirma } = require('../utils/firmaElectronica');
-const { generarQRComprobante } = require('../utils/qrGenerator');
 
 const validarVenta = [
   body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
@@ -26,7 +25,13 @@ const TIPO_COMPROBANTE_SRI = {
 
 const DOCS_CON_CLAVE = ['factura', 'liquidacion', 'nota_credito', 'nota_debito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'];
 
-// ===== Helper: asegurar clave y XML =====
+// ============================================================
+// HELPERS
+// ============================================================
+
+/**
+ * Asegura que una venta tenga clave de acceso y XML (los genera al vuelo si faltan).
+ */
 async function asegurarClaveYXml(db, venta) {
   const tipoDoc = venta.tipo_documento || 'factura';
   if (!DOCS_CON_CLAVE.includes(tipoDoc)) {
@@ -35,7 +40,7 @@ async function asegurarClaveYXml(db, venta) {
 
   const config = await db.collection('configuracion').findOne({ _id: 'empresa' });
   if (!config || !config.ruc || config.ruc.length !== 13) {
-    return { claveAcceso: null, xml: null, motivo: 'Debe configurar el RUC en Administración → Configuración Empresa' };
+    return { claveAcceso: null, xml: null, motivo: 'Debe configurar el RUC (13 dígitos) en Administración → Configuración Empresa' };
   }
 
   let claveAcceso = venta.clave_acceso;
@@ -109,6 +114,19 @@ async function asegurarClaveYXml(db, venta) {
   return { claveAcceso, xml, motivo: null };
 }
 
+/**
+ * Firma un XML usando el certificado guardado en BD.
+ */
+async function firmarXMLConCertificado(db, xmlSinFirma) {
+  const cert = await db.collection('certificados').findOne({ _id: 'empresa' });
+  if (!cert) {
+    throw new Error('No hay certificado de firma electrónica cargado');
+  }
+  const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
+  const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
+  return firmarXML(xmlSinFirma, privateKeyPem, certificatePem);
+}
+
 // ============================================================
 // LISTAR
 // ============================================================
@@ -141,9 +159,11 @@ router.get('/', async (req, res) => {
       pipeline.push({
         $match: {
           $or: [
-            { numero_factura: regex }, { clave_acceso: regex },
+            { numero_factura: regex },
+            { clave_acceso: regex },
             { numero_autorizacion: regex },
-            { 'cliente.nombre': regex }, { 'cliente.ruc': regex }
+            { 'cliente.nombre': regex },
+            { 'cliente.ruc': regex }
           ]
         }
       });
@@ -169,6 +189,7 @@ router.get('/', async (req, res) => {
 
     res.json({ data: ventas, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
+    console.error('Error listando ventas:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -183,6 +204,136 @@ router.post('/validar-clave', async (req, res) => {
     const partes = descomponerClave(clave);
     res.json({ valida, partes });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// MIGRACIÓN MASIVA: GENERAR CLAVES A TODAS LAS FACTURAS SIN CLAVE
+// (debe ir ANTES de /:id para que no lo capture como parámetro)
+// ============================================================
+router.post('/migrar-claves', async (req, res) => {
+  try {
+    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+    if (!config || !config.ruc || config.ruc.length !== 13) {
+      return res.status(400).json({
+        error: 'La empresa no tiene un RUC válido configurado',
+        codigo: 'RUC_INVALIDO'
+      });
+    }
+
+    const facturasSinClave = await req.db.collection('ventas_v2').find({
+      tipo_documento: { $in: DOCS_CON_CLAVE },
+      estado_sri: { $ne: 'AUTORIZADO' },
+      $or: [
+        { clave_acceso: '' },
+        { clave_acceso: { $exists: false } },
+        { clave_acceso: null }
+      ]
+    }).toArray();
+
+    const resultados = [];
+    let exitosas = 0;
+    let errores = 0;
+
+    // Cargar certificado una sola vez
+    const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
+    let privateKeyPem = null;
+    let certificatePem = null;
+
+    if (cert) {
+      try {
+        const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
+        const loaded = cargarCertificado(p12Buffer, cert.password);
+        privateKeyPem = loaded.privateKeyPem;
+        certificatePem = loaded.certificatePem;
+      } catch (e) {
+        console.warn('Error cargando certificado:', e.message);
+      }
+    }
+
+    for (const venta of facturasSinClave) {
+      try {
+        const tipoDoc = venta.tipo_documento || 'factura';
+        const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
+        const est = venta.establecimiento || config.establecimiento || '001';
+        const pe = venta.punto_emision || config.punto_emision || '001';
+        const serie = formatearSerie(est, pe);
+
+        let sec = 1;
+        if (venta.numero_factura) {
+          const match = String(venta.numero_factura).match(/(\d+)/g);
+          if (match) sec = parseInt(match[match.length - 1], 10) || 1;
+        }
+
+        const claveAcceso = generarClaveAcceso({
+          fechaEmision: new Date(venta.fecha_emision),
+          tipoComprobante: codigoSRI,
+          ruc: config.ruc,
+          ambiente: config.ambiente || '1',
+          serie,
+          secuencial: sec,
+          tipoEmision: config.tipo_emision || '1'
+        });
+
+        const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
+        const ventaParaXml = {
+          ...venta,
+          clave_acceso: claveAcceso,
+          serie,
+          secuencial_sri: String(sec).padStart(9, '0'),
+          ruc_emisor: config.ruc,
+          razon_social_emisor: config.razon_social || ''
+        };
+        const xml = generarXMLComprobante(ventaParaXml, cliente, config);
+
+        let xmlFirmado = '';
+        let estadoSri = 'PENDIENTE';
+        if (privateKeyPem && certificatePem) {
+          try {
+            xmlFirmado = firmarXML(xml, privateKeyPem, certificatePem);
+            estadoSri = 'FIRMADO';
+          } catch (e) {
+            console.warn('Error firmando:', e.message);
+          }
+        }
+
+        await req.db.collection('ventas_v2').updateOne(
+          { _id: venta._id },
+          {
+            $set: {
+              clave_acceso: claveAcceso,
+              serie,
+              secuencial_sri: String(sec).padStart(9, '0'),
+              ruc_emisor: config.ruc,
+              razon_social_emisor: config.razon_social || '',
+              ambiente_sri: config.ambiente || '1',
+              xml_generado: xml,
+              xml_firmado: xmlFirmado,
+              estado_sri: estadoSri,
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        resultados.push({ id: venta._id, numero: venta.numero_factura, clave: claveAcceso, exito: true });
+        exitosas++;
+      } catch (e) {
+        resultados.push({ id: venta._id, numero: venta.numero_factura, error: e.message, exito: false });
+        errores++;
+      }
+    }
+
+    await logAudit(req.db, req, {
+      accion: 'migrar-claves',
+      coleccion: 'ventas',
+      documentoNumero: 'migracion',
+      detalle: `Migración de claves: ${exitosas} exitosas, ${errores} errores`
+    });
+
+    res.json({ total: facturasSinClave.length, exitosas, errores, resultados });
+  } catch (err) {
+    console.error('Error migrando:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -212,7 +363,7 @@ router.get('/:id/xml', async (req, res) => {
 });
 
 // ============================================================
-// XML PREVIEW (con QR embebido)
+// VER XML (preview)
 // ============================================================
 router.get('/:id/xml-preview', async (req, res) => {
   try {
@@ -262,7 +413,7 @@ router.get('/:id/xml-firmado', async (req, res) => {
 });
 
 // ============================================================
-// OBTENER QR DEL COMPROBANTE
+// OBTENER QR
 // ============================================================
 router.get('/:id/qr', async (req, res) => {
   try {
@@ -276,6 +427,7 @@ router.get('/:id/qr', async (req, res) => {
     if (!claveAcceso) return res.status(400).json({ error: 'No se pudo generar la clave' });
 
     const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+    const { generarQRComprobante } = require('../utils/qrGenerator');
     const qr = await generarQRComprobante({
       ruc: config?.ruc || venta.ruc_emisor || '',
       tipoComprobante: '01',
@@ -331,14 +483,12 @@ router.post('/:id/firmar', async (req, res) => {
       return res.status(400).json({ error: motivo || 'No se puede firmar' });
     }
 
-    const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
-    if (!cert) {
-      return res.status(400).json({ error: 'No hay certificado de firma cargado. Ve a Administración → Certificado Firma' });
+    let xmlFirmado;
+    try {
+      xmlFirmado = await firmarXMLConCertificado(req.db, xml);
+    } catch (e) {
+      return res.status(400).json({ error: 'Error al firmar: ' + e.message });
     }
-
-    const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
-    const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
-    const xmlFirmado = firmarXML(xml, privateKeyPem, certificatePem);
 
     const validacion = validarFirma(xmlFirmado);
     if (!validacion.valido) {
@@ -377,7 +527,127 @@ router.post('/:id/firmar', async (req, res) => {
 });
 
 // ============================================================
-// CREAR (con firma automática)
+// GENERAR CLAVE PARA UNA VENTA EXISTENTE
+// ============================================================
+router.post('/:id/generar-clave', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    if (venta.estado_sri === 'AUTORIZADO') {
+      return res.status(400).json({ error: 'Este documento ya fue autorizado. No se puede regenerar la clave.' });
+    }
+
+    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+    if (!config || !config.ruc || config.ruc.length !== 13) {
+      return res.status(400).json({
+        error: 'La empresa no tiene un RUC válido (13 dígitos) configurado',
+        codigo: 'RUC_INVALIDO'
+      });
+    }
+
+    const tipoDoc = venta.tipo_documento || 'factura';
+    if (!DOCS_CON_CLAVE.includes(tipoDoc)) {
+      return res.status(400).json({ error: `El tipo "${tipoDoc}" no requiere clave de acceso`, codigo: 'NO_REQUIERE' });
+    }
+
+    const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
+    const est = venta.establecimiento || config.establecimiento || '001';
+    const pe = venta.punto_emision || config.punto_emision || '001';
+    const serie = formatearSerie(est, pe);
+
+    let sec = 1;
+    if (venta.numero_factura) {
+      const match = String(venta.numero_factura).match(/(\d+)/g);
+      if (match) sec = parseInt(match[match.length - 1], 10) || 1;
+    }
+
+    const claveAcceso = generarClaveAcceso({
+      fechaEmision: new Date(venta.fecha_emision),
+      tipoComprobante: codigoSRI,
+      ruc: config.ruc,
+      ambiente: config.ambiente || '1',
+      serie,
+      secuencial: sec,
+      tipoEmision: config.tipo_emision || '1'
+    });
+
+    const secuencialFormateado = String(sec).padStart(9, '0');
+    const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
+    const ventaParaXml = {
+      ...venta,
+      clave_acceso: claveAcceso,
+      serie,
+      secuencial_sri: secuencialFormateado,
+      ruc_emisor: config.ruc,
+      razon_social_emisor: config.razon_social || ''
+    };
+    const xml = generarXMLComprobante(ventaParaXml, cliente, config);
+
+    let xmlFirmado = '';
+    let estadoSri = 'PENDIENTE';
+    let fechaFirma = null;
+
+    const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
+    if (cert) {
+      try {
+        const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
+        const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
+        xmlFirmado = firmarXML(xml, privateKeyPem, certificatePem);
+        estadoSri = 'FIRMADO';
+        fechaFirma = new Date();
+      } catch (e) {
+        console.warn('Error firmando:', e.message);
+      }
+    }
+
+    await req.db.collection('ventas_v2').updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          clave_acceso: claveAcceso,
+          serie,
+          secuencial_sri: secuencialFormateado,
+          ruc_emisor: config.ruc,
+          razon_social_emisor: config.razon_social || '',
+          ambiente_sri: config.ambiente || '1',
+          xml_generado: xml,
+          xml_firmado: xmlFirmado,
+          estado_sri: estadoSri,
+          fecha_firma: fechaFirma,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    await logAudit(req.db, req, {
+      accion: 'generar-clave',
+      coleccion: 'ventas',
+      documentoId: id,
+      documentoNumero: venta.numero_factura || '',
+      detalle: `Clave de acceso generada: ${claveAcceso}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Clave de acceso generada correctamente',
+      clave_acceso: claveAcceso,
+      serie,
+      secuencial: secuencialFormateado,
+      firmado: !!xmlFirmado,
+      estado_sri: estadoSri
+    });
+  } catch (err) {
+    console.error('Error generando clave:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// CREAR
 // ============================================================
 router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
   const errors = validationResult(req);
@@ -792,6 +1062,7 @@ router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
     if (req.io) req.io.emit('venta-eliminada', { id });
     res.json({ message: 'Venta eliminada correctamente' });
   } catch (err) {
+    console.error('Error eliminando venta:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -2,6 +2,7 @@
   <div>
     <h4 class="section-title"><i class="fas fa-search"></i> Consultar Documentos</h4>
 
+    <!-- FILTROS -->
     <div class="row g-3 mb-3">
       <div class="col-md-3">
         <label class="form-label">Tipo de Documento</label>
@@ -37,6 +38,7 @@
       </div>
     </div>
 
+    <!-- TABLA -->
     <div class="card card-cacao">
       <div class="card-body table-responsive">
         <table class="table table-cacao">
@@ -48,7 +50,7 @@
               <th>Clave de Acceso</th>
               <th>Estado SRI</th>
               <th>Total</th>
-              <th>Acciones</th>
+              <th style="width:200px;">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -73,30 +75,81 @@
               </td>
               <td><strong>{{ formatCurrency(doc.total) }}</strong></td>
               <td>
-                <button class="btn btn-sm btn-outline-primary me-1" @click="verDocumento(doc)" title="Ver documento">
-                  <i class="fas fa-eye"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-info me-1" @click="abrirModalEmail(doc)" title="Enviar por email">
-                  <i class="fas fa-envelope"></i>
-                </button>
-                <button
-                  v-if="doc.clave_acceso"
-                  class="btn btn-sm btn-outline-success"
-                  @click="verXml(doc)"
-                  title="Ver XML"
-                >
-                  <i class="fas fa-file-code"></i>
-                </button>
+                <div class="d-flex gap-1 flex-nowrap">
+                  <!-- Generar clave (si falta) -->
+                  <button
+                    v-if="!doc.clave_acceso && requiereClave(doc)"
+                    class="btn btn-sm btn-outline-warning"
+                    @click="generarClave(doc)"
+                    title="Generar clave de acceso"
+                  >
+                    <i class="fas fa-key"></i>
+                  </button>
+
+                  <!-- Ver documento -->
+                  <button
+                    class="btn btn-sm btn-outline-primary"
+                    @click="verDocumento(doc)"
+                    title="Ver documento"
+                  >
+                    <i class="fas fa-eye"></i>
+                  </button>
+
+                  <!-- Email -->
+                  <button
+                    class="btn btn-sm btn-outline-info"
+                    @click="abrirModalEmail(doc)"
+                    title="Enviar por email"
+                  >
+                    <i class="fas fa-envelope"></i>
+                  </button>
+
+                  <!-- XML -->
+                  <button
+                    v-if="doc.clave_acceso"
+                    class="btn btn-sm btn-outline-success"
+                    @click="verXml(doc)"
+                    title="Ver/Descargar XML"
+                  >
+                    <i class="fas fa-file-code"></i>
+                  </button>
+
+                  <!-- Firmar (si tiene clave pero no firma) -->
+                  <button
+                    v-if="doc.clave_acceso && !doc.xml_firmado && doc.estado_sri !== 'AUTORIZADO' && doc.estado_sri !== 'FIRMADO'"
+                    class="btn btn-sm btn-outline-secondary"
+                    @click="firmarDocumento(doc)"
+                    title="Firmar electrónicamente"
+                  >
+                    <i class="fas fa-signature"></i>
+                  </button>
+
+                  <!-- Enviar al SRI -->
+                  <button
+                    v-if="doc.estado_sri === 'FIRMADO'"
+                    class="btn btn-sm btn-outline-success"
+                    @click="enviarSRI(doc)"
+                    title="Enviar al SRI"
+                  >
+                    <i class="fas fa-paper-plane"></i>
+                  </button>
+                </div>
               </td>
             </tr>
             <tr v-if="documentos.length === 0 && !cargando && buscado">
-              <td colspan="7" class="text-muted text-center">No hay documentos que coincidan con los filtros</td>
+              <td colspan="7" class="text-muted text-center py-4">
+                No hay documentos que coincidan con los filtros
+              </td>
             </tr>
             <tr v-if="!buscado && documentos.length === 0">
-              <td colspan="7" class="text-muted text-center">Seleccione un tipo y presione Buscar</td>
+              <td colspan="7" class="text-muted text-center py-4">
+                Seleccione un tipo y presione Buscar
+              </td>
             </tr>
             <tr v-if="cargando">
-              <td colspan="7" class="text-center"><i class="fas fa-spinner fa-spin"></i> Cargando...</td>
+              <td colspan="7" class="text-center py-4">
+                <i class="fas fa-spinner fa-spin"></i> Cargando...
+              </td>
             </tr>
           </tbody>
         </table>
@@ -164,6 +217,13 @@
                     </div>
                   </div>
                 </div>
+              </div>
+              <div v-else class="alert alert-warning small mb-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Este documento no tiene clave de acceso electrónica.
+                <button v-if="requiereClave(documentoActual)" class="btn btn-sm btn-warning ms-2" @click="generarClave(documentoActual)">
+                  <i class="fas fa-key"></i> Generar clave
+                </button>
               </div>
 
               <!-- CLIENTE -->
@@ -269,7 +329,7 @@
             </button>
             <div class="ms-auto d-flex gap-2 flex-wrap">
               <button class="btn btn-primary" @click="imprimirModal('A4')">
-                <i class="fas fa-print me-1"></i> Imprimir A4
+                <i class="fas fa-print me-1"></i> A4
               </button>
               <button class="btn btn-primary" @click="imprimirModal('ticket')">
                 <i class="fas fa-receipt me-1"></i> Ticket
@@ -278,7 +338,7 @@
                 <i class="fas fa-file-pdf me-1"></i> PDF
               </button>
               <button class="btn btn-info text-white" @click="abrirModalEmail(documentoActual)">
-                <i class="fas fa-envelope me-1"></i> Enviar por Email
+                <i class="fas fa-envelope me-1"></i> Email
               </button>
               <button class="btn btn-success" @click="verXml(documentoActual)" :disabled="!documentoActual?.clave_acceso">
                 <i class="fas fa-file-code me-1"></i> XML
@@ -299,12 +359,17 @@
           </div>
           <div class="modal-body">
             <div v-if="xmlDoc" class="xml-viewer"><pre>{{ xmlDoc }}</pre></div>
-            <div v-else class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin"></i> Cargando XML...</div>
+            <div v-else class="text-center py-4 text-muted">
+              <i class="fas fa-spinner fa-spin"></i> Cargando XML...
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
             <button type="button" class="btn btn-primary" @click="copiarXml" :disabled="!xmlDoc">
               <i class="fas fa-copy me-1"></i> Copiar
+            </button>
+            <button type="button" class="btn btn-success" @click="descargarXmlActual" :disabled="!xmlDoc">
+              <i class="fas fa-download me-1"></i> Descargar
             </button>
           </div>
         </div>
@@ -348,6 +413,7 @@ const qrDataUrl = ref('')
 const xmlDoc = ref('')
 let modalXmlInstance = null
 
+// ===== HELPERS =====
 const obtenerNombreProducto = (id) => {
   if (!id) return 'Producto eliminado'
   const prod = productosMap.value[id]
@@ -356,9 +422,14 @@ const obtenerNombreProducto = (id) => {
 
 const getTipoDocLabel = (tipo) => {
   const labels = {
-    factura: 'Factura', guia_remision: 'Guía de Remisión', exportacion: 'Factura de Exportación',
-    reembolso: 'Factura de Reembolso', retencion: 'Comprobante de Retención',
-    liquidacion: 'Liquidación de Compra', nota_credito: 'Nota de Crédito', proforma: 'Proforma'
+    factura: 'Factura',
+    guia_remision: 'Guía de Remisión',
+    exportacion: 'Factura de Exportación',
+    reembolso: 'Factura de Reembolso',
+    retencion: 'Comprobante de Retención',
+    liquidacion: 'Liquidación de Compra',
+    nota_credito: 'Nota de Crédito',
+    proforma: 'Proforma'
   }
   return labels[tipo] || tipo
 }
@@ -367,8 +438,10 @@ const getEstadoSriClass = (estado) => {
   switch (estado) {
     case 'AUTORIZADO': return 'bg-success'
     case 'FIRMADO': return 'bg-info'
-    case 'PENDIENTE': case 'RECIBIDA': return 'bg-warning text-dark'
-    case 'RECHAZADA': case 'DEVUELTA': return 'bg-danger'
+    case 'PENDIENTE':
+    case 'RECIBIDA': return 'bg-warning text-dark'
+    case 'RECHAZADA':
+    case 'DEVUELTA': return 'bg-danger'
     default: return 'bg-secondary'
   }
 }
@@ -383,6 +456,11 @@ const formatFechaHora = (fecha) => {
   return new Date(fecha).toLocaleString('es-EC')
 }
 
+const requiereClave = (doc) => {
+  return ['factura', 'liquidacion', 'nota_credito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'].includes(doc.tipo_documento)
+}
+
+// ===== CARGAR =====
 const cargarDatos = async () => {
   cargando.value = true
   buscado.value = true
@@ -411,7 +489,7 @@ const cargarDatos = async () => {
 
     documentos.value = datos
   } catch (e) {
-    console.error(e)
+    console.error('Error cargando documentos:', e)
     toast.error('Error al cargar: ' + e.message)
   } finally {
     cargando.value = false
@@ -426,12 +504,12 @@ const limpiarFiltros = () => {
   buscado.value = false
 }
 
+// ===== VER DOCUMENTO =====
 const verDocumento = async (doc) => {
   documentoActual.value = doc
   formatoImpresion.value = 'A4'
   qrDataUrl.value = ''
 
-  // Cargar QR si hay clave
   if (doc.clave_acceso && doc._id) {
     try {
       const res = await api.request(`/ventas/${doc._id}/qr`, { method: 'GET' })
@@ -456,6 +534,7 @@ const cerrarModal = () => {
   if (modalInstance.value) modalInstance.value.hide()
 }
 
+// ===== IMPRIMIR =====
 const imprimirModal = (formato) => {
   if (!documentoActual.value) return
   printService.printDocument(documentoActual.value, formato, obtenerNombreProducto)
@@ -503,8 +582,8 @@ const guardarPDF = () => {
     pdf.setFont('helvetica', 'bold')
     pdf.text('Cliente:', 14, y); y += 5
     pdf.setFont('helvetica', 'normal')
-    pdf.text(doc.cliente?.nombre || 'N/A', 14, y); y += 4
-    pdf.text(`RUC/CI: ${doc.cliente?.ruc || 'N/A'}`, 14, y); y += 8
+    pdf.text(doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A', 14, y); y += 4
+    pdf.text(`RUC/CI: ${doc.cliente?.ruc || doc.proveedor?.ruc || 'N/A'}`, 14, y); y += 8
 
     if (doc.detalles && doc.detalles.length > 0) {
       const tableData = doc.detalles.map((item, idx) => [
@@ -541,13 +620,76 @@ const guardarPDF = () => {
   }
 }
 
-// ===== MODAL EMAIL =====
+// ===== GENERAR CLAVE =====
+const generarClave = async (doc) => {
+  if (!confirm(`¿Generar clave de acceso para ${doc.numero_factura}?\n\nSe generará la clave de 49 dígitos y se intentará firmar automáticamente.`)) return
+  try {
+    const res = await api.request(`/ventas/${doc._id}/generar-clave`, {
+      method: 'POST',
+      loaderMessage: 'Generando clave...'
+    })
+    toast.success(`✅ Clave generada correctamente${res.firmado ? ' y documento firmado' : ''}`)
+    await cargarDatos()
+
+    // Si el modal estaba abierto, actualizar el documento
+    if (documentoActual.value?._id === doc._id) {
+      const actualizado = await api.request(`/ventas/${doc._id}`, { method: 'GET' })
+      documentoActual.value = actualizado
+    }
+  } catch (e) {
+    if (e.message.includes('RUC')) {
+      toast.error('Debes configurar el RUC primero. Ve a Administración → Configuración Empresa', { timeout: 8000 })
+    } else if (e.message.includes('autorizado')) {
+      toast.warning('Este documento ya está autorizado por el SRI')
+    } else {
+      toast.error('Error: ' + e.message)
+    }
+  }
+}
+
+// ===== FIRMAR =====
+const firmarDocumento = async (doc) => {
+  if (!confirm(`¿Firmar electrónicamente ${doc.numero_factura}?`)) return
+  try {
+    await api.request(`/ventas/${doc._id}/firmar`, {
+      method: 'POST',
+      loaderMessage: 'Firmando documento...'
+    })
+    toast.success('Documento firmado correctamente')
+    await cargarDatos()
+  } catch (e) {
+    if (e.message.includes('certificado')) {
+      toast.error('Debes subir un certificado primero en Administración → Certificado Firma', { timeout: 8000 })
+    } else {
+      toast.error('Error: ' + e.message)
+    }
+  }
+}
+
+// ===== ENVIAR AL SRI =====
+const enviarSRI = async (doc) => {
+  if (!confirm(`¿Enviar ${doc.numero_factura} al SRI?`)) return
+  try {
+    const res = await api.request(`/sri/enviar/${doc._id}`, {
+      method: 'POST',
+      loaderMessage: 'Enviando al SRI...'
+    })
+    if (res.success) {
+      toast.success(`✅ Autorizado: ${res.numero_autorizacion}`)
+    } else {
+      toast.warning(`Estado: ${res.estado}`)
+    }
+    await cargarDatos()
+  } catch (e) {
+    toast.error('Error: ' + e.message)
+  }
+}
+
+// ===== EMAIL =====
 const abrirModalEmail = (doc) => {
   if (!doc) return
   documentoActual.value = doc
-  // Cerrar modal de documento si está abierto
   if (modalInstance.value) modalInstance.value.hide()
-  // Abrir modal email
   setTimeout(() => {
     const modalEl = document.getElementById('modalEnviarEmail')
     const modal = Modal.getOrCreateInstance(modalEl)
@@ -582,6 +724,36 @@ const copiarXml = async () => {
   }
 }
 
+const descargarXmlActual = async () => {
+  const doc = documentoActual.value
+  if (!doc?.clave_acceso) return
+  try {
+    const token = localStorage.getItem('token')
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
+    const url = doc.xml_firmado
+      ? `${baseUrl}/ventas/${doc._id}/xml-firmado`
+      : `${baseUrl}/ventas/${doc._id}/xml`
+
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!response.ok) throw new Error('Error al descargar')
+    const blob = await response.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = `${doc.clave_acceso}${doc.xml_firmado ? '_firmado' : ''}.xml`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(objectUrl)
+    toast.success('XML descargado')
+  } catch (e) {
+    toast.error('Error: ' + e.message)
+  }
+}
+
+// ===== LIFECYCLE =====
 onMounted(() => {
   const modalEl = document.getElementById('modalDocumento')
   if (modalEl) {
@@ -599,12 +771,10 @@ onMounted(() => {
 }
 .modal-header-doc .btn-close { filter: invert(1); }
 .doc-icon {
-  width: 44px; height: 44px;
-  border-radius: 10px;
+  width: 44px; height: 44px; border-radius: 10px;
   background: rgba(241,196,15,0.2);
   display: flex; align-items: center; justify-content: center;
-  color: var(--accent-color);
-  font-size: 1.3rem;
+  color: var(--accent-color); font-size: 1.3rem;
 }
 .modal-body-doc { padding: 24px; background: #f4f6f9; }
 .modal-footer-doc { border-top: 1px solid var(--border-color); padding: 12px 20px; }

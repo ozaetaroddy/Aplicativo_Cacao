@@ -49,7 +49,7 @@
               <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=liquidacion" @click="cerrarTodo"><i class="fas fa-file-signature"></i> Liquidación Compra</router-link></li>
               <li v-if="puedeCrearVentas"><hr class="dropdown-divider"></li>
               <li v-if="puedeCrearVentas"><router-link class="dropdown-item" to="/ventas/nuevo?tipo=nota_credito" @click="cerrarTodo"><i class="fas fa-minus-circle"></i> Nota de Crédito</router-link></li>
-              <li v-if="puedeVerVentas || puedeVerCompras"><hr class="dropdown-divider"></li>
+              <li><hr class="dropdown-divider"></li>
               <li><router-link class="dropdown-item" to="/consultar-documentos" @click="cerrarTodo"><i class="fas fa-search"></i> Consultar Documentos</router-link></li>
             </ul>
           </li>
@@ -116,7 +116,7 @@
             </ul>
           </li>
 
-          <!-- ===== ADMINISTRACIÓN / SRI ===== -->
+          <!-- ===== ADMINISTRACIÓN ===== -->
           <li v-if="puedeVerAuditoria || puedeVerUsuarios" class="nav-item dropdown" :class="{ show: dropdowns.admin }">
             <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('admin')">
               <i class="fas fa-cog"></i>
@@ -126,6 +126,12 @@
               </span>
             </a>
             <ul class="dropdown-menu" :class="{ show: dropdowns.admin }">
+              <li v-if="puedeVerUsuarios">
+                <router-link class="dropdown-item" to="/diagnostico" @click="cerrarTodo">
+                  <i class="fas fa-stethoscope"></i> Diagnóstico del Sistema
+                </router-link>
+              </li>
+              <li><hr class="dropdown-divider"></li>
               <li v-if="puedeVerUsuarios">
                 <router-link class="dropdown-item" to="/configuracion-empresa" @click="cerrarTodo">
                   <i class="fas fa-building"></i> Configuración Empresa
@@ -177,6 +183,7 @@
               </li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item" href="#" @click.prevent="irPerfil"><i class="fas fa-id-card"></i> Mi Perfil</a></li>
+              <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irDiagnostico"><i class="fas fa-stethoscope"></i> Diagnóstico del Sistema</a></li>
               <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irConfigEmpresa"><i class="fas fa-building"></i> Configuración Empresa</a></li>
               <li v-if="puedeVerUsuarios">
                 <a class="dropdown-item" href="#" @click.prevent="irCertificado">
@@ -194,12 +201,7 @@
               <li v-if="puedeVerAuditoria"><a class="dropdown-item" href="#" @click.prevent="irAuditoria"><i class="fas fa-history"></i> Auditoría</a></li>
               <li v-if="puedeVerUsuarios"><a class="dropdown-item" href="#" @click.prevent="irBackups"><i class="fas fa-database"></i> Backups</a></li>
               <li><hr class="dropdown-divider"></li>
-              <li>
-                <a class="dropdown-item text-muted small" href="#" @click.prevent>
-                  <i class="fas fa-info-circle"></i>
-                  Sistema Contable v2.0
-                </a>
-              </li>
+              <li><a class="dropdown-item text-muted small" href="#" @click.prevent><i class="fas fa-info-circle"></i> Sistema Contable v2.0</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item text-danger" href="#" @click.prevent="cerrarSesion"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a></li>
             </ul>
@@ -223,7 +225,6 @@ const router = useRouter()
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
 
-// ===== ESTADO =====
 const navbarAbierto = ref(false)
 const userMenuOpen = ref(false)
 const navbar = ref(null)
@@ -260,17 +261,9 @@ const puedeVerAuditoria = computed(() => puede('auditoria', 'ver'))
 const puedeVerUsuarios = computed(() => puede('usuarios', 'ver'))
 
 // ===== CERTIFICADO =====
-const certificadoPorVencer = computed(() => {
-  return certificadoInfo.value?.cargado && certificadoInfo.value?.por_vencer
-})
-const certificadoDiasRestantes = computed(() => {
-  return certificadoInfo.value?.dias_restantes || 0
-})
-
-// ===== DOCUMENTOS SRI =====
-const documentosFirmados = computed(() => {
-  return estadoSri.value?.documentos?.firmados || 0
-})
+const certificadoPorVencer = computed(() => certificadoInfo.value?.cargado && certificadoInfo.value?.por_vencer)
+const certificadoDiasRestantes = computed(() => certificadoInfo.value?.dias_restantes || 0)
+const documentosFirmados = computed(() => estadoSri.value?.documentos?.firmados || 0)
 
 const cargarInfoSistema = async () => {
   if (!puedeVerUsuarios.value) return
@@ -281,9 +274,7 @@ const cargarInfoSistema = async () => {
     ])
     certificadoInfo.value = cert
     estadoSri.value = sri
-  } catch (e) {
-    // Silencioso
-  }
+  } catch (e) {}
 }
 
 // ===== TOGGLES =====
@@ -304,9 +295,7 @@ const toggleDropdown = (nombre) => {
   })
 }
 
-const toggleUserMenu = () => {
-  userMenuOpen.value = !userMenuOpen.value
-}
+const toggleUserMenu = () => { userMenuOpen.value = !userMenuOpen.value }
 
 const cerrarTodo = () => {
   navbarAbierto.value = false
@@ -314,14 +303,12 @@ const cerrarTodo = () => {
   userMenuOpen.value = false
 }
 
-// ===== CLICK FUERA =====
 const handleClickOutside = (event) => {
   if (navbar.value && navbar.value.contains(event.target)) return
   if (searchBar.value && searchBar.value.$el && searchBar.value.$el.contains(event.target)) return
   cerrarTodo()
 }
 
-// ===== ATAJOS DE TECLADO =====
 const handleKeyboard = (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault()
@@ -330,9 +317,7 @@ const handleKeyboard = (e) => {
       if (input) input.focus()
     }
   }
-  if (e.key === 'Escape') {
-    cerrarTodo()
-  }
+  if (e.key === 'Escape') cerrarTodo()
 }
 
 // ===== NAVEGACIÓN =====
@@ -343,15 +328,14 @@ const irBackups = () => { cerrarTodo(); router.push('/backups') }
 const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
 const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
 const irEnvioSri = () => { cerrarTodo(); router.push('/envio-sri') }
+const irDiagnostico = () => { cerrarTodo(); router.push('/diagnostico') }
 const cerrarSesion = () => { cerrarTodo(); logout() }
 
-// ===== HELPERS =====
 const getInitials = (nombre) => {
   if (!nombre) return '?'
   return nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 }
 
-// ===== CICLO DE VIDA =====
 onMounted(async () => {
   try { await cargarPermisos() } catch (e) { console.warn(e) }
   await cargarInfoSistema()
@@ -366,191 +350,112 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ============================================
-   NAVBAR BASE
-   ============================================ */
 .navbar-cacao { padding: 10px 0; }
 
-/* ===== BRAND ===== */
 .navbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #fff !important;
-  padding: 6px 12px;
-  border-radius: 10px;
-  transition: all 0.25s ease;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 1.25rem; font-weight: 700;
+  color: #fff !important; padding: 6px 12px;
+  border-radius: 10px; transition: all 0.25s ease;
   margin-right: 20px;
 }
 .navbar-brand:hover { background: rgba(255,255,255,0.08); }
 .navbar-brand i { font-size: 1.5rem; color: var(--accent-color); }
 .brand-text { letter-spacing: 0.3px; }
 .brand-version {
-  font-size: 0.65rem;
-  padding: 2px 6px;
-  border-radius: 10px;
-  background: rgba(241,196,15,0.2);
-  color: var(--accent-color);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  margin-left: 4px;
+  font-size: 0.65rem; padding: 2px 6px; border-radius: 10px;
+  background: rgba(241,196,15,0.2); color: var(--accent-color);
+  font-weight: 700; letter-spacing: 0.5px; margin-left: 4px;
 }
 
-/* ===== NAV LINKS ===== */
 .navbar-cacao .navbar-nav .nav-item { margin: 0 2px; }
 .navbar-cacao .nav-link {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px !important;
-  border-radius: 30px;
-  color: rgba(255,255,255,0.9) !important;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  position: relative;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px !important; border-radius: 30px;
+  color: rgba(255,255,255,0.9) !important; font-weight: 500;
+  font-size: 0.9rem; transition: all 0.2s ease;
+  white-space: nowrap; position: relative;
 }
 .navbar-cacao .nav-link i { font-size: 0.95rem; opacity: 0.9; }
 .navbar-cacao .nav-link:hover { background: rgba(255,255,255,0.1); color: #fff !important; }
 .navbar-cacao .nav-link.active {
-  background: var(--primary-color);
-  color: #fff !important;
+  background: var(--primary-color); color: #fff !important;
   box-shadow: 0 2px 10px rgba(52,152,219,0.4);
 }
 .navbar-cacao .nav-link.active::after {
-  content: '';
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  width: 20px;
-  height: 2px;
-  background: var(--accent-color);
-  border-radius: 2px;
-  transform: translateX(-50%);
+  content: ''; position: absolute; bottom: -6px; left: 50%;
+  width: 20px; height: 2px; background: var(--accent-color);
+  border-radius: 2px; transform: translateX(-50%);
 }
 
-/* ===== BADGE DE ADVERTENCIA ===== */
 .nav-badge-warning {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #f39c12;
-  color: #fff;
-  font-size: 0.6rem;
-  margin-left: 4px;
-  animation: pulse-warning 2s infinite;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #f39c12; color: #fff; font-size: 0.6rem;
+  margin-left: 4px; animation: pulse-warning 2s infinite;
 }
 @keyframes pulse-warning {
   0%, 100% { box-shadow: 0 0 0 0 rgba(243,156,18,0.7); }
   50% { box-shadow: 0 0 0 6px rgba(243,156,18,0); }
 }
 
-/* ===== DROPDOWNS ===== */
 .navbar-cacao .dropdown-menu {
-  background: #2c3e50;
-  border: none;
-  border-radius: 12px;
+  background: #2c3e50; border: none; border-radius: 12px;
   box-shadow: 0 12px 32px rgba(0,0,0,0.25);
-  padding: 8px;
-  margin-top: 8px;
+  padding: 8px; margin-top: 8px;
 }
 .navbar-cacao .dropdown-item {
   color: rgba(255,255,255,0.9) !important;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 0.88rem;
-  transition: all 0.15s ease;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  padding: 8px 14px; border-radius: 8px;
+  font-size: 0.88rem; transition: all 0.15s ease;
+  display: flex; align-items: center; gap: 10px;
 }
 .navbar-cacao .dropdown-item i { width: 16px; opacity: 0.9; color: var(--accent-color); }
 .navbar-cacao .dropdown-item:hover {
-  background: var(--primary-color);
-  color: #fff !important;
+  background: var(--primary-color); color: #fff !important;
   transform: translateX(3px);
 }
 .navbar-cacao .dropdown-item:hover i { color: #fff; }
 .navbar-cacao .dropdown-divider { border-color: rgba(255,255,255,0.1); margin: 6px 4px; }
 
-/* ===== CONTROLES DERECHA ===== */
 .nav-user-controls { gap: 10px; }
 .search-bar-nav { max-width: 260px; }
-
-/* ===== BOTÓN DE USUARIO ===== */
 .user-dropdown { position: relative; }
+
 .user-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: flex; align-items: center; gap: 8px;
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
-  color: #fff;
-  padding: 5px 12px 5px 5px;
-  border-radius: 50px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: default;
-  transition: all 0.25s ease;
-  max-width: 220px;
+  color: #fff; padding: 5px 12px 5px 5px;
+  border-radius: 50px; font-size: 0.85rem; font-weight: 500;
+  cursor: default; transition: all 0.25s ease; max-width: 220px;
 }
 .user-btn:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.25); }
 .user-avatar-small {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+  width: 30px; height: 30px; border-radius: 50%;
   background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 0.75rem;
-  color: #fff;
-  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.75rem; color: #fff; flex-shrink: 0;
 }
 .user-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
 .user-rol-badge {
-  font-size: 0.65rem;
-  padding: 2px 8px;
-  border-radius: 20px;
-  background: rgba(241,196,15,0.2);
-  color: var(--accent-color);
-  text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.3px;
+  font-size: 0.65rem; padding: 2px 8px; border-radius: 20px;
+  background: rgba(241,196,15,0.2); color: var(--accent-color);
+  text-transform: uppercase; font-weight: 700; letter-spacing: 0.3px;
 }
 
-/* ===== MENÚ DE USUARIO ===== */
 .user-menu { min-width: 280px; }
 .user-menu-header { display: flex; gap: 12px; padding: 10px 12px; align-items: flex-start; }
 .user-avatar-large {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  width: 44px; height: 44px; border-radius: 50%;
   background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 1rem;
-  color: #fff;
-  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 1rem; color: #fff; flex-shrink: 0;
 }
 .badge-rol-small {
-  display: inline-block;
-  font-size: 0.65rem;
-  padding: 2px 8px;
-  border-radius: 20px;
-  font-weight: 700;
-  text-transform: uppercase;
-  margin-top: 4px;
-  letter-spacing: 0.3px;
+  display: inline-block; font-size: 0.65rem; padding: 2px 8px;
+  border-radius: 20px; font-weight: 700; text-transform: uppercase;
+  margin-top: 4px; letter-spacing: 0.3px;
 }
 .badge-rol-admin { background: rgba(231,76,60,0.2); color: #ff7b6b; }
 .badge-rol-contador { background: rgba(52,152,219,0.2); color: #63b4e0; }
@@ -558,9 +463,6 @@ onBeforeUnmount(() => {
 .badge-rol-bodeguero { background: rgba(243,156,18,0.2); color: #f7b731; }
 .badge-rol-auditor { background: rgba(155,89,182,0.2); color: #c39bd3; }
 
-/* ============================================
-   RESPONSIVE
-   ============================================ */
 @media (max-width: 1200px) {
   .nav-text { display: none; }
   .navbar-cacao .nav-link { padding: 8px 12px !important; }
@@ -571,61 +473,42 @@ onBeforeUnmount(() => {
 
 @media (max-width: 992px) {
   .navbar-cacao .navbar-collapse {
-    max-height: 80vh;
-    overflow-y: auto;
-    background: var(--bg-navbar);
-    padding: 12px;
-    border-radius: 12px;
-    margin-top: 10px;
+    max-height: 80vh; overflow-y: auto;
+    background: var(--bg-navbar); padding: 12px;
+    border-radius: 12px; margin-top: 10px;
   }
   .navbar-cacao .navbar-nav { width: 100%; }
   .nav-text { display: inline !important; }
   .navbar-cacao .nav-item { border-bottom: 1px solid rgba(255,255,255,0.08); }
   .navbar-cacao .nav-item:last-child { border-bottom: none; }
   .navbar-cacao .nav-link {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 16px !important;
-    border-radius: 8px;
-    font-size: 0.95rem;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px !important; border-radius: 8px; font-size: 0.95rem;
   }
   .navbar-cacao .nav-link.active::after { display: none; }
   .navbar-cacao .dropdown-menu {
-    position: static !important;
-    float: none !important;
-    width: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    display: none !important;
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.3s ease;
+    position: static !important; float: none !important;
+    width: 100% !important; padding: 0 !important; margin: 0 !important;
+    background: transparent !important; box-shadow: none !important;
+    border-radius: 0 !important; display: none !important;
+    max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
   }
   .navbar-cacao .dropdown-menu.show {
-    display: block !important;
-    max-height: 800px;
+    display: block !important; max-height: 900px;
     padding: 6px 0 10px 20px !important;
     border-left: 2px solid var(--primary-color) !important;
     margin-left: 16px !important;
   }
   .navbar-cacao .dropdown-item {
     color: rgba(255,255,255,0.75) !important;
-    padding: 10px 14px !important;
-    font-size: 0.85rem !important;
+    padding: 10px 14px !important; font-size: 0.85rem !important;
   }
   .navbar-cacao .dropdown-item:hover { background: rgba(255,255,255,0.08) !important; }
   .navbar-cacao .dropdown-item i { color: var(--accent-color); }
   .nav-user-controls {
-    flex-direction: column;
-    align-items: stretch !important;
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255,255,255,0.1);
-    width: 100%;
+    flex-direction: column; align-items: stretch !important;
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.1); width: 100%;
   }
   .search-bar-nav { max-width: 100%; }
   .user-btn { width: 100%; justify-content: center; }
@@ -640,7 +523,6 @@ onBeforeUnmount(() => {
   .navbar-cacao .nav-link { font-size: 0.9rem; }
 }
 
-/* MODO OSCURO */
 body.dark-mode .navbar-cacao .navbar-collapse { background: #1a1a2e; }
 body.dark-mode .navbar-cacao .dropdown-menu { background: #1e2a4a; }
 body.dark-mode .navbar-cacao .user-btn { background: rgba(255,255,255,0.05); }

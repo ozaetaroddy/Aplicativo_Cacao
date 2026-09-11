@@ -57,6 +57,7 @@ const BackupsAdmin = () => import('../components/admin/BackupsAdmin.vue')
 const ConfiguracionEmpresa = () => import('../components/admin/ConfiguracionEmpresa.vue')
 const CertificadoFirma = () => import('../components/admin/CertificadoFirma.vue')
 const EnvioSri = () => import('../components/admin/EnvioSri.vue')
+const DiagnosticoSistema = () => import('../components/admin/DiagnosticoSistema.vue')
 
 // Periodos
 const PeriodosCerrados = () => import('../components/periodos/PeriodosCerrados.vue')
@@ -397,6 +398,12 @@ const routes = [
     meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver', title: 'Envío al SRI' }
   },
 
+  {
+  path: '/diagnostico',
+  name: 'DiagnosticoSistema',
+  component: DiagnosticoSistema,
+  meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver', title: 'Diagnóstico' }
+},
   // ===== 404 / CATCH-ALL =====
   {
     path: '/:pathMatch(.*)*',
