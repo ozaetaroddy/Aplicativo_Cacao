@@ -27,7 +27,7 @@
       </div>
     </div>
 
-    <div class="row g-3">
+    <div class="row g-3 align-items-start">
       <!-- Datos del contribuyente -->
       <div class="col-lg-8">
         <div class="card card-cacao">
@@ -110,7 +110,7 @@
 
       <!-- Configuración SRI -->
       <div class="col-lg-4">
-        <div class="card card-cacao">
+        <div class="card card-cacao mb-3">
           <div class="card-header">
             <i class="fas fa-cog me-2"></i> Configuración SRI
           </div>
@@ -174,7 +174,7 @@
         </div>
 
         <!-- Preview de clave -->
-        <div class="card card-cacao mt-3">
+        <div class="card card-cacao">
           <div class="card-header">
             <i class="fas fa-key me-2"></i> Ejemplo de Clave de Acceso
           </div>
@@ -192,7 +192,7 @@
     </div>
 
     <!-- Info adicional -->
-    <div class="card card-cacao mt-3">
+    <div class="card card-cacao mt-3 info-card">
       <div class="card-header"><i class="fas fa-info-circle me-2"></i> Información</div>
       <div class="card-body">
         <div class="row g-3 small">
@@ -259,7 +259,6 @@ const serieFormateada = computed(() => {
   return `${est}${pe}`;
 })
 
-// Ejemplo de clave de acceso generada con la config actual
 const ejemploClave = computed(() => {
   const hoy = new Date();
   const fechaStr = String(hoy.getDate()).padStart(2, '0') +
@@ -277,7 +276,6 @@ const ejemploClave = computed(() => {
   return `${base}${dv}`;
 })
 
-// Módulo 11
 function calcularDV(cadena) {
   const pesos = [2, 3, 4, 5, 6, 7];
   let suma = 0;
@@ -305,7 +303,6 @@ const cargar = async () => {
     Object.keys(form.value).forEach(key => {
       if (data[key] !== undefined) form.value[key] = data[key]
     })
-    // Asegurar string en valores boolean/numéricos
     form.value.ambiente = String(form.value.ambiente || '1')
     form.value.tipo_emision = String(form.value.tipo_emision || '1')
   } catch (e) {
@@ -334,7 +331,6 @@ const guardar = async () => {
     return
   }
 
-  // Confirmar cambio a producción
   if (form.value.ambiente === '2') {
     const confirmar = confirm(
       '¿Está seguro de activar el modo PRODUCCIÓN?\n\n' +
@@ -384,5 +380,16 @@ onMounted(cargar)
   color: var(--text-primary);
   line-height: 1.5;
   letter-spacing: 0.5px;
+}
+
+/* ===== FIX: evitar que ciertas tarjetas se estiren ===== */
+.info-card {
+  height: auto !important;
+  min-height: auto !important;
+}
+
+/* Las tarjetas dentro de las columnas del grid no deben estirarse a 100% */
+.row > [class*="col-"] > .card-cacao {
+  height: auto;
 }
 </style>
