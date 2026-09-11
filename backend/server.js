@@ -32,6 +32,7 @@ const anexosRoutes = require('./routes/anexos');
 const configuracionRoutes = require('./routes/configuracion');
 const certificadoRoutes = require('./routes/certificado');
 const sriRoutes = require('./routes/sri');
+const emailRoutes = require('./routes/email');
 
 const { iniciarScheduler } = require('./utils/backupScheduler');
 
@@ -119,6 +120,7 @@ app.use('/api/configuracion', configuracionRoutes);
 app.use('/api/anexos', anexosRoutes);
 app.use('/api/certificado', certificadoRoutes);
 app.use('/api/sri', sriRoutes);
+app.use('/api/email', emailRoutes);
 
 app.get('/api/auth/permisos', (req, res) => {
   const { PERMISOS } = require('./utils/permisos');

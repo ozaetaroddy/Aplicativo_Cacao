@@ -8,6 +8,7 @@ const { verificarPeriodoAbierto } = require('../utils/periodos');
 const { generarClaveAcceso, formatearSerie, descomponerClave, validarClave } = require('../utils/claveAcceso');
 const { generarXMLComprobante } = require('../utils/xmlComprobante');
 const { cargarCertificado, firmarXML, validarFirma } = require('../utils/firmaElectronica');
+const { generarQRComprobante } = require('../utils/qrGenerator');
 
 const validarVenta = [
   body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
@@ -24,19 +25,6 @@ const TIPO_COMPROBANTE_SRI = {
 };
 
 const DOCS_CON_CLAVE = ['factura', 'liquidacion', 'nota_credito', 'nota_debito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'];
-
-// ===== Helper: firmar XML con certificado =====
-async function firmarXMLConCertificado(db, xmlSinFirma) {
-  const cert = await db.collection('certificados').findOne({ _id: 'empresa' });
-  if (!cert) {
-    throw new Error('No hay certificado de firma electrónica cargado');
-  }
-
-  const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
-  const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
-
-  return firmarXML(xmlSinFirma, privateKeyPem, certificatePem);
-}
 
 // ===== Helper: asegurar clave y XML =====
 async function asegurarClaveYXml(db, venta) {
@@ -143,7 +131,7 @@ router.get('/', async (req, res) => {
 
     const pipeline = [
       { $match: matchStage },
-      { $project: { xml_generado: 0, xml_firmado: 0 } },
+      { $project: { xml_generado: 0, xml_firmado: 0, xml_autorizado: 0 } },
       { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ];
@@ -154,6 +142,7 @@ router.get('/', async (req, res) => {
         $match: {
           $or: [
             { numero_factura: regex }, { clave_acceso: regex },
+            { numero_autorizacion: regex },
             { 'cliente.nombre': regex }, { 'cliente.ruc': regex }
           ]
         }
@@ -199,7 +188,7 @@ router.post('/validar-clave', async (req, res) => {
 });
 
 // ============================================================
-// DESCARGAR XML (firmado si es posible)
+// DESCARGAR XML
 // ============================================================
 router.get('/:id/xml', async (req, res) => {
   try {
@@ -214,19 +203,16 @@ router.get('/:id/xml', async (req, res) => {
       return res.status(400).json({ error: motivo || 'No se pudo generar la clave' });
     }
 
-    // Si ya está firmado, devolverlo
-    let xmlFinal = venta.xml_firmado || xml;
-
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${claveAcceso}.xml"`);
-    res.send(xmlFinal);
+    res.send(venta.xml_firmado || xml);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ============================================================
-// VER XML (sin firmar y firmado)
+// XML PREVIEW (con QR embebido)
 // ============================================================
 router.get('/:id/xml-preview', async (req, res) => {
   try {
@@ -248,74 +234,6 @@ router.get('/:id/xml-preview', async (req, res) => {
       firmado: !!venta.xml_firmado
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================
-// FIRMAR MANUALMENTE
-// ============================================================
-router.post('/:id/firmar', async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
-
-    const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
-    if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
-
-    // Verificar que no esté ya firmado
-    if (venta.xml_firmado) {
-      return res.status(400).json({ error: 'Este documento ya está firmado' });
-    }
-
-    // Asegurar clave y XML
-    const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
-    if (!claveAcceso || !xml) {
-      return res.status(400).json({ error: motivo || 'No se puede firmar' });
-    }
-
-    // Firmar
-    let xmlFirmado;
-    try {
-      xmlFirmado = await firmarXMLConCertificado(req.db, xml);
-    } catch (e) {
-      return res.status(400).json({ error: 'Error al firmar: ' + e.message });
-    }
-
-    // Validar
-    const validacion = validarFirma(xmlFirmado);
-    if (!validacion.valido) {
-      return res.status(400).json({ error: 'La firma generada es inválida: ' + validacion.motivo });
-    }
-
-    // Guardar XML firmado
-    await req.db.collection('ventas_v2').updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          xml_firmado: xmlFirmado,
-          estado_sri: 'FIRMADO',
-          fecha_firma: new Date(),
-          updatedAt: new Date()
-        }
-      }
-    );
-
-    await logAudit(req.db, req, {
-      accion: 'firmar',
-      coleccion: 'ventas',
-      documentoId: id,
-      documentoNumero: venta.numero_factura || '',
-      detalle: `Documento firmado electrónicamente: ${venta.numero_factura || ''}`
-    });
-
-    res.json({
-      message: 'Documento firmado correctamente',
-      xml_firmado: xmlFirmado,
-      clave_acceso: claveAcceso
-    });
-  } catch (err) {
-    console.error('Error firmando:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -344,6 +262,36 @@ router.get('/:id/xml-firmado', async (req, res) => {
 });
 
 // ============================================================
+// OBTENER QR DEL COMPROBANTE
+// ============================================================
+router.get('/:id/qr', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    const { claveAcceso } = await asegurarClaveYXml(req.db, venta);
+    if (!claveAcceso) return res.status(400).json({ error: 'No se pudo generar la clave' });
+
+    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+    const qr = await generarQRComprobante({
+      ruc: config?.ruc || venta.ruc_emisor || '',
+      tipoComprobante: '01',
+      numeroComprobante: venta.numero_factura || '',
+      fechaEmision: venta.fecha_emision,
+      montoTotal: venta.total,
+      claveAcceso
+    });
+
+    res.json({ qr: qr.dataUrl, clave_acceso: claveAcceso });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
 // OBTENER POR ID
 // ============================================================
 router.get('/:id', async (req, res) => {
@@ -352,13 +300,78 @@ router.get('/:id', async (req, res) => {
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
     const venta = await req.db.collection('ventas_v2').aggregate([
       { $match: { _id: new ObjectId(id) } },
-      { $project: { xml_generado: 0, xml_firmado: 0 } },
+      { $project: { xml_generado: 0, xml_firmado: 0, xml_autorizado: 0 } },
       { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ]).toArray();
     if (venta.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
     res.json(venta[0]);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// FIRMAR MANUALMENTE
+// ============================================================
+router.post('/:id/firmar', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    if (venta.xml_firmado) {
+      return res.status(400).json({ error: 'Este documento ya está firmado' });
+    }
+
+    const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
+    if (!claveAcceso || !xml) {
+      return res.status(400).json({ error: motivo || 'No se puede firmar' });
+    }
+
+    const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
+    if (!cert) {
+      return res.status(400).json({ error: 'No hay certificado de firma cargado. Ve a Administración → Certificado Firma' });
+    }
+
+    const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
+    const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
+    const xmlFirmado = firmarXML(xml, privateKeyPem, certificatePem);
+
+    const validacion = validarFirma(xmlFirmado);
+    if (!validacion.valido) {
+      return res.status(400).json({ error: 'La firma generada es inválida: ' + validacion.motivo });
+    }
+
+    await req.db.collection('ventas_v2').updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          xml_firmado: xmlFirmado,
+          estado_sri: 'FIRMADO',
+          fecha_firma: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    await logAudit(req.db, req, {
+      accion: 'firmar',
+      coleccion: 'ventas',
+      documentoId: id,
+      documentoNumero: venta.numero_factura || '',
+      detalle: `Documento firmado electrónicamente: ${venta.numero_factura || ''}`
+    });
+
+    res.json({
+      message: 'Documento firmado correctamente',
+      xml_firmado: xmlFirmado,
+      clave_acceso: claveAcceso
+    });
+  } catch (err) {
+    console.error('Error firmando:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -497,16 +510,12 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         createdAt: new Date(), updatedAt: new Date()
       };
 
-      // Generar XML
       if (claveAcceso && config) {
         try {
           venta.xml_generado = generarXMLComprobante(venta, cliente, config);
-        } catch (e) {
-          console.error('Error generando XML:', e.message);
-        }
+        } catch (e) { console.error('Error generando XML:', e.message); }
       }
 
-      // Firmar automáticamente si hay certificado
       if (venta.xml_generado) {
         try {
           const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
@@ -517,10 +526,7 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
             venta.estado_sri = 'FIRMADO';
             venta.fecha_firma = new Date();
           }
-        } catch (e) {
-          console.error('Error firmando automáticamente:', e.message);
-          // No bloquear la creación, se puede firmar después
-        }
+        } catch (e) { console.error('Error firmando:', e.message); }
       }
 
       const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
@@ -632,7 +638,6 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
         }
       }
 
-      // Regenerar clave si cambia fecha/tipo
       let nuevaClave = ventaActual.clave_acceso || '';
       const fechaCambio = new Date(fecha_emision).getTime() !== new Date(ventaActual.fecha_emision).getTime();
       const tipoCambio = (tipo_documento || 'factura') !== ventaActual.tipo_documento;
@@ -686,8 +691,6 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
       if (nuevaClave && config) {
         try {
           updateData.xml_generado = generarXMLComprobante(ventaParaXML, cliente, config);
-
-          // Re-firmar
           const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
           if (cert) {
             const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
@@ -696,9 +699,7 @@ router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => 
             updateData.estado_sri = 'FIRMADO';
             updateData.fecha_firma = new Date();
           }
-        } catch (e) {
-          console.error('Error regenerando XML/firma:', e.message);
-        }
+        } catch (e) { console.error('Error regenerando XML/firma:', e.message); }
       }
 
       await req.db.collection('ventas_v2').updateOne({ _id: new ObjectId(id) }, { $set: updateData }, { session });
