@@ -2,12 +2,6 @@
 // Generador de RIDE (Representación Impresa del Documento Electrónico)
 
 export const printService = {
-  /**
-   * Imprime un documento (factura, guía, etc.)
-   * @param {Object} doc - Datos del documento
-   * @param {string} formato - 'A4', 'A2', 'ticket'
-   * @param {Function} obtenerNombreProducto - Función para resolver nombres de productos
-   */
   printDocument(doc, formato = 'A4', obtenerNombreProducto = (id) => 'Producto') {
     const html = this.generarHTML(doc, formato, obtenerNombreProducto)
     const ventana = window.open('', '_blank', 'width=900,height=700')
@@ -81,21 +75,33 @@ export const printService = {
     let padding = '10mm'
     let fontSize = '11px'
     let formatoClase = 'a4'
+    let barcodeHeight = 45
+    let barcodeWidth = 240
 
     if (formato === 'A2') {
       ancho = '420mm'
       padding = '15mm'
       fontSize = '14px'
       formatoClase = 'a2'
+      barcodeHeight = 55
+      barcodeWidth = 340
     } else if (formato === 'ticket') {
       ancho = '80mm'
-      padding = '4mm'
-      fontSize = '10px'
+      padding = '3mm'
+      fontSize = '9px'
       formatoClase = 'ticket'
+      barcodeHeight = 32
+      barcodeWidth = 200 // Más angosto para el ticket
     }
 
-    // Generar código de barras simple (código de acceso en formato código barras)
-    const barcodeHtml = claveAcceso ? this.generarBarcodeHTML(claveAcceso) : ''
+    // Generar código de barras con ancho controlado
+    const barcodeHtml = claveAcceso
+      ? this.generarBarcodeHTML(claveAcceso, formato, barcodeWidth, barcodeHeight)
+      : ''
+
+    // Dividir la clave en trozos para que se ajuste al ticket
+    const claveChunks = claveAcceso.match(/.{1,16}/g) || []
+    const claveFormateada = claveChunks.join(' ')
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -113,7 +119,7 @@ export const printService = {
       background: #fff;
       color: #1a1a1a;
       font-size: ${fontSize};
-      line-height: 1.4;
+      line-height: 1.35;
     }
     .container {
       width: ${ancho};
@@ -128,232 +134,229 @@ export const printService = {
       justify-content: space-between;
       align-items: flex-start;
       gap: 20px;
-      padding-bottom: 12px;
+      padding-bottom: 10px;
       border-bottom: 3px double #1a3a5c;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
-    .header-left {
-      flex: 1;
-    }
-    .header-center {
-      flex: 1.3;
-      text-align: center;
-    }
-    .header-right {
-      flex: 1;
-      text-align: right;
-    }
+    .header-left { flex: 1; }
+    .header-center { flex: 1.2; text-align: center; }
+    .header-right { flex: 0.9; text-align: right; }
 
     .logo-empresa {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
+      gap: 8px;
+      margin-bottom: 6px;
     }
     .logo-icon {
-      width: 44px;
-      height: 44px;
+      width: 40px;
+      height: 40px;
       background: #1a3a5c;
-      border-radius: 10px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #f1c40f;
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 800;
+      flex-shrink: 0;
     }
     .empresa-nombre {
-      font-size: 1.15em;
+      font-size: 1.1em;
       font-weight: 800;
       color: #1a3a5c;
       line-height: 1.1;
     }
     .empresa-sub {
-      font-size: 0.75em;
+      font-size: 0.72em;
       color: #666;
     }
     .empresa-info {
-      font-size: 0.82em;
+      font-size: 0.8em;
       color: #333;
-      margin-top: 8px;
+      margin-top: 6px;
     }
-    .empresa-info div {
-      margin: 2px 0;
-    }
+    .empresa-info div { margin: 2px 0; }
 
     .doc-tipo {
       display: inline-block;
-      padding: 8px 20px;
+      padding: 6px 16px;
       background: #1a3a5c;
       color: #fff;
-      border-radius: 6px;
-      font-size: 1.1em;
+      border-radius: 5px;
+      font-size: 1em;
       font-weight: 800;
-      letter-spacing: 1.5px;
-      margin-bottom: 6px;
+      letter-spacing: 1.2px;
+      margin-bottom: 5px;
     }
     .doc-numero {
-      font-size: 1.05em;
+      font-size: 0.95em;
       font-weight: 700;
       color: #c0392b;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
+      font-family: 'Courier New', monospace;
     }
     .doc-meta {
-      font-size: 0.75em;
+      font-size: 0.72em;
       color: #555;
     }
-    .doc-meta strong {
-      color: #1a3a5c;
-    }
-
-    /* ============ AMBIENTE BADGE ============ */
     .ambiente-badge {
       display: inline-block;
-      padding: 4px 12px;
+      padding: 3px 10px;
       background: ${ambiente === 'PRODUCCIÓN' ? '#27ae60' : '#e67e22'};
       color: #fff;
       border-radius: 20px;
-      font-size: 0.7em;
+      font-size: 0.68em;
       font-weight: 700;
-      letter-spacing: 0.5px;
-      margin-top: 4px;
+      letter-spacing: 0.4px;
+      margin-top: 3px;
     }
 
     /* ============ CLAVE DE ACCESO ============ */
     .clave-section {
       display: flex;
-      gap: 15px;
-      align-items: flex-start;
+      gap: 12px;
+      align-items: center;
       padding: 10px 12px;
       background: #f8f9fa;
       border-left: 4px solid #1a3a5c;
-      border-radius: 6px;
-      margin-bottom: 12px;
+      border-radius: 5px;
+      margin-bottom: 10px;
     }
     .clave-left {
       flex: 1;
       min-width: 0;
+      overflow: hidden;
     }
     .clave-label {
-      font-size: 0.7em;
+      font-size: 0.68em;
       color: #666;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
       font-weight: 700;
-      margin-bottom: 2px;
+      margin-bottom: 3px;
     }
     .clave-valor {
       font-family: 'Courier New', monospace;
-      font-size: 0.72em;
+      font-size: 0.7em;
       color: #1a3a5c;
       font-weight: 700;
       word-break: break-all;
-      line-height: 1.3;
-      margin-bottom: 6px;
+      line-height: 1.4;
+      margin-bottom: 4px;
+      letter-spacing: 0.3px;
     }
     .autorizacion-info {
-      font-size: 0.7em;
+      font-size: 0.68em;
       color: #555;
-      line-height: 1.5;
+      line-height: 1.4;
+      word-break: break-all;
     }
-    .autorizacion-info strong {
-      color: #1a3a5c;
-    }
+    .autorizacion-info strong { color: #1a3a5c; }
     .barcode-container {
       flex-shrink: 0;
       text-align: center;
+      max-width: 100%;
     }
     .barcode-svg {
-      height: 45px;
+      height: ${barcodeHeight}px;
       width: auto;
+      max-width: 100%;
+      display: block;
     }
     .barcode-numero {
       font-family: 'Courier New', monospace;
       font-size: 0.55em;
       color: #333;
       margin-top: 2px;
-      letter-spacing: -0.5px;
+      letter-spacing: 0;
+      word-break: break-all;
+      max-width: 100%;
+      overflow: hidden;
+      line-height: 1.1;
     }
 
-    /* ============ INFO CLIENTE ============ */
+    /* ============ CLIENTE ============ */
     .cliente-section {
       display: flex;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 10px;
+      margin-bottom: 10px;
     }
     .cliente-box {
       flex: 1;
-      padding: 10px 12px;
+      padding: 8px 10px;
       border: 1px solid #d5dbe0;
-      border-radius: 6px;
+      border-radius: 5px;
       background: #fafbfc;
+      min-width: 0;
     }
     .cliente-box-title {
-      font-size: 0.7em;
+      font-size: 0.68em;
       color: #666;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
       font-weight: 700;
-      margin-bottom: 6px;
-      padding-bottom: 4px;
+      margin-bottom: 5px;
+      padding-bottom: 3px;
       border-bottom: 1px dashed #d5dbe0;
     }
     .cliente-row {
       display: flex;
-      font-size: 0.78em;
-      margin: 3px 0;
-      line-height: 1.3;
+      font-size: 0.75em;
+      margin: 2px 0;
+      line-height: 1.35;
+      word-break: break-word;
     }
     .cliente-row-label {
       min-width: 80px;
       color: #666;
       font-weight: 600;
+      flex-shrink: 0;
     }
     .cliente-row-value {
       flex: 1;
       color: #1a1a1a;
       font-weight: 500;
+      min-width: 0;
+      word-break: break-word;
     }
 
     /* ============ TABLA DETALLES ============ */
-    .detalles-section {
-      margin-bottom: 12px;
-    }
+    .detalles-section { margin-bottom: 10px; }
     .detalles-title {
-      font-size: 0.75em;
+      font-size: 0.72em;
       font-weight: 700;
       color: #1a3a5c;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding: 6px 0;
+      letter-spacing: 0.4px;
+      padding: 5px 0;
       border-bottom: 2px solid #1a3a5c;
-      margin-bottom: 0;
     }
     .detalles-table {
       width: 100%;
       border-collapse: collapse;
       margin-top: 4px;
-      font-size: 0.82em;
+      font-size: 0.8em;
+      table-layout: fixed;
     }
     .detalles-table thead {
       background: #1a3a5c;
       color: #fff;
     }
     .detalles-table thead th {
-      padding: 7px 6px;
+      padding: 6px 5px;
       text-align: left;
       font-weight: 600;
-      font-size: 0.72em;
+      font-size: 0.68em;
       text-transform: uppercase;
-      letter-spacing: 0.3px;
-      border: none;
+      letter-spacing: 0.2px;
+      word-wrap: break-word;
     }
-    .detalles-table thead th.text-center { text-align: center; }
-    .detalles-table thead th.text-right { text-align: right; }
     .detalles-table tbody td {
-      padding: 8px 6px;
+      padding: 7px 5px;
       border-bottom: 1px solid #e9ecef;
       vertical-align: top;
+      word-break: break-word;
     }
     .detalles-table tbody tr:nth-child(even) {
       background: #f8f9fa;
@@ -363,7 +366,8 @@ export const printService = {
     .product-name {
       font-weight: 600;
       color: #1a1a1a;
-      margin-bottom: 2px;
+      margin-bottom: 1px;
+      font-size: 0.95em;
     }
     .product-code {
       font-size: 0.85em;
@@ -375,30 +379,25 @@ export const printService = {
     .totales-section {
       display: flex;
       justify-content: flex-end;
-      margin-top: 12px;
-      margin-bottom: 12px;
+      margin-top: 10px;
+      margin-bottom: 10px;
     }
     .totales-box {
       width: 100%;
-      max-width: 320px;
+      max-width: 300px;
       border: 1px solid #d5dbe0;
-      border-radius: 6px;
+      border-radius: 5px;
       overflow: hidden;
     }
     .total-row {
       display: flex;
       justify-content: space-between;
-      padding: 8px 14px;
-      font-size: 0.85em;
+      padding: 6px 12px;
+      font-size: 0.82em;
       border-bottom: 1px solid #e9ecef;
     }
-    .total-row:last-child {
-      border-bottom: none;
-    }
-    .total-row .label {
-      color: #555;
-      font-weight: 500;
-    }
+    .total-row:last-child { border-bottom: none; }
+    .total-row .label { color: #555; font-weight: 500; }
     .total-row .value {
       color: #1a1a1a;
       font-weight: 600;
@@ -407,129 +406,209 @@ export const printService = {
     .total-final {
       display: flex;
       justify-content: space-between;
-      padding: 12px 14px;
+      padding: 10px 12px;
       background: #1a3a5c;
       color: #fff;
-      font-size: 1.05em;
+      font-size: 1em;
       font-weight: 800;
     }
-    .total-final .label {
-      letter-spacing: 0.5px;
-    }
-    .total-final .value {
-      font-family: 'Courier New', monospace;
-    }
+    .total-final .value { font-family: 'Courier New', monospace; }
 
     /* ============ INFO ADICIONAL ============ */
     .info-adicional {
-      padding: 10px 12px;
+      padding: 8px 10px;
       background: #f8f9fa;
-      border-radius: 6px;
-      margin-bottom: 12px;
-      font-size: 0.78em;
+      border-left: 3px solid #e67e22;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      font-size: 0.75em;
     }
     .info-adicional-title {
-      font-size: 0.7em;
+      font-size: 0.68em;
       color: #666;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
       font-weight: 700;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
-    .info-adicional div {
-      margin: 2px 0;
+
+    /* ============ FIRMAS ============ */
+    .firma-section {
+      margin-top: 25px;
+      display: flex;
+      justify-content: space-around;
+      gap: 30px;
     }
+    .firma-box { flex: 1; text-align: center; }
+    .firma-line {
+      border-top: 1px solid #1a1a1a;
+      margin: 35px 15px 5px;
+    }
+    .firma-label { font-size: 0.7em; color: #555; }
 
     /* ============ FOOTER ============ */
     .footer {
-      margin-top: 20px;
-      padding-top: 10px;
+      margin-top: 16px;
+      padding-top: 8px;
       border-top: 2px solid #1a3a5c;
       text-align: center;
-      font-size: 0.72em;
+      font-size: 0.68em;
       color: #666;
       line-height: 1.6;
     }
-    .footer strong {
-      color: #1a3a5c;
-    }
-    .firma-section {
-      margin-top: 30px;
-      display: flex;
-      justify-content: space-around;
-      gap: 40px;
-    }
-    .firma-box {
-      flex: 1;
-      text-align: center;
-    }
-    .firma-line {
-      border-top: 1px solid #1a1a1a;
-      margin: 40px 20px 6px;
-    }
-    .firma-label {
-      font-size: 0.75em;
-      color: #555;
-    }
+    .footer strong { color: #1a3a5c; }
 
-    /* ============ TICKET (formatos pequeños) ============ */
+    /* ==================================================
+       TICKET (80mm) — Reglas específicas
+       ================================================== */
+    .ticket {
+      padding: 3mm;
+    }
     .ticket .header {
       flex-direction: column;
-      align-items: stretch;
+      align-items: center;
       text-align: center;
-      gap: 8px;
+      gap: 6px;
+      padding-bottom: 8px;
     }
     .ticket .header-left,
     .ticket .header-center,
     .ticket .header-right {
       text-align: center;
+      flex: none;
+      width: 100%;
     }
+    .ticket .logo-empresa {
+      justify-content: center;
+    }
+    .ticket .logo-icon {
+      width: 34px;
+      height: 34px;
+      font-size: 18px;
+    }
+    .ticket .empresa-nombre { font-size: 1em; }
+    .ticket .empresa-info { font-size: 0.7em; }
+
+    .ticket .doc-tipo {
+      padding: 4px 12px;
+      font-size: 0.9em;
+    }
+    .ticket .doc-numero { font-size: 0.85em; }
+
+    /* CLAVE: apilada verticalmente y más compacta */
     .ticket .clave-section {
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
+      padding: 8px;
       text-align: center;
+    }
+    .ticket .clave-left {
+      width: 100%;
+      text-align: center;
+    }
+    .ticket .clave-label {
+      font-size: 0.62em;
+    }
+    .ticket .clave-valor {
+      font-size: 0.6em;
+      letter-spacing: 0;
+      line-height: 1.3;
+      word-break: break-all;
+    }
+    .ticket .autorizacion-info {
+      font-size: 0.6em;
+      text-align: center;
+    }
+    .ticket .autorizacion-info div {
+      word-break: break-all;
     }
     .ticket .barcode-container {
+      width: 100%;
+      max-width: 100%;
       text-align: center;
     }
+    .ticket .barcode-svg {
+      height: ${barcodeHeight}px;
+      width: 100%;
+      max-width: 72mm;
+      margin: 0 auto;
+      display: block;
+    }
+    .ticket .barcode-numero {
+      font-size: 0.5em;
+      line-height: 1.2;
+      word-break: break-all;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    /* Cliente apilado */
     .ticket .cliente-section {
       flex-direction: column;
+      gap: 6px;
     }
+    .ticket .cliente-box {
+      padding: 6px 8px;
+    }
+    .ticket .cliente-row-label {
+      min-width: 65px;
+      font-size: 0.95em;
+    }
+
+    /* Tabla compacta */
     .ticket .detalles-table {
-      font-size: 0.75em;
+      font-size: 0.7em;
     }
     .ticket .detalles-table thead th {
-      font-size: 0.7em;
       padding: 4px 2px;
+      font-size: 0.6em;
     }
     .ticket .detalles-table tbody td {
       padding: 5px 2px;
     }
+    .ticket .product-name { font-size: 0.9em; }
+
     .ticket .totales-box {
       max-width: 100%;
+    }
+    .ticket .total-row {
+      padding: 5px 10px;
+      font-size: 0.75em;
+    }
+    .ticket .total-final {
+      padding: 8px 10px;
+      font-size: 0.9em;
+    }
+
+    .ticket .firma-section {
+      flex-direction: column;
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .ticket .firma-line {
+      margin: 25px 30px 5px;
+    }
+
+    .ticket .footer {
+      font-size: 0.6em;
     }
 
     /* ============ IMPRESIÓN ============ */
     @media print {
-      body {
-        margin: 0;
-        padding: 0;
-      }
+      body { margin: 0; padding: 0; }
       .container {
         width: 100%;
         padding: ${padding};
+        box-shadow: none;
       }
-      .no-print {
-        display: none !important;
-      }
-      .header {
+      .no-print { display: none !important; }
+      .header, .clave-section, .cliente-section, .totales-section, .info-adicional {
         page-break-inside: avoid;
       }
-      .detalles-table {
-        page-break-inside: auto;
-      }
-      .detalles-table tr {
-        page-break-inside: avoid;
+      .detalles-table tr { page-break-inside: avoid; }
+      @page {
+        size: ${formato === 'ticket' ? '80mm auto' : formato === 'A2' ? 'A2' : 'A4'};
+        margin: ${formato === 'ticket' ? '2mm' : '8mm'};
       }
     }
   </style>
@@ -549,7 +628,7 @@ export const printService = {
         <div class="empresa-info">
           <div><strong>RUC:</strong> ${rucEmisor}</div>
           <div><strong>Dir. Matriz:</strong> ${dirMatriz}</div>
-          <div><strong>Dir. Sucursal:</strong> ${dirSucursal}</div>
+          ${formato !== 'ticket' ? `<div><strong>Dir. Sucursal:</strong> ${dirSucursal}</div>` : ''}
         </div>
       </div>
 
@@ -560,13 +639,13 @@ export const printService = {
           <div><strong>Fecha Emisión:</strong> ${fechaEmision}</div>
         </div>
         <div class="ambiente-badge">
-          ${ambiente === 'PRODUCCIÓN' ? '● PRODUCCIÓN' : '● AMBIENTE DE PRUEBAS'}
+          ${ambiente === 'PRODUCCIÓN' ? '● PRODUCCIÓN' : '● PRUEBAS'}
         </div>
       </div>
 
       <div class="header-right">
         <div class="empresa-info">
-          <div><strong>Obligado a llevar contabilidad:</strong> ${obligadoContabilidad}</div>
+          <div><strong>Obligado contab.:</strong> ${obligadoContabilidad}</div>
           ${contribuyenteEspecial ? `<div><strong>Contrib. Especial:</strong> ${contribuyenteEspecial}</div>` : ''}
           <div><strong>Tipo Emisión:</strong> ${tipoEmision}</div>
           <div><strong>Moneda:</strong> DÓLAR</div>
@@ -579,7 +658,7 @@ export const printService = {
     <div class="clave-section">
       <div class="clave-left">
         <div class="clave-label">Clave de Acceso</div>
-        <div class="clave-valor">${claveAcceso}</div>
+        <div class="clave-valor">${claveFormateada}</div>
         <div class="autorizacion-info">
           <div><strong>Nº Autorización:</strong> ${numeroAutorizacion}</div>
           <div><strong>Fecha Autorización:</strong> ${fechaAutorizacion}</div>
@@ -643,13 +722,13 @@ export const printService = {
       <table class="detalles-table">
         <thead>
           <tr>
-            <th style="width:30px;" class="text-center">#</th>
+            <th style="width:26px;" class="text-center">#</th>
             <th>Descripción</th>
-            <th style="width:70px;" class="text-center">Cant.</th>
-            <th style="width:80px;" class="text-right">P. Unit.</th>
-            <th style="width:70px;" class="text-right">Desc.</th>
-            <th style="width:60px;" class="text-center">IVA</th>
-            <th style="width:90px;" class="text-right">Subtotal</th>
+            <th style="width:55px;" class="text-center">Cant.</th>
+            <th style="width:70px;" class="text-right">P. Unit.</th>
+            <th style="width:55px;" class="text-right">Desc.</th>
+            <th style="width:50px;" class="text-center">IVA</th>
+            <th style="width:80px;" class="text-right">Subtotal</th>
           </tr>
         </thead>
         <tbody>
@@ -705,7 +784,7 @@ export const printService = {
       <div><strong>Documento generado por Sistema Contable</strong></div>
       <div>${razonSocialEmisor} — RUC: ${rucEmisor}</div>
       <div>Formato: ${formato} | Generado: ${new Date().toLocaleString('es-EC')}</div>
-      ${claveAcceso ? `<div style="margin-top:6px;font-size:0.9em;">Este documento es una representación impresa de un comprobante electrónico autorizado por el SRI</div>` : ''}
+      ${claveAcceso ? `<div style="margin-top:6px;font-size:0.9em;">Representación impresa de un comprobante electrónico autorizado por el SRI</div>` : ''}
     </div>
   </div>
 
@@ -722,15 +801,19 @@ export const printService = {
   },
 
   /**
-   * Genera un código de barras en formato Code128 (simulado con HTML/CSS)
-   * Para producción se recomienda usar una librería real como JsBarcode
+   * Genera el código de barras SVG con ancho controlado según el formato.
    */
-  generarBarcodeHTML(texto) {
-    // Convertir cada caracter en un patrón de barras simple
+  generarBarcodeHTML(texto, formato = 'A4', maxWidth = 240, maxHeight = 45) {
+    if (!texto) return ''
+
+    // Para el ticket, mostramos solo los últimos 22 dígitos visibles (el código completo va arriba)
+    const textoBarras = formato === 'ticket' && texto.length > 30
+      ? texto.slice(-22)
+      : texto
+
     const barras = []
-    for (let i = 0; i < texto.length; i++) {
-      const charCode = texto.charCodeAt(i)
-      // Generar 4 barras de ancho variable por cada carácter
+    for (let i = 0; i < textoBarras.length; i++) {
+      const charCode = textoBarras.charCodeAt(i)
       const w1 = (charCode % 4) + 1
       const w2 = ((charCode >> 2) % 4) + 1
       const w3 = ((charCode >> 4) % 3) + 1
@@ -738,7 +821,13 @@ export const printService = {
       barras.push(w1, w2, w3, w4)
     }
 
-    let svg = `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${barras.reduce((a, b) => a + b, 0) + barras.length * 2} 60" preserveAspectRatio="none">`
+    const totalWidth = barras.reduce((a, b) => a + b, 0) + barras.length
+
+    // Ajustar ancho para ticket
+    const viewBoxWidth = totalWidth
+    const aspectRatio = viewBoxWidth / maxHeight
+
+    let svg = `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewBoxWidth} 60" preserveAspectRatio="none" style="max-width: 100%; height: ${maxHeight}px;">`
     let x = 0
     let black = true
     for (let i = 0; i < barras.length; i++) {
