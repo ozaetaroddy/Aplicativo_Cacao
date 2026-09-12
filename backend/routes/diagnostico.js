@@ -57,7 +57,7 @@ router.get('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
     // ===== 2. CERTIFICADO DE FIRMA =====
     const cert = await req.db.collection('certificados').findOne(
       { _id: 'empresa' },
-      { projection: { archivo_base64: 0, password: 0 } }
+      { projection: { archivo_base64: 0, password: 0, password_cifrado: 0 } }
     );
     if (!cert) {
       resultados.certificado = {

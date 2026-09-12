@@ -1,12 +1,12 @@
 // backend/routes/estadosFinancieros.js
 const express = require('express');
 const router = express.Router();
-const { ObjectId } = require('mongodb');
+const { requierePermiso } = require('../utils/permisos');
+
+router.use(requierePermiso('reportes', 'ver'));
 
 // ============================================================
 // ESTADO DE RESULTADOS
-// Ingresos - Costo de ventas = Utilidad Bruta
-// Utilidad Bruta - Gastos = Utilidad Neta
 // ============================================================
 router.get('/resultados', async (req, res) => {
   try {
@@ -20,7 +20,6 @@ router.get('/resultados', async (req, res) => {
     const fechaHasta = new Date(hasta);
     fechaHasta.setHours(23, 59, 59, 999);
 
-    // 1. Ingresos por ventas (excluyendo notas de crédito y guías)
     const ventas = await req.db.collection('ventas_v2').aggregate([
       {
         $match: {
@@ -41,7 +40,6 @@ router.get('/resultados', async (req, res) => {
 
     const ingresos = ventas[0] || { subtotal: 0, iva: 0, total: 0, cantidad: 0 };
 
-    // 2. Notas de crédito (devoluciones - reducen ingresos)
     const notasCredito = await req.db.collection('ventas_v2').aggregate([
       {
         $match: {
@@ -59,10 +57,8 @@ router.get('/resultados', async (req, res) => {
     ]).toArray();
 
     const devoluciones = notasCredito[0] || { subtotal: 0, total: 0 };
-
     const ingresosNetos = (ingresos.subtotal || 0) - (devoluciones.subtotal || 0);
 
-    // 3. Costo de ventas: usamos el kardex de tipo "venta" (que ya guarda costo_unitario y cantidad)
     const costoVentas = await req.db.collection('kardex').aggregate([
       {
         $match: {
@@ -73,25 +69,16 @@ router.get('/resultados', async (req, res) => {
       {
         $group: {
           _id: null,
-          costo: {
-            $sum: {
-              $multiply: [
-                { $abs: '$cantidad' },  // cantidad es negativa en ventas, la hacemos positiva
-                '$costo_unitario'
-              ]
-            }
-          }
+          costo: { $sum: { $multiply: [{ $abs: '$cantidad' }, '$costo_unitario'] } }
         }
       }
     ]).toArray();
 
     const costoDeVentas = costoVentas[0]?.costo || 0;
 
-    // 4. Utilidad Bruta
     const utilidadBruta = ingresosNetos - costoDeVentas;
     const margenBruto = ingresosNetos > 0 ? (utilidadBruta / ingresosNetos) * 100 : 0;
 
-    // 5. Gastos operativos (compras tipo "gasto")
     const gastos = await req.db.collection('compras_v2').aggregate([
       {
         $match: {
@@ -112,7 +99,6 @@ router.get('/resultados', async (req, res) => {
 
     const gastosOperativos = gastos[0]?.subtotal || 0;
 
-    // Desglose de gastos por proveedor (top)
     const gastosPorProveedor = await req.db.collection('compras_v2').aggregate([
       {
         $match: {
@@ -120,23 +106,10 @@ router.get('/resultados', async (req, res) => {
           tipo_compra: 'gasto'
         }
       },
-      {
-        $group: {
-          _id: '$proveedorId',
-          total: { $sum: '$subtotal' },
-          cantidad: { $sum: 1 }
-        }
-      },
+      { $group: { _id: '$proveedorId', total: { $sum: '$subtotal' }, cantidad: { $sum: 1 } } },
       { $sort: { total: -1 } },
       { $limit: 10 },
-      {
-        $lookup: {
-          from: 'proveedores',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'proveedor'
-        }
-      },
+      { $lookup: { from: 'proveedores', localField: '_id', foreignField: '_id', as: 'proveedor' } },
       { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } },
       {
         $project: {
@@ -148,11 +121,9 @@ router.get('/resultados', async (req, res) => {
       }
     ]).toArray();
 
-    // 6. Utilidad Neta
     const utilidadNeta = utilidadBruta - gastosOperativos;
     const margenNeto = ingresosNetos > 0 ? (utilidadNeta / ingresosNetos) * 100 : 0;
 
-    // 7. IVA (informativo, no es utilidad)
     const ivaVentas = ingresos.iva || 0;
     const ivaCompras = await req.db.collection('compras_v2').aggregate([
       {
@@ -165,7 +136,6 @@ router.get('/resultados', async (req, res) => {
     ]).toArray();
     const ivaComprasTotal = ivaCompras[0]?.iva || 0;
 
-    // Comparación con período anterior (opcional)
     let comparacion = null;
     if (comparar === 'true') {
       const duracion = fechaHasta - fechaDesde;
@@ -193,10 +163,7 @@ router.get('/resultados', async (req, res) => {
       ]).toArray();
 
       comparacion = {
-        periodo_anterior: {
-          desde: anteriorDesde,
-          hasta: anteriorHasta
-        },
+        periodo_anterior: { desde: anteriorDesde, hasta: anteriorHasta },
         ingresosNetos: ventasAnterior[0]?.subtotal || 0,
         gastosOperativos: gastosAnterior[0]?.subtotal || 0
       };
@@ -214,20 +181,13 @@ router.get('/resultados', async (req, res) => {
         devoluciones: devoluciones.subtotal || 0,
         ingresosNetos
       },
-      costos: {
-        costoDeVentas,
-        margenBruto
-      },
+      costos: { costoDeVentas, margenBruto },
       gastos: {
         gastosOperativos,
         cantidadCompras: gastos[0]?.cantidad || 0,
         desglosePorProveedor: gastosPorProveedor
       },
-      utilidad: {
-        utilidadBruta,
-        utilidadNeta,
-        margenNeto
-      },
+      utilidad: { utilidadBruta, utilidadNeta, margenNeto },
       iva: {
         ivaVentas,
         ivaCompras: ivaComprasTotal,
@@ -242,74 +202,108 @@ router.get('/resultados', async (req, res) => {
 });
 
 // ============================================================
-// BALANCE GENERAL (a una fecha)
-// Activo = Pasivo + Patrimonio
+// BALANCE GENERAL (CxC y CxP netos por cliente/proveedor)
+// Criterio consistente con /estadisticas/dashboard:
+//   saldo cliente = SUM(débitos) - SUM(NC) - SUM(cobros del cliente)
+//   saldo proveedor = SUM(compras) - SUM(pagos al proveedor)
+// Solo se suman los saldos POSITIVOS.
 // ============================================================
 router.get('/balance', async (req, res) => {
   try {
     const { fecha } = req.query;
-    if (!fecha) {
-      return res.status(400).json({ error: 'Se requiere la fecha de corte' });
-    }
+    if (!fecha) return res.status(400).json({ error: 'Se requiere la fecha de corte' });
 
     const fechaCorte = new Date(fecha);
     fechaCorte.setHours(23, 59, 59, 999);
 
     // ===== ACTIVOS =====
-
-    // 1. Inventario valorizado (stock × precio_compra)
     const productos = await req.db.collection('productos').find({}).toArray();
-    const inventarioValorCompra = productos.reduce((sum, p) => {
-      return sum + ((p.stock || 0) * (p.precio_compra || 0));
-    }, 0);
-    const inventarioValorVenta = productos.reduce((sum, p) => {
-      return sum + ((p.stock || 0) * (p.precio_venta || 0));
-    }, 0);
+    const inventarioValorCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
+    const inventarioValorVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
 
-    // 2. Cuentas por cobrar (ventas pendientes de pago)
-    const cxc = await req.db.collection('ventas_v2').aggregate([
+    // CxC neta por cliente (filtrada por fecha de corte)
+    const cxcAgg = await req.db.collection('ventas_v2').aggregate([
       {
         $match: {
           fecha_emision: { $lte: fechaCorte },
-          tipo_documento: { $nin: ['guia_remision', 'nota_credito', 'proforma'] },
-          estado_pago: { $ne: 'pagado' }
+          tipo_documento: { $nin: ['guia_remision', 'proforma'] }
         }
       },
-      { $group: { _id: null, total: { $sum: '$total' }, cantidad: { $sum: 1 } } }
+      {
+        $group: {
+          _id: '$clienteId',
+          debitos: { $sum: { $cond: [{ $ne: ['$tipo_documento', 'nota_credito'] }, '$total', 0] } },
+          creditosNC: { $sum: { $cond: [{ $eq: ['$tipo_documento', 'nota_credito'] }, '$total', 0] } }
+        }
+      }
     ]).toArray();
-    const cuentasPorCobrar = cxc[0]?.total || 0;
-    const cantidadCxC = cxc[0]?.cantidad || 0;
 
-    // 3. IVA crédito tributario (IVA de compras)
-    const ivaCompras = await req.db.collection('compras_v2').aggregate([
+    const pagosClientesAgg = await req.db.collection('pagos').aggregate([
       {
         $match: {
-          fecha_emision: { $lte: fechaCorte }
+          tipo: 'cobro',
+          anulado: { $ne: true },
+          clienteId: { $ne: null },
+          fecha: { $lte: fechaCorte }
         }
       },
+      { $group: { _id: '$clienteId', total: { $sum: '$monto' } } }
+    ]).toArray();
+    const pagosPorCliente = new Map(pagosClientesAgg.map(p => [String(p._id), p.total || 0]));
+
+    let cuentasPorCobrar = 0;
+    let cantidadCxC = 0;
+    for (const c of cxcAgg) {
+      if (!c._id) continue;
+      const pagos = pagosPorCliente.get(String(c._id)) || 0;
+      const saldo = (c.debitos || 0) - (c.creditosNC || 0) - pagos;
+      if (saldo > 0.01) {
+        cuentasPorCobrar += saldo;
+        cantidadCxC += 1;
+      }
+    }
+    cuentasPorCobrar = +cuentasPorCobrar.toFixed(2);
+
+    const ivaCompras = await req.db.collection('compras_v2').aggregate([
+      { $match: { fecha_emision: { $lte: fechaCorte } } },
       { $group: { _id: null, iva: { $sum: '$iva' } } }
     ]).toArray();
     const ivaCredito = ivaCompras[0]?.iva || 0;
 
-    // Total activos
     const totalActivos = inventarioValorCompra + cuentasPorCobrar + ivaCredito;
 
     // ===== PASIVOS =====
+    const cxpAgg = await req.db.collection('compras_v2').aggregate([
+      { $match: { fecha_emision: { $lte: fechaCorte } } },
+      { $group: { _id: '$proveedorId', total: { $sum: '$total' } } }
+    ]).toArray();
 
-    // 1. Cuentas por pagar (compras pendientes)
-    const cxp = await req.db.collection('compras_v2').aggregate([
+    const pagosProvAgg = await req.db.collection('pagos').aggregate([
       {
         $match: {
-          fecha_emision: { $lte: fechaCorte },
-          estado_pago: { $ne: 'pagado' }
+          tipo: 'pago',
+          anulado: { $ne: true },
+          proveedorId: { $ne: null },
+          fecha: { $lte: fechaCorte }
         }
       },
-      { $group: { _id: null, total: { $sum: '$total' }, cantidad: { $sum: 1 } } }
+      { $group: { _id: '$proveedorId', total: { $sum: '$monto' } } }
     ]).toArray();
-    const cuentasPorPagar = cxp[0]?.total || 0;
-    const cantidadCxP = cxp[0]?.cantidad || 0;
+    const pagosPorProveedor = new Map(pagosProvAgg.map(p => [String(p._id), p.total || 0]));
 
-    // 2. IVA por pagar (IVA ventas - IVA compras)
+    let cuentasPorPagar = 0;
+    let cantidadCxP = 0;
+    for (const c of cxpAgg) {
+      if (!c._id) continue;
+      const pagos = pagosPorProveedor.get(String(c._id)) || 0;
+      const saldo = (c.total || 0) - pagos;
+      if (saldo > 0.01) {
+        cuentasPorPagar += saldo;
+        cantidadCxP += 1;
+      }
+    }
+    cuentasPorPagar = +cuentasPorPagar.toFixed(2);
+
     const ivaVentasAgg = await req.db.collection('ventas_v2').aggregate([
       {
         $match: {
@@ -322,12 +316,9 @@ router.get('/balance', async (req, res) => {
     const ivaVentas = ivaVentasAgg[0]?.iva || 0;
     const ivaPorPagar = Math.max(0, ivaVentas - ivaCredito);
 
-    // Total pasivos
     const totalPasivos = cuentasPorPagar + ivaPorPagar;
 
     // ===== PATRIMONIO =====
-
-    // Calcular utilidades acumuladas (todas las ventas - todos los costos - todos los gastos)
     const ventasAcum = await req.db.collection('ventas_v2').aggregate([
       {
         $match: {
@@ -340,52 +331,26 @@ router.get('/balance', async (req, res) => {
     const ingresosAcum = ventasAcum[0]?.subtotal || 0;
 
     const notasCreditoAcum = await req.db.collection('ventas_v2').aggregate([
-      {
-        $match: {
-          fecha_emision: { $lte: fechaCorte },
-          tipo_documento: 'nota_credito'
-        }
-      },
+      { $match: { fecha_emision: { $lte: fechaCorte }, tipo_documento: 'nota_credito' } },
       { $group: { _id: null, subtotal: { $sum: '$subtotal' } } }
     ]).toArray();
     const devolucionesAcum = notasCreditoAcum[0]?.subtotal || 0;
 
     const costoAcum = await req.db.collection('kardex').aggregate([
-      {
-        $match: {
-          fecha: { $lte: fechaCorte },
-          tipo_movimiento: 'venta'
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          costo: {
-            $sum: {
-              $multiply: [{ $abs: '$cantidad' }, '$costo_unitario']
-            }
-          }
-        }
-      }
+      { $match: { fecha: { $lte: fechaCorte }, tipo_movimiento: 'venta' } },
+      { $group: { _id: null, costo: { $sum: { $multiply: [{ $abs: '$cantidad' }, '$costo_unitario'] } } } }
     ]).toArray();
     const costoVentasAcum = costoAcum[0]?.costo || 0;
 
     const gastosAcum = await req.db.collection('compras_v2').aggregate([
-      {
-        $match: {
-          fecha_emision: { $lte: fechaCorte },
-          tipo_compra: 'gasto'
-        }
-      },
+      { $match: { fecha_emision: { $lte: fechaCorte }, tipo_compra: 'gasto' } },
       { $group: { _id: null, subtotal: { $sum: '$subtotal' } } }
     ]).toArray();
     const gastosTotales = gastosAcum[0]?.subtotal || 0;
 
     const utilidadesAcumuladas = (ingresosAcum - devolucionesAcum) - costoVentasAcum - gastosTotales;
-
     const totalPatrimonio = utilidadesAcumuladas;
 
-    // Verificación de la ecuación contable
     const totalPasivoPatrimonio = totalPasivos + totalPatrimonio;
     const diferencia = totalActivos - totalPasivoPatrimonio;
 

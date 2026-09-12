@@ -1,29 +1,36 @@
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
-const { body, validationResult } = require('express-validator');
+const { body } = require('express-validator');
 const { logAudit } = require('../utils/audit');
+const { requierePermiso } = require('../utils/permisos');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+const { validar } = require('../utils/validacion');
+const { validarIdentificacion, validarTelefono } = require('../utils/validators');
+
+const NOMBRE_REGEX = /^[\p{L}\p{N}\s.,'&()#°/+-]{2,150}$/u;
+const TELEFONO_MSG = 'Teléfono inválido (09XXXXXXXX celular, 0XXXXXXXXX fijo)';
 
 const validarProveedor = [
   body('nombre').trim().notEmpty().withMessage('El nombre es obligatorio')
-    .matches(/^[A-Za-zÁÉÍÓÚÑáéíóúñ\s.]+$/).withMessage('Solo letras, espacios y puntos'),
+    .matches(NOMBRE_REGEX).withMessage('El nombre contiene caracteres no permitidos'),
   body('ruc').trim().notEmpty().withMessage('El RUC/Cédula es obligatorio')
     .custom((value) => {
-      const { validarIdentificacion } = require('../utils/validators');
       const resultado = validarIdentificacion(value);
-      if (!resultado.valido) {
-        throw new Error(resultado.mensaje);
-      }
+      if (!resultado.valido) throw new Error(resultado.mensaje);
       return true;
     }),
   body('telefono').trim().notEmpty().withMessage('El teléfono es obligatorio')
-    .matches(/^09\d{8}$/).withMessage('Debe comenzar con 09 y tener 10 dígitos'),
+    .custom((value) => {
+      const r = validarTelefono(value);
+      if (!r.valido) throw new Error(TELEFONO_MSG);
+      return true;
+    }),
   body('email').trim().notEmpty().withMessage('El email es obligatorio')
     .isEmail().withMessage('Email inválido').normalizeEmail()
 ];
 
-router.get('/', async (req, res) => {
+router.get('/', requierePermiso('proveedores', 'ver'), async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
     const paginar = wantsPagination(req.query);
@@ -33,10 +40,7 @@ router.get('/', async (req, res) => {
     if (search) {
       const regex = new RegExp(escapeRegex(search), 'i');
       matchStage.$or = [
-        { nombre: regex },
-        { ruc: regex },
-        { telefono: regex },
-        { email: regex }
+        { nombre: regex }, { ruc: regex }, { telefono: regex }, { email: regex }
       ];
     }
 
@@ -49,25 +53,15 @@ router.get('/', async (req, res) => {
 
     const total = await req.db.collection('proveedores').countDocuments(matchStage);
     const data = await req.db.collection('proveedores')
-      .find(matchStage)
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .toArray();
+      .find(matchStage).sort(sort).skip(skip).limit(limit).toArray();
 
-    res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit)
-    });
+    res.json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requierePermiso('proveedores', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -79,9 +73,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', validarProveedor, async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+router.post('/', requierePermiso('proveedores', 'crear'), validarProveedor, async (req, res) => {
+  if (validar(req, res)) return;
 
   try {
     const { nombre, ruc, telefono, email, direccion } = req.body;
@@ -91,7 +84,6 @@ router.post('/', validarProveedor, async (req, res) => {
     const nuevo = { nombre, ruc, telefono, email, direccion: direccion || '', createdAt: new Date() };
     const result = await req.db.collection('proveedores').insertOne(nuevo);
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'crear',
       coleccion: 'proveedores',
@@ -107,9 +99,8 @@ router.post('/', validarProveedor, async (req, res) => {
   }
 });
 
-router.put('/:id', validarProveedor, async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+router.put('/:id', requierePermiso('proveedores', 'editar'), validarProveedor, async (req, res) => {
+  if (validar(req, res)) return;
 
   try {
     const { id } = req.params;
@@ -131,7 +122,6 @@ router.put('/:id', validarProveedor, async (req, res) => {
     );
     if (result.matchedCount === 0) return res.status(404).json({ error: 'Proveedor no encontrado' });
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'actualizar',
       coleccion: 'proveedores',
@@ -148,7 +138,7 @@ router.put('/:id', validarProveedor, async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requierePermiso('proveedores', 'eliminar'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -156,10 +146,22 @@ router.delete('/:id', async (req, res) => {
     const proveedorAnterior = await req.db.collection('proveedores').findOne({ _id: new ObjectId(id) });
     if (!proveedorAnterior) return res.status(404).json({ error: 'Proveedor no encontrado' });
 
+    const [comprasAsociadas, pagosAsociados] = await Promise.all([
+      req.db.collection('compras_v2').countDocuments({ proveedorId: new ObjectId(id) }),
+      req.db.collection('pagos').countDocuments({ proveedorId: new ObjectId(id), anulado: { $ne: true } })
+    ]);
+
+    if (comprasAsociadas > 0 || pagosAsociados > 0) {
+      return res.status(409).json({
+        error: `No se puede eliminar: el proveedor tiene ${comprasAsociadas} compras y ${pagosAsociados} pagos asociados.`,
+        comprasAsociadas,
+        pagosAsociados
+      });
+    }
+
     const result = await req.db.collection('proveedores').deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) return res.status(404).json({ error: 'Proveedor no encontrado' });
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'eliminar',
       coleccion: 'proveedores',

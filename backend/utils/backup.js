@@ -1,33 +1,28 @@
 // backend/utils/backup.js
 const zlib = require('zlib');
-const { ObjectId } = require('mongodb');
+const { ObjectId, Binary } = require('mongodb');
 
-// Colecciones que se incluyen en el backup
 const COLECCIONES_INCLUIDAS = [
-  'usuarios',
-  'clientes',
-  'proveedores',
-  'productos',
-  'categorias',
-  'ventas_v2',
-  'compras_v2',
-  'kardex',
-  'retenciones',
-  'contadores',
-  'secuencias',
-  'periodos_cerrados',
-  'configuracion',
-  'certificados',
-  'auditoria',
-  'backup_config'
+  'usuarios', 'clientes', 'proveedores', 'productos', 'categorias',
+  'ventas_v2', 'compras_v2', 'kardex', 'retenciones', 'pagos',
+  'contadores', 'secuencias', 'periodos_cerrados',
+  'configuracion', 'certificados', 'backup_config'
 ];
 
-// ===== REVIVIR BSON =====
-// Serializa ObjectId y Date a un formato recuperable
+const COLECCIONES_EXCLUIDAS_RESTORE = new Set([
+  'backups', 'backup_config', 'cache_consultas', 'sessions',
+  'auditoria', 'backup_lock'
+]);
+
+const BATCH_SIZE = 1000;
+
+// ===== Serialización BSON =====
 function serializarBSON(value) {
   if (value === null || value === undefined) return value;
   if (value instanceof ObjectId) return { __bsonType: 'ObjectId', value: value.toString() };
   if (value instanceof Date) return { __bsonType: 'Date', value: value.toISOString() };
+  if (Buffer.isBuffer(value)) return { __bsonType: 'Buffer', value: value.toString('base64') };
+  if (value instanceof Binary) return { __bsonType: 'Buffer', value: value.buffer.toString('base64') };
   if (Array.isArray(value)) return value.map(serializarBSON);
   if (typeof value === 'object') {
     const out = {};
@@ -45,6 +40,7 @@ function revivirBSON(value) {
       try { return new ObjectId(value.value); } catch { return value.value; }
     }
     if (value.__bsonType === 'Date') return new Date(value.value);
+    if (value.__bsonType === 'Buffer') return Buffer.from(value.value, 'base64');
     const out = {};
     for (const k of Object.keys(value)) out[k] = revivirBSON(value[k]);
     return out;
@@ -53,20 +49,34 @@ function revivirBSON(value) {
 }
 
 /**
- * Genera un objeto con todas las colecciones y sus documentos.
+ * Normaliza el contenido de un backup a un Buffer, sin importar si viene
+ * como Buffer nativo, Binary del driver o un objeto legacy { buffer: ... }.
  */
-async function generarBackup(db) {
+function extraerBufferContenido(contenido) {
+  if (!contenido) return null;
+  if (Buffer.isBuffer(contenido)) return contenido;
+  if (contenido instanceof Binary) return contenido.buffer;
+  if (contenido.buffer && Buffer.isBuffer(contenido.buffer)) return contenido.buffer;
+  if (contenido.value && Buffer.isBuffer(contenido.value)) return contenido.value;
+  if (contenido._bsontype === 'Binary' && contenido.buffer) return contenido.buffer;
+  return null;
+}
+
+// ===== Generar snapshot =====
+async function generarBackup(db, { incluirAuditoria = false, coleccionesExtra = [] } = {}) {
+  const cols = [...COLECCIONES_INCLUIDAS, ...coleccionesExtra];
+  if (incluirAuditoria) cols.push('auditoria');
+
   const snapshot = {
-    version: '2.0',
+    version: '2.4',
     fecha: new Date().toISOString(),
     db: db.databaseName,
     colecciones: {}
   };
 
-  for (const nombre of COLECCIONES_INCLUIDAS) {
+  for (const nombre of cols) {
     try {
       const docs = await db.collection(nombre).find({}).toArray();
-      // Serializar respetando ObjectId/Date
       snapshot.colecciones[nombre] = docs.map(serializarBSON);
     } catch (err) {
       console.error(`Error exportando ${nombre}:`, err.message);
@@ -79,42 +89,60 @@ async function generarBackup(db) {
 
 function comprimirBackup(data) {
   const json = JSON.stringify(data);
-  return zlib.gzipSync(Buffer.from(json, 'utf-8'));
+  return zlib.gzipSync(Buffer.from(json, 'utf-8'), { level: 6 });
 }
 
 function descomprimirBackup(buffer) {
-  const decompressed = zlib.gunzipSync(buffer);
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  const decompressed = zlib.gunzipSync(buf);
   return JSON.parse(decompressed.toString('utf-8'));
 }
 
-/**
- * Aplica un backup a la base de datos (destructivo: borra y reinserta).
- */
+// ===== Restaurar (staging → swap) =====
 async function restaurarBackup(db, snapshot, coleccionesARestaurar = null) {
   const resultados = [];
   const colecciones = coleccionesARestaurar || Object.keys(snapshot.colecciones || {});
 
-  // ⚠️ No restaurar backups/auditoria completos para no perder los actuales
-  const EXCLUIR = new Set(['backups']);
-
   for (const nombre of colecciones) {
-    if (EXCLUIR.has(nombre)) continue;
-
+    if (COLECCIONES_EXCLUIDAS_RESTORE.has(nombre)) continue;
     const docsRaw = snapshot.colecciones?.[nombre];
     if (!Array.isArray(docsRaw)) continue;
 
+    const tmp = `_restore_${nombre}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let insertOk = false;
+
     try {
-      // ⚠️ Revivir ObjectId/Date antes de insertar
       const docs = docsRaw.map(revivirBSON);
 
+      // 1. Staging: insertar en colección temporal (si falla, no tocamos la original)
+      if (docs.length > 0) {
+        for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+          await db.collection(tmp).insertMany(docs.slice(i, i + BATCH_SIZE), { ordered: false });
+        }
+      }
+      insertOk = true;
+
+      // 2. Swap: vaciar la original e insertar
       await db.collection(nombre).deleteMany({});
       if (docs.length > 0) {
-        // ordered: false para no detenerse si un doc falla por índice duplicado
-        await db.collection(nombre).insertMany(docs, { ordered: false });
+        for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+          await db.collection(nombre).insertMany(docs.slice(i, i + BATCH_SIZE), { ordered: false });
+        }
       }
+
       resultados.push({ coleccion: nombre, restaurados: docs.length, ok: true });
     } catch (err) {
-      resultados.push({ coleccion: nombre, restaurados: 0, ok: false, error: err.message });
+      resultados.push({
+        coleccion: nombre,
+        restaurados: 0,
+        ok: false,
+        error: err.message,
+        nota: insertOk
+          ? 'error durante el swap: la colección original puede estar parcialmente sobrescrita'
+          : 'error en staging: la colección original NO fue modificada'
+      });
+    } finally {
+      try { await db.collection(tmp).drop(); } catch (_) { /* noop */ }
     }
   }
 
@@ -127,9 +155,13 @@ function calcularTamano(data) {
 
 module.exports = {
   COLECCIONES_INCLUIDAS,
+  COLECCIONES_EXCLUIDAS_RESTORE,
   generarBackup,
   comprimirBackup,
   descomprimirBackup,
   restaurarBackup,
-  calcularTamano
+  calcularTamano,
+  serializarBSON,
+  revivirBSON,
+  extraerBufferContenido
 };

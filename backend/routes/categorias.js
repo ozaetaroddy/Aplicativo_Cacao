@@ -1,19 +1,30 @@
+// backend/routes/categorias.js
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
-const { body, validationResult } = require('express-validator');
+const { body } = require('express-validator');
 const { logAudit } = require('../utils/audit');
+const { requierePermiso } = require('../utils/permisos');
+const { escapeRegex } = require('../utils/pagination');
+const { validar } = require('../utils/validacion');
 
-router.get('/', async (req, res) => {
+router.get('/', requierePermiso('categorias', 'ver'), async (req, res) => {
   try {
-    const categorias = await req.db.collection('categorias').find({}).toArray();
-    res.json(categorias);
+    const categorias = await req.db.collection('categorias').find({}).sort({ nombre: 1 }).toArray();
+
+    const conteos = await req.db.collection('productos').aggregate([
+      { $group: { _id: '$categoriaId', cantidad: { $sum: 1 } } }
+    ]).toArray();
+    const mapa = {};
+    conteos.forEach(c => { if (c._id) mapa[c._id.toString()] = c.cantidad; });
+
+    res.json(categorias.map(c => ({ ...c, productosCount: mapa[c._id.toString()] || 0 })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requierePermiso('categorias', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -26,20 +37,23 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/',
+  requierePermiso('categorias', 'crear'),
   body('nombre').trim().notEmpty().withMessage('Nombre obligatorio'),
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    if (validar(req, res)) return;
 
     try {
       const { nombre, descripcion } = req.body;
-      const existente = await req.db.collection('categorias').findOne({ nombre });
+      const nombreTrim = nombre.trim();
+
+      const existente = await req.db.collection('categorias').findOne({
+        nombre: { $regex: `^${escapeRegex(nombreTrim)}$`, $options: 'i' }
+      });
       if (existente) return res.status(400).json({ error: 'Ya existe una categoría con ese nombre' });
 
-      const nueva = { nombre, descripcion: descripcion || '', createdAt: new Date() };
+      const nueva = { nombre: nombreTrim, descripcion: (descripcion || '').trim(), createdAt: new Date() };
       const result = await req.db.collection('categorias').insertOne(nueva);
 
-      // ===== AUDITORÍA =====
       await logAudit(req.db, req, {
         accion: 'crear',
         coleccion: 'categorias',
@@ -57,40 +71,39 @@ router.post('/',
 );
 
 router.put('/:id',
+  requierePermiso('categorias', 'editar'),
   body('nombre').trim().notEmpty().withMessage('Nombre obligatorio'),
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    if (validar(req, res)) return;
 
     try {
       const { id } = req.params;
       if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
       const { nombre, descripcion } = req.body;
+      const nombreTrim = nombre.trim();
 
       const existente = await req.db.collection('categorias').findOne({
         _id: { $ne: new ObjectId(id) },
-        nombre
+        nombre: { $regex: `^${escapeRegex(nombreTrim)}$`, $options: 'i' }
       });
       if (existente) return res.status(400).json({ error: 'Ya existe otra categoría con ese nombre' });
 
       const categoriaAnterior = await req.db.collection('categorias').findOne({ _id: new ObjectId(id) });
       if (!categoriaAnterior) return res.status(404).json({ error: 'Categoría no encontrada' });
 
-      const result = await req.db.collection('categorias').updateOne(
+      await req.db.collection('categorias').updateOne(
         { _id: new ObjectId(id) },
-        { $set: { nombre, descripcion, updatedAt: new Date() } }
+        { $set: { nombre: nombreTrim, descripcion: (descripcion || '').trim(), updatedAt: new Date() } }
       );
-      if (result.matchedCount === 0) return res.status(404).json({ error: 'Categoría no encontrada' });
 
-      // ===== AUDITORÍA =====
       await logAudit(req.db, req, {
         accion: 'actualizar',
         coleccion: 'categorias',
         documentoId: id,
-        documentoNumero: nombre,
+        documentoNumero: nombreTrim,
         datosAnteriores: categoriaAnterior,
-        datosNuevos: { nombre, descripcion },
-        detalle: `Categoría actualizada: ${nombre}`
+        datosNuevos: { nombre: nombreTrim, descripcion },
+        detalle: `Categoría actualizada: ${nombreTrim}`
       });
 
       res.json({ message: 'Categoría actualizada' });
@@ -100,7 +113,7 @@ router.put('/:id',
   }
 );
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requierePermiso('categorias', 'eliminar'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -108,10 +121,16 @@ router.delete('/:id', async (req, res) => {
     const categoriaAnterior = await req.db.collection('categorias').findOne({ _id: new ObjectId(id) });
     if (!categoriaAnterior) return res.status(404).json({ error: 'Categoría no encontrada' });
 
-    const result = await req.db.collection('categorias').deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) return res.status(404).json({ error: 'Categoría no encontrada' });
+    const productosAsociados = await req.db.collection('productos').countDocuments({ categoriaId: new ObjectId(id) });
+    if (productosAsociados > 0) {
+      return res.status(409).json({
+        error: `No se puede eliminar. Hay ${productosAsociados} productos en esta categoría.`,
+        productosAsociados
+      });
+    }
 
-    // ===== AUDITORÍA =====
+    await req.db.collection('categorias').deleteOne({ _id: new ObjectId(id) });
+
     await logAudit(req.db, req, {
       accion: 'eliminar',
       coleccion: 'categorias',

@@ -54,8 +54,6 @@ const FORMA_PAGO = [
 ];
 
 // ===== TARIFA DE IVA =====
-// codigoSRI = "codigoPorcentaje" que se envía al SRI
-// Tarifas vigentes 2024-2025: 0%, 5%, 15%
 const TARIFA_IVA = [
   { codigo: '0',  nombre: 'IVA 0%',  porcentaje: 0,  codigoSRI: '0', codigoPorcentaje: '0', tarifa: '0.00' },
   { codigo: '5',  nombre: 'IVA 5%',  porcentaje: 5,  codigoSRI: '5', codigoPorcentaje: '5', tarifa: '5.00' },
@@ -65,8 +63,9 @@ const TARIFA_IVA = [
 ];
 
 // ===== TIPOS DE RETENCIÓN EN LA FUENTE =====
-// NOTA: El código 725 aparece en RENTA (1.75%) y en IVA (100%). Son tipos DISTINTOS que
-// comparten código porque el SRI así lo define, se distinguen por el campo "impuesto".
+// NOTA: El código '725' aparece en RENTA (1.75%) y en IVA (100%). Son tipos DISTINTOS
+// que comparten código porque el SRI así lo define. SIEMPRE filtrar por `impuesto`.
+// Usa `buscarRetencion()` y `retencionesDe()` para evitar ambigüedades.
 const TIPO_RETENCION = [
   // ---------- IMPUESTO A LA RENTA ----------
   { codigo: '303', nombre: '1% Bienes muebles corporales', porcentaje: 1, impuesto: 'RENTA' },
@@ -122,7 +121,7 @@ const ESTADO_PAGO = [
   { codigo: 'anulado', nombre: 'Anulado' }
 ];
 
-// ===== TIPO DE MEDIDA (para productos) =====
+// ===== TIPO DE MEDIDA =====
 const TIPO_MEDIDA = [
   { codigo: 'unidad', nombre: 'Unidad' },
   { codigo: 'peso', nombre: 'Peso (kg, g, lb)' },
@@ -132,7 +131,39 @@ const TIPO_MEDIDA = [
   { codigo: 'tiempo', nombre: 'Tiempo (h)' }
 ];
 
-// ===== EXPORTAR =====
+// ============================================================
+// HELPERS DE RETENCIÓN
+// ============================================================
+/**
+ * Busca un tipo de retención por código.
+ * Si se indica `impuesto` ('RENTA' | 'IVA'), filtra por él.
+ * Es OBLIGATORIO usar `impuesto` cuando el código es '725' (existe en RENTA e IVA).
+ */
+function buscarRetencion(codigo, impuesto) {
+  if (!codigo) return null;
+  const cod = String(codigo);
+  const imp = impuesto ? String(impuesto).toUpperCase() : null;
+  return TIPO_RETENCION.find(t =>
+    t.codigo === cod && (!imp || t.impuesto === imp)
+  ) || null;
+}
+
+/**
+ * Devuelve todas las retenciones de un impuesto (RENTA o IVA).
+ */
+function retencionesDe(impuesto) {
+  if (!impuesto) return [...TIPO_RETENCION];
+  const imp = String(impuesto).toUpperCase();
+  return TIPO_RETENCION.filter(t => t.impuesto === imp);
+}
+
+/**
+ * Devuelve todos los códigos únicos del catálogo.
+ */
+function codigosRetencionUnicos() {
+  return [...new Set(TIPO_RETENCION.map(t => t.codigo))];
+}
+
 module.exports = {
   TIPO_IDENTIFICACION,
   TIPO_COMPROBANTE,
@@ -141,5 +172,9 @@ module.exports = {
   TIPO_RETENCION,
   DOCUMENTO_SUSTENTO,
   ESTADO_PAGO,
-  TIPO_MEDIDA
+  TIPO_MEDIDA,
+  // Helpers
+  buscarRetencion,
+  retencionesDe,
+  codigosRetencionUnicos
 };

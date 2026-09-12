@@ -1,0 +1,41 @@
+# backend/.gitignore
+
+# Dependencias
+node_modules/
+
+# Variables de entorno (SECRETOS)
+.env
+.env.local
+.env.*.local
+
+# Certificados (SECRETOS — nunca subir)
+*.p12
+*.pfx
+*.pem
+*.key
+certificados/
+certificado-prueba.p12
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Cobertura / builds
+coverage/
+dist/
+build/
+
+# Backups temporales
+backup_*.json.gz
+_restore_*

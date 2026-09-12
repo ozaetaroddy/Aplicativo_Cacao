@@ -1,19 +1,78 @@
 // backend/utils/audit.js
-// Helper para registrar acciones en la colección "auditoria"
+// Helper para registrar acciones en la colección "auditoria".
+// Nunca lanza error (para no romper la operación principal).
 
 const { ObjectId } = require('mongodb');
 
-/**
- * Registra una acción en la colección de auditoría.
- * No bloquea la respuesta: si falla, solo loguea en consola.
- *
- * @param {object} db - conexión a MongoDB (req.db)
- * @param {object} req - request de Express
- * @param {object} options - { accion, coleccion, documentoId, documentoNumero, datosAnteriores, datosNuevos, detalle }
- */
+const CAMPOS_SENSIBLES = new Set([
+  'password', 'passwordactual', 'passwordnueva', 'passwordcifrado',
+  'password_cifrado', 'token', 'jwt', 'secret', 'apikey', 'api_key',
+  'privatekey', 'privatekeypem', 'archivo_base64', 'p12',
+  'authorization', 'bearer', 'refreshtoken', 'password_cifrado'
+]);
+
+// Campos que NUNCA se guardan en auditoría por tamaño/irrelevancia forense
+const CAMPOS_OMITIDOS = new Set([
+  'xml_generado', 'xml_firmado', 'xml_autorizado',
+  'respuesta_sri', 'comprobanteautorizado',
+  'contenido', 'archivo_base64', 'buffer',
+  'htmlbody', 'textbody'
+]);
+
+const MAX_STRING = 2000;
+const MAX_ARRAY = 50;
+const MAX_DEPTH = 5;
+
+function limpiar(obj, profundidad = 0) {
+  if (obj === null || obj === undefined) return obj;
+  if (profundidad > MAX_DEPTH) return '[demasiado profundo]';
+
+  if (obj instanceof ObjectId) return obj.toString();
+  if (obj instanceof Date) return obj.toISOString();
+  if (obj instanceof Buffer) return `[Buffer ${obj.length}B]`;
+
+  if (typeof obj === 'string') {
+    return obj.length > MAX_STRING ? obj.slice(0, MAX_STRING) + '...[truncado]' : obj;
+  }
+  if (typeof obj !== 'object') return obj;
+
+  if (Array.isArray(obj)) {
+    const arr = obj.slice(0, MAX_ARRAY).map(x => limpiar(x, profundidad + 1));
+    if (obj.length > MAX_ARRAY) arr.push(`...(${obj.length - MAX_ARRAY} más)`);
+    return arr;
+  }
+
+  const copia = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const kLower = k.toLowerCase();
+    if (CAMPOS_SENSIBLES.has(kLower)) {
+      copia[k] = '***';
+    } else if (CAMPOS_OMITIDOS.has(kLower)) {
+      copia[k] = '[omitido por tamaño]';
+    } else {
+      copia[k] = limpiar(v, profundidad + 1);
+    }
+  }
+  return copia;
+}
+
+function extraerIP(req) {
+  const cf = req.headers['cf-connecting-ip'];
+  if (cf) return cf;
+
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return xff.split(',')[0].trim();
+
+  const xri = req.headers['x-real-ip'];
+  if (xri) return xri;
+
+  return req.socket?.remoteAddress || req.ip || '';
+}
+
 async function logAudit(db, req, options = {}) {
   try {
     if (!db) return;
+
     const {
       accion = 'desconocida',
       coleccion = '',
@@ -21,59 +80,57 @@ async function logAudit(db, req, options = {}) {
       documentoNumero = '',
       datosAnteriores = null,
       datosNuevos = null,
-      detalle = ''
+      detalle = '',
+      meta = null
     } = options;
 
-    // Datos del usuario desde JWT
     const usuarioId = req.user?.userId || null;
     const usuarioEmail = req.user?.email || 'anónimo';
     const usuarioRol = req.user?.rol || '';
+    const usuarioNombre = req.user?.nombre || usuarioEmail;
 
-    // Nombre del usuario (si existe en la request, mejor)
-    const usuarioNombre = req.user?.nombre || req.user?.nombreCompleto || usuarioEmail;
+    let docId = null;
+    if (documentoId) {
+      if (documentoId instanceof ObjectId) {
+        docId = documentoId;
+      } else if (typeof documentoId === 'string' && ObjectId.isValid(documentoId)) {
+        docId = new ObjectId(documentoId);
+      } else {
+        docId = String(documentoId);
+      }
+    }
 
-    // IP real (considerando proxies)
-    const ip =
-      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      req.socket?.remoteAddress ||
-      req.ip ||
-      '';
-
-    const userAgent = req.headers['user-agent'] || '';
-
-    // Sanitizar datos para no guardar passwords
-    const limpiar = (obj) => {
-      if (!obj || typeof obj !== 'object') return obj;
-      const copia = Array.isArray(obj) ? [...obj] : { ...obj };
-      const camposSensibles = ['password', 'passwordActual', 'passwordNueva', 'token'];
-      camposSensibles.forEach(c => {
-        if (c in copia) copia[c] = '***';
-      });
-      return copia;
-    };
+    let userObjId = null;
+    if (usuarioId) {
+      if (usuarioId instanceof ObjectId) {
+        userObjId = usuarioId;
+      } else if (typeof usuarioId === 'string' && ObjectId.isValid(usuarioId)) {
+        userObjId = new ObjectId(usuarioId);
+      }
+    }
 
     const registro = {
       accion,
       coleccion,
-      documentoId: documentoId ? (documentoId instanceof ObjectId ? documentoId : new ObjectId(documentoId)) : null,
-      documentoNumero: String(documentoNumero || ''),
-      detalle: String(detalle || ''),
-      usuarioId: usuarioId ? new ObjectId(usuarioId) : null,
+      documentoId: docId,
+      documentoNumero: String(documentoNumero || '').slice(0, 200),
+      detalle: String(detalle || '').slice(0, 1000),
+      usuarioId: userObjId,
       usuarioEmail,
-      usuarioNombre,
+      usuarioNombre: String(usuarioNombre).slice(0, 100),
       usuarioRol,
-      ip,
-      userAgent,
+      ip: extraerIP(req),
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
       datosAnteriores: limpiar(datosAnteriores),
       datosNuevos: limpiar(datosNuevos),
+      meta: meta ? limpiar(meta) : null,
       fecha: new Date()
     };
 
     await db.collection('auditoria').insertOne(registro);
   } catch (err) {
-    // Nunca lanzar error: no queremos que falle la operación principal
-    console.error('⚠️ Error guardando auditoría:', err.message);
+    console.error('⚠️  Error guardando auditoría:', err.message);
   }
 }
 
-module.exports = { logAudit };
+module.exports = { logAudit, limpiar, extraerIP };

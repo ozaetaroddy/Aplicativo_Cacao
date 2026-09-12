@@ -9,13 +9,20 @@ const {
   comprimirBackup,
   descomprimirBackup,
   restaurarBackup,
-  calcularTamano
+  calcularTamano,
+  extraerBufferContenido
 } = require('../utils/backup');
 
-const MAX_BACKUPS_AUTOMATICOS = 30;
+const MAX_BACKUPS_AUTOMATICOS_DEFAULT = 30;
+
+async function obtenerRetencion(db) {
+  const config = await db.collection('backup_config').findOne({ _id: 'global' });
+  const ret = parseInt(config?.retencion, 10);
+  return ret > 0 ? ret : MAX_BACKUPS_AUTOMATICOS_DEFAULT;
+}
 
 // ===== LISTAR BACKUPS (metadata) =====
-router.get('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
+router.get('/', requierePermiso('backups', 'ver'), async (req, res) => {
   try {
     const backups = await req.db.collection('backups')
       .find({}, { projection: { contenido: 0 } })
@@ -29,8 +36,7 @@ router.get('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
 });
 
 // ===== GENERAR BACKUP PARA DESCARGA INMEDIATA =====
-// No lo guarda en BD, solo lo envía al cliente.
-router.get('/download-now', requierePermiso('usuarios', 'ver'), async (req, res) => {
+router.get('/download-now', requierePermiso('backups', 'ver'), async (req, res) => {
   try {
     const snapshot = await generarBackup(req.db);
     const buffer = comprimirBackup(snapshot);
@@ -54,7 +60,7 @@ router.get('/download-now', requierePermiso('usuarios', 'ver'), async (req, res)
 });
 
 // ===== CREAR Y GUARDAR BACKUP EN BD =====
-router.post('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
+router.post('/', requierePermiso('backups', 'crear'), async (req, res) => {
   try {
     const { nombre, tipo = 'manual', descripcion = '' } = req.body;
 
@@ -62,8 +68,7 @@ router.post('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
     const tamanoSinComprimir = calcularTamano(snapshot);
     const buffer = comprimirBackup(snapshot);
 
-    // Verificar tamaño máximo (MongoDB: 16MB por documento BSON)
-    const LIMITE_SEGURO = 15 * 1024 * 1024; // 15 MB
+    const LIMITE_SEGURO = 15 * 1024 * 1024;
     if (buffer.length > LIMITE_SEGURO) {
       return res.status(413).json({
         error: `El backup es demasiado grande (${(buffer.length / 1024 / 1024).toFixed(2)} MB). ` +
@@ -89,14 +94,15 @@ router.post('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
 
     const result = await req.db.collection('backups').insertOne(backup);
 
-    // Rotación: si es automático, mantener solo los últimos N
+    // Rotación: si es automático, respetar la config del usuario
     if (tipo === 'automatico') {
+      const retencion = await obtenerRetencion(req.db);
       const total = await req.db.collection('backups').countDocuments({ tipo: 'automatico' });
-      if (total > MAX_BACKUPS_AUTOMATICOS) {
+      if (total > retencion) {
         const sobrantes = await req.db.collection('backups')
           .find({ tipo: 'automatico' })
           .sort({ fecha: 1 })
-          .limit(total - MAX_BACKUPS_AUTOMATICOS)
+          .limit(total - retencion)
           .project({ _id: 1 })
           .toArray();
         if (sobrantes.length > 0) {
@@ -124,7 +130,7 @@ router.post('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
 });
 
 // ===== DESCARGAR UN BACKUP EXISTENTE =====
-router.get('/:id/download', requierePermiso('usuarios', 'ver'), async (req, res) => {
+router.get('/:id/download', requierePermiso('backups', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -132,8 +138,13 @@ router.get('/:id/download', requierePermiso('usuarios', 'ver'), async (req, res)
     const backup = await req.db.collection('backups').findOne({ _id: new ObjectId(id) });
     if (!backup) return res.status(404).json({ error: 'Backup no encontrado' });
 
-    const contenido = backup.contenido;
-    if (!contenido) return res.status(404).json({ error: 'El backup no tiene contenido' });
+    const buffer = extraerBufferContenido(backup.contenido);
+    if (!buffer) {
+      return res.status(500).json({
+        error: 'El contenido del backup está corrupto o en un formato no soportado',
+        codigo: 'BACKUP_CORRUPTO'
+      });
+    }
 
     await logAudit(req.db, req, {
       accion: 'descargar',
@@ -143,7 +154,6 @@ router.get('/:id/download', requierePermiso('usuarios', 'ver'), async (req, res)
       detalle: `Backup descargado: ${backup.nombre}`
     });
 
-    const buffer = contenido.buffer || contenido;
     const filename = `${backup.nombre.replace(/[^a-z0-9]/gi, '_')}.json.gz`;
 
     res.setHeader('Content-Type', 'application/gzip');
@@ -157,7 +167,7 @@ router.get('/:id/download', requierePermiso('usuarios', 'ver'), async (req, res)
 });
 
 // ===== RESTAURAR UN BACKUP EXISTENTE =====
-router.post('/:id/restore', requierePermiso('usuarios', 'eliminar'), async (req, res) => {
+router.post('/:id/restore', requierePermiso('backups', 'restaurar'), async (req, res) => {
   try {
     const { id } = req.params;
     const { confirmacion } = req.body;
@@ -173,9 +183,15 @@ router.post('/:id/restore', requierePermiso('usuarios', 'eliminar'), async (req,
     const backup = await req.db.collection('backups').findOne({ _id: new ObjectId(id) });
     if (!backup) return res.status(404).json({ error: 'Backup no encontrado' });
 
-    const buffer = backup.contenido.buffer || backup.contenido;
-    const snapshot = descomprimirBackup(buffer);
+    const buffer = extraerBufferContenido(backup.contenido);
+    if (!buffer) {
+      return res.status(500).json({
+        error: 'El contenido del backup está corrupto o en un formato no soportado',
+        codigo: 'BACKUP_CORRUPTO'
+      });
+    }
 
+    const snapshot = descomprimirBackup(buffer);
     const resultados = await restaurarBackup(req.db, snapshot);
 
     await logAudit(req.db, req, {
@@ -186,10 +202,7 @@ router.post('/:id/restore', requierePermiso('usuarios', 'eliminar'), async (req,
       detalle: `Backup restaurado: ${backup.nombre}. Colecciones afectadas: ${resultados.length}`
     });
 
-    res.json({
-      message: 'Backup restaurado correctamente',
-      resultados
-    });
+    res.json({ message: 'Backup restaurado correctamente', resultados });
   } catch (err) {
     console.error('Error restaurando backup:', err);
     res.status(500).json({ error: err.message });
@@ -197,7 +210,7 @@ router.post('/:id/restore', requierePermiso('usuarios', 'eliminar'), async (req,
 });
 
 // ===== ELIMINAR UN BACKUP =====
-router.delete('/:id', requierePermiso('usuarios', 'editar'), async (req, res) => {
+router.delete('/:id', requierePermiso('backups', 'eliminar'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -222,15 +235,15 @@ router.delete('/:id', requierePermiso('usuarios', 'editar'), async (req, res) =>
 });
 
 // ===== CONFIGURACIÓN DE BACKUPS AUTOMÁTICOS =====
-router.get('/config', requierePermiso('usuarios', 'ver'), async (req, res) => {
+router.get('/config', requierePermiso('backups', 'ver'), async (req, res) => {
   try {
     let config = await req.db.collection('backup_config').findOne({ _id: 'global' });
     if (!config) {
       config = {
         _id: 'global',
         automatico_habilitado: true,
-        cron: '0 3 * * *', // Todos los días a las 3 AM
-        retencion: MAX_BACKUPS_AUTOMATICOS,
+        cron: '0 3 * * *',
+        retencion: MAX_BACKUPS_AUTOMATICOS_DEFAULT,
         ultima_ejecucion: null
       };
       await req.db.collection('backup_config').insertOne(config);
@@ -241,7 +254,7 @@ router.get('/config', requierePermiso('usuarios', 'ver'), async (req, res) => {
   }
 });
 
-router.put('/config', requierePermiso('usuarios', 'editar'), async (req, res) => {
+router.put('/config', requierePermiso('backups', 'crear'), async (req, res) => {
   try {
     const { automatico_habilitado, cron, retencion } = req.body;
 
@@ -265,6 +278,14 @@ router.put('/config', requierePermiso('usuarios', 'editar'), async (req, res) =>
       datosNuevos: update,
       detalle: 'Configuración de backups actualizada'
     });
+
+    // Reiniciar scheduler para aplicar cambios en caliente
+    try {
+      const { reiniciarScheduler } = require('../utils/backupScheduler');
+      await reiniciarScheduler();
+    } catch (e) {
+      console.warn('No se pudo reiniciar scheduler:', e.message);
+    }
 
     res.json(config);
   } catch (err) {

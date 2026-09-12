@@ -3,32 +3,48 @@
 
 const PERMISOS = {
   admin: {
-    ventas: ['ver', 'crear', 'editar', 'eliminar'],
-    compras: ['ver', 'crear', 'editar', 'eliminar'],
+    ventas: ['ver', 'crear', 'editar', 'eliminar', 'anular'],
+    compras: ['ver', 'crear', 'editar', 'eliminar', 'anular'],
     clientes: ['ver', 'crear', 'editar', 'eliminar'],
     proveedores: ['ver', 'crear', 'editar', 'eliminar'],
     productos: ['ver', 'crear', 'editar', 'eliminar'],
     categorias: ['ver', 'crear', 'editar', 'eliminar'],
     retenciones: ['ver', 'crear', 'editar', 'eliminar'],
-    inventario: ['ver', 'editar'],
+    pagos: ['ver', 'crear', 'eliminar'],
+    inventario: ['ver', 'editar', 'ajustar'],
     kardex: ['ver'],
-    reportes: ['ver'],
+    reportes: ['ver', 'exportar'],
     auditoria: ['ver'],
-    usuarios: ['ver', 'crear', 'editar', 'eliminar']
+    usuarios: ['ver', 'crear', 'editar', 'eliminar'],
+    backups: ['ver', 'crear', 'restaurar', 'eliminar'],
+    configuracion: ['ver', 'editar'],
+    certificados: ['ver', 'crear', 'eliminar'],
+    sri: ['ver', 'enviar', 'consultar'],
+    periodos: ['ver', 'cerrar', 'reabrir'],
+    anexos: ['ver', 'generar'],
+    email: ['enviar', 'ver']
   },
   contador: {
-    ventas: ['ver', 'crear', 'editar'],
-    compras: ['ver', 'crear', 'editar'],
+    ventas: ['ver', 'crear', 'editar', 'anular'],
+    compras: ['ver', 'crear', 'editar', 'anular'],
     clientes: ['ver', 'crear', 'editar'],
     proveedores: ['ver', 'crear', 'editar'],
     productos: ['ver'],
     categorias: ['ver'],
     retenciones: ['ver', 'crear', 'editar', 'eliminar'],
+    pagos: ['ver', 'crear', 'eliminar'],
     inventario: ['ver'],
     kardex: ['ver'],
-    reportes: ['ver'],
+    reportes: ['ver', 'exportar'],
     auditoria: ['ver'],
-    usuarios: []
+    usuarios: [],
+    backups: ['ver'],
+    configuracion: ['ver'],
+    certificados: ['ver'],
+    sri: ['ver', 'enviar', 'consultar'],
+    periodos: ['ver', 'cerrar'],
+    anexos: ['ver', 'generar'],
+    email: ['enviar', 'ver']
   },
   vendedor: {
     ventas: ['ver', 'crear'],
@@ -38,25 +54,41 @@ const PERMISOS = {
     productos: ['ver'],
     categorias: ['ver'],
     retenciones: [],
+    pagos: ['ver', 'crear'],
     inventario: ['ver'],
     kardex: [],
     reportes: [],
     auditoria: [],
-    usuarios: []
+    usuarios: [],
+    backups: [],
+    configuracion: [],
+    certificados: [],
+    sri: ['ver'],
+    periodos: [],
+    anexos: [],
+    email: ['enviar']
   },
   bodeguero: {
-    ventas: [],
-    compras: ['ver', 'crear'],
+    ventas: ['ver'],
+    compras: ['ver', 'crear', 'editar'],
     clientes: [],
-    proveedores: ['ver'],
+    proveedores: ['ver', 'crear', 'editar'],
     productos: ['ver', 'crear', 'editar'],
-    categorias: ['ver'],
+    categorias: ['ver', 'crear', 'editar'],
     retenciones: [],
-    inventario: ['ver', 'editar'],
+    pagos: [],
+    inventario: ['ver', 'editar', 'ajustar'],
     kardex: ['ver'],
-    reportes: [],
+    reportes: ['ver'],
     auditoria: [],
-    usuarios: []
+    usuarios: [],
+    backups: [],
+    configuracion: [],
+    certificados: [],
+    sri: [],
+    periodos: [],
+    anexos: [],
+    email: []
   },
   auditor: {
     ventas: ['ver'],
@@ -66,30 +98,50 @@ const PERMISOS = {
     productos: ['ver'],
     categorias: ['ver'],
     retenciones: ['ver'],
+    pagos: ['ver'],
     inventario: ['ver'],
     kardex: ['ver'],
-    reportes: ['ver'],
+    reportes: ['ver', 'exportar'],
     auditoria: ['ver'],
-    usuarios: []
+    usuarios: [],
+    backups: ['ver'],
+    configuracion: ['ver'],
+    certificados: ['ver'],
+    sri: ['ver'],
+    periodos: ['ver'],
+    anexos: ['ver'],
+    email: []
   }
 };
 
-const ROLES_VALIDOS = ['admin', 'contador', 'vendedor', 'bodeguero', 'auditor'];
+const ROLES_VALIDOS = Object.keys(PERMISOS);
 
-/**
- * Verifica si un rol tiene un permiso sobre un módulo
- */
+const ETIQUETAS_ROLES = {
+  admin: 'Administrador',
+  contador: 'Contador',
+  vendedor: 'Vendedor',
+  bodeguero: 'Bodeguero',
+  auditor: 'Auditor'
+};
+
 function tienePermiso(rol, modulo, accion) {
   if (!rol || !PERMISOS[rol]) return false;
   const permisosModulo = PERMISOS[rol][modulo];
-  if (!permisosModulo) return false;
+  if (!permisosModulo || !Array.isArray(permisosModulo)) return false;
   return permisosModulo.includes(accion);
 }
 
-/**
- * Middleware que exige un permiso específico.
- * Uso: router.post('/', requierePermiso('ventas', 'crear'), handler)
- */
+function puedeAlguno(rol, checks = []) {
+  return checks.some(c => tienePermiso(rol, c.modulo, c.accion));
+}
+
+function listarModulos(rol) {
+  if (!rol || !PERMISOS[rol]) return [];
+  return Object.entries(PERMISOS[rol])
+    .filter(([, acciones]) => Array.isArray(acciones) && acciones.length > 0)
+    .map(([modulo, acciones]) => ({ modulo, acciones }));
+}
+
 function requierePermiso(modulo, accion) {
   return (req, res, next) => {
     const rol = req.user?.rol;
@@ -98,7 +150,7 @@ function requierePermiso(modulo, accion) {
     }
     if (!tienePermiso(rol, modulo, accion)) {
       return res.status(403).json({
-        error: `No tiene permiso para ${accion} en ${modulo}`,
+        error: `No tiene permiso para "${accion}" en "${modulo}"`,
         modulo,
         accion,
         rol
@@ -108,9 +160,6 @@ function requierePermiso(modulo, accion) {
   };
 }
 
-/**
- * Middleware que exige uno de varios roles
- */
 function requiereRol(...rolesPermitidos) {
   return (req, res, next) => {
     const rol = req.user?.rol;
@@ -131,7 +180,10 @@ function requiereRol(...rolesPermitidos) {
 module.exports = {
   PERMISOS,
   ROLES_VALIDOS,
+  ETIQUETAS_ROLES,
   tienePermiso,
+  puedeAlguno,
+  listarModulos,
   requierePermiso,
   requiereRol
 };

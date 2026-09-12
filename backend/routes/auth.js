@@ -6,12 +6,21 @@ const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
 const rateLimit = require('express-rate-limit');
 const authMiddleware = require('../middleware/auth');
+const { invalidarCachePorUsuario } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { validarEmail } = require('../utils/validators');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'mi-secreto-super-seguro-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET no está definido en el entorno');
+  process.exit(1);
+}
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '8h';
 
-// Rate limit local adicional (además del global de server.js)
+// Si ALLOW_REGISTER=false, se desactiva el registro público
+const ALLOW_REGISTER = String(process.env.ALLOW_REGISTER ?? 'true').toLowerCase() !== 'false';
+
+// Rate limit local solo para endpoints sensibles
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -43,27 +52,31 @@ router.post('/login', loginLimiter, async (req, res) => {
     const credencialesInvalidas = { error: 'Credenciales inválidas' };
 
     if (!user) return res.status(401).json(credencialesInvalidas);
-    if (!user.activo) return res.status(401).json({ error: 'Usuario desactivado. Contacte al administrador.' });
+    if (!user.activo) {
+      return res.status(401).json({ error: 'Usuario desactivado. Contacte al administrador.' });
+    }
 
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
-      // Auditoría de intento fallido
-      await logAudit(req.db, { user: { email: emailNorm }, headers: req.headers, socket: req.socket, ip: req.ip }, {
-        accion: 'login-fallido',
-        coleccion: 'auth',
-        documentoNumero: emailNorm,
-        detalle: `Intento de login fallido: ${emailNorm}`
-      });
+      await logAudit(
+        req.db,
+        { user: { email: emailNorm }, headers: req.headers, socket: req.socket, ip: req.ip },
+        {
+          accion: 'login-fallido',
+          coleccion: 'auth',
+          documentoNumero: emailNorm,
+          detalle: `Intento de login fallido: ${emailNorm}`
+        }
+      );
       return res.status(401).json(credencialesInvalidas);
     }
 
     const token = jwt.sign(
       { userId: user._id, email: user.email, rol: user.rol },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES }
+      { expiresIn: JWT_EXPIRES, algorithm: 'HS256' }
     );
 
-    // Auditoría de login exitoso
     req.user = { userId: user._id, email: user.email, rol: user.rol, nombre: user.nombre };
     await logAudit(req.db, req, {
       accion: 'login',
@@ -91,10 +104,19 @@ router.post('/login', loginLimiter, async (req, res) => {
 
 // ===== REGISTER (público, solo vendedores) =====
 router.post('/register', loginLimiter, async (req, res) => {
+  if (!ALLOW_REGISTER) {
+    return res.status(403).json({ error: 'El registro público está deshabilitado' });
+  }
+
   try {
     const { nombre, email, password } = req.body;
     if (!nombre || !email || !password) {
       return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    }
+
+    const emailCheck = validarEmail(email);
+    if (!emailCheck.valido) {
+      return res.status(400).json({ error: emailCheck.mensaje });
     }
     if (password.length < 8) {
       return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
@@ -115,6 +137,7 @@ router.post('/register', loginLimiter, async (req, res) => {
       rol: 'vendedor',
       activo: true,
       telefono: '',
+      password_changed_at: new Date(),
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -168,6 +191,19 @@ router.put('/perfil', authMiddleware, async (req, res) => {
       updatedAt: new Date()
     };
 
+    if (email && updateData.email !== user.email) {
+      const emailCheck = validarEmail(updateData.email);
+      if (!emailCheck.valido) {
+        return res.status(400).json({ error: emailCheck.mensaje });
+      }
+      const dup = await req.db.collection('usuarios').findOne({
+        _id: { $ne: new ObjectId(userId) },
+        email: updateData.email
+      });
+      if (dup) return res.status(400).json({ error: 'El email ya está registrado' });
+    }
+
+    let passwordCambiada = false;
     if (password) {
       if (!passwordActual) {
         return res.status(400).json({ error: 'Debe ingresar la contraseña actual' });
@@ -180,12 +216,19 @@ router.put('/perfil', authMiddleware, async (req, res) => {
         return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres' });
       }
       updateData.password = await bcrypt.hash(password, 12);
+      updateData.password_changed_at = new Date();
+      passwordCambiada = true;
     }
 
     await req.db.collection('usuarios').updateOne(
       { _id: new ObjectId(userId) },
       { $set: updateData }
     );
+
+    // 🔒 Invalidar cache: si cambió la contraseña, invalida el token actual y los demás
+    if (passwordCambiada) {
+      invalidarCachePorUsuario(userId);
+    }
 
     const updatedUser = await req.db.collection('usuarios').findOne(
       { _id: new ObjectId(userId) },
@@ -199,7 +242,7 @@ router.put('/perfil', authMiddleware, async (req, res) => {
       documentoNumero: updatedUser.email,
       datosAnteriores: { nombre: user.nombre, email: user.email, telefono: user.telefono },
       datosNuevos: { nombre: updatedUser.nombre, email: updatedUser.email, telefono: updatedUser.telefono },
-      detalle: `Perfil actualizado: ${updatedUser.email}${password ? ' (contraseña cambiada)' : ''}`
+      detalle: `Perfil actualizado: ${updatedUser.email}${passwordCambiada ? ' (contraseña cambiada)' : ''}`
     });
 
     res.json({ message: 'Perfil actualizado correctamente', user: updatedUser });

@@ -1,10 +1,13 @@
+// backend/routes/retenciones.js
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { logAudit } = require('../utils/audit');
+const { requierePermiso } = require('../utils/permisos');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
+const { buscarRetencion } = require('../data/catalogosSRI');
 
-router.get('/', async (req, res) => {
+router.get('/', requierePermiso('retenciones', 'ver'), async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
     const paginar = wantsPagination(req.query);
@@ -14,29 +17,16 @@ router.get('/', async (req, res) => {
     const matchStage = {};
     if (desde || hasta) {
       matchStage.fecha_emision = {};
-      if (desde) {
-        const d = new Date(desde);
-        if (!isNaN(d)) matchStage.fecha_emision.$gte = d;
-      }
+      if (desde) { const d = new Date(desde); if (!isNaN(d)) matchStage.fecha_emision.$gte = d; }
       if (hasta) {
         const h = new Date(hasta);
-        if (!isNaN(h)) {
-          h.setHours(23, 59, 59, 999);
-          matchStage.fecha_emision.$lte = h;
-        }
+        if (!isNaN(h)) { h.setHours(23, 59, 59, 999); matchStage.fecha_emision.$lte = h; }
       }
     }
 
     const pipeline = [
       { $match: matchStage },
-      {
-        $lookup: {
-          from: 'proveedores',
-          localField: 'proveedorId',
-          foreignField: '_id',
-          as: 'proveedor'
-        }
-      },
+      { $lookup: { from: 'proveedores', localField: 'proveedorId', foreignField: '_id', as: 'proveedor' } },
       { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
     ];
 
@@ -53,7 +43,7 @@ router.get('/', async (req, res) => {
       });
     }
 
-    const sort = parseSort(req.query);
+    const sort = parseSort(req.query, { fecha_emision: -1 });
 
     if (!paginar) {
       pipeline.push({ $sort: sort });
@@ -71,65 +61,81 @@ router.get('/', async (req, res) => {
 
     const retenciones = await req.db.collection('retenciones').aggregate(pipeline).toArray();
 
-    res.json({
-      data: retenciones,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit)
-    });
+    res.json({ data: retenciones, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
+    console.error('Error listando retenciones:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requierePermiso('retenciones', 'crear'), async (req, res) => {
   try {
     const {
-      compraId,
-      proveedorId,
-      numero_factura,
-      fecha_emision,
-      valor_retenido,
-      porcentaje,
-      tipo,
-      tipo_retencion
+      compraId, proveedorId, numero_factura, fecha_emision,
+      valor_retenido, porcentaje, tipo, tipo_retencion,
+      impuesto_retencion, base_imponible
     } = req.body;
 
     if (!ObjectId.isValid(proveedorId)) {
       return res.status(400).json({ error: 'ID de proveedor inválido' });
     }
+    if (!fecha_emision) {
+      return res.status(400).json({ error: 'La fecha de emisión es obligatoria' });
+    }
+
+    const fecha = new Date(fecha_emision);
+    if (isNaN(fecha.getTime())) {
+      return res.status(400).json({ error: 'Fecha de emisión inválida' });
+    }
+
+    if (valor_retenido === undefined || valor_retenido === null || parseFloat(valor_retenido) < 0) {
+      return res.status(400).json({ error: 'El valor retenido debe ser un número >= 0' });
+    }
+
+    let retencionCatalogo = null;
+    if (tipo_retencion) {
+      retencionCatalogo = buscarRetencion(tipo_retencion, impuesto_retencion);
+      if (!retencionCatalogo) {
+        return res.status(400).json({
+          error: `Código de retención "${tipo_retencion}" no existe en el catálogo del SRI` +
+                 (impuesto_retencion ? ` para el impuesto "${impuesto_retencion}"` : '')
+        });
+      }
+    }
 
     const retencion = {
-      compraId: compraId ? new ObjectId(compraId) : null,
+      compraId: compraId && ObjectId.isValid(compraId) ? new ObjectId(compraId) : null,
       proveedorId: new ObjectId(proveedorId),
-      numero_factura,
-      fecha_emision: new Date(fecha_emision),
-      valor_retenido,
-      porcentaje: porcentaje || 0,
+      numero_factura: (numero_factura || '').trim(),
+      fecha_emision: fecha,
+      base_imponible: parseFloat(base_imponible) || 0,
+      valor_retenido: parseFloat(valor_retenido) || 0,
+      porcentaje: parseFloat(porcentaje) || 0,
       tipo: tipo || 'manual',
       tipo_retencion: tipo_retencion || '',
+      impuesto_retencion: impuesto_retencion || (retencionCatalogo?.impuesto || ''),
       createdAt: new Date()
     };
+
     const result = await req.db.collection('retenciones').insertOne(retencion);
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'crear',
       coleccion: 'retenciones',
       documentoId: result.insertedId,
       documentoNumero: numero_factura || '',
       datosNuevos: { ...retencion, _id: result.insertedId },
-      detalle: `Retención creada: ${numero_factura || ''} por $${(valor_retenido || 0).toFixed(2)}`
+      detalle: `Retención creada: ${numero_factura || ''} por $${(retencion.valor_retenido || 0).toFixed(2)}`
     });
 
     res.status(201).json({ ...retencion, _id: result.insertedId });
   } catch (err) {
+    console.error('Error creando retención:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requierePermiso('retenciones', 'eliminar'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -137,10 +143,8 @@ router.delete('/:id', async (req, res) => {
     const retencionAnterior = await req.db.collection('retenciones').findOne({ _id: new ObjectId(id) });
     if (!retencionAnterior) return res.status(404).json({ error: 'Retención no encontrada' });
 
-    const result = await req.db.collection('retenciones').deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) return res.status(404).json({ error: 'Retención no encontrada' });
+    await req.db.collection('retenciones').deleteOne({ _id: new ObjectId(id) });
 
-    // ===== AUDITORÍA =====
     await logAudit(req.db, req, {
       accion: 'eliminar',
       coleccion: 'retenciones',
@@ -152,6 +156,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ message: 'Retención eliminada' });
   } catch (err) {
+    console.error('Error eliminando retención:', err);
     res.status(500).json({ error: err.message });
   }
 });

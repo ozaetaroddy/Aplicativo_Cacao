@@ -1,13 +1,22 @@
+// backend/routes/ventas.js
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
-const { body, validationResult } = require('express-validator');
+const { body } = require('express-validator');
 const { logAudit } = require('../utils/audit');
+const { requierePermiso } = require('../utils/permisos');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 const { verificarPeriodoAbierto } = require('../utils/periodos');
 const { generarClaveAcceso, formatearSerie, descomponerClave, validarClave } = require('../utils/claveAcceso');
 const { generarXMLComprobante } = require('../utils/xmlComprobante');
-const { cargarCertificado, firmarXML, validarFirma } = require('../utils/firmaElectronica');
+const { cargarCertificado, firmarXML, validarFirma, descifrarSecreto } = require('../utils/firmaElectronica');
+const { conTransaccion } = require('../utils/transacciones');
+const { validar } = require('../utils/validacion');
+
+const TIPOS_DOCUMENTO_VALIDOS = [
+  'factura', 'nota_credito', 'nota_debito', 'guia_remision',
+  'retencion', 'liquidacion', 'exportacion', 'reembolso', 'proforma'
+];
 
 const validarVenta = [
   body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
@@ -16,6 +25,20 @@ const validarVenta = [
   body('subtotal').isNumeric().withMessage('Subtotal debe ser número'),
   body('iva').isNumeric().withMessage('IVA debe ser número'),
   body('total').isNumeric().withMessage('Total debe ser número'),
+  body('tipo_documento').optional().isIn(TIPOS_DOCUMENTO_VALIDOS)
+    .withMessage(`Tipo de documento inválido. Válidos: ${TIPOS_DOCUMENTO_VALIDOS.join(', ')}`),
+  body('impuestos_retencion').if(body('tipo_documento').equals('retencion'))
+    .optional().isArray().withMessage('impuestos_retencion debe ser un array')
+    .custom((arr) => {
+      if (!arr) return true;
+      for (const imp of arr) {
+        if (!imp || typeof imp !== 'object') throw new Error('Cada impuesto debe ser un objeto');
+        if (imp.codDocSustento === undefined || imp.numDocSustento === undefined) {
+          throw new Error('Cada impuesto de retención requiere codDocSustento y numDocSustento');
+        }
+      }
+      return true;
+    })
 ];
 
 const TIPO_COMPROBANTE_SRI = {
@@ -25,13 +48,70 @@ const TIPO_COMPROBANTE_SRI = {
 
 const DOCS_CON_CLAVE = ['factura', 'liquidacion', 'nota_credito', 'nota_debito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'];
 
-// ============================================================
-// HELPERS
-// ============================================================
+const ESTADOS_SRI_BLOQUEADOS_PARA_DELETE = new Set(['FIRMADO', 'AUTORIZADO', 'RECHAZADA', 'DEVUELTA']);
 
-/**
- * Asegura que una venta tenga clave de acceso y XML (los genera al vuelo si faltan).
- */
+function validarTotales(body) {
+  const subtotal = parseFloat(body.subtotal) || 0;
+  const iva = parseFloat(body.iva) || 0;
+  const total = parseFloat(body.total) || 0;
+  const esperado = +(subtotal + iva).toFixed(2);
+  if (Math.abs(esperado - total) > 0.01) {
+    return `Total inconsistente: subtotal(${subtotal}) + iva(${iva}) = ${esperado}, pero se envió total=${total}`;
+  }
+  return null;
+}
+
+function validarFechaNoFutura(fecha) {
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return 'Fecha inválida';
+  const hoy = new Date();
+  hoy.setHours(23, 59, 59, 999);
+  hoy.setDate(hoy.getDate() + 1);
+  if (d > hoy) return 'La fecha de emisión no puede ser futura';
+  return null;
+}
+
+async function cargarCertificadoSeguro(db) {
+  try {
+    const cert = await db.collection('certificados').findOne({ _id: 'empresa' });
+    if (!cert) return null;
+    const password = cert.password_cifrado ? descifrarSecreto(cert.password_cifrado) : cert.password;
+    const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
+    const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, password);
+    return { privateKeyPem, certificatePem };
+  } catch (e) {
+    console.warn('⚠️  No se pudo cargar el certificado:', e.message);
+    return null;
+  }
+}
+
+async function reservarContador(db, tipoDoc) {
+  const r = await db.collection('contadores').findOneAndUpdate(
+    { _id: tipoDoc },
+    { $inc: { valor: 1 } },
+    { upsert: true, returnDocument: 'after' }
+  );
+  return r?.valor || 1;
+}
+
+async function actualizarStockAtomico(db, productoId, cantidad, signoStock, session) {
+  const filtro = signoStock < 0
+    ? { _id: productoId, stock: { $gte: cantidad } }
+    : { _id: productoId };
+
+  const r = await db.collection('productos').updateOne(
+    filtro,
+    { $inc: { stock: signoStock * cantidad }, $set: { updatedAt: new Date() } },
+    { session }
+  );
+
+  if (r.matchedCount === 0) {
+    throw new Error(`Stock insuficiente para el producto ${productoId} (otro usuario acaba de consumir el stock disponible)`);
+  }
+
+  return await db.collection('productos').findOne({ _id: productoId }, { session });
+}
+
 async function asegurarClaveYXml(db, venta) {
   const tipoDoc = venta.tipo_documento || 'factura';
   if (!DOCS_CON_CLAVE.includes(tipoDoc)) {
@@ -54,7 +134,9 @@ async function asegurarClaveYXml(db, venta) {
     serieFormateada = formatearSerie(est, pe);
 
     let sec = 1;
-    if (venta.numero_factura) {
+    if (venta.secuencial_sri) {
+      sec = parseInt(venta.secuencial_sri, 10) || 1;
+    } else if (venta.numero_factura) {
       const match = String(venta.numero_factura).match(/(\d+)/g);
       if (match) sec = parseInt(match[match.length - 1], 10) || 1;
     }
@@ -114,28 +196,21 @@ async function asegurarClaveYXml(db, venta) {
   return { claveAcceso, xml, motivo: null };
 }
 
-/**
- * Firma un XML usando el certificado guardado en BD.
- */
 async function firmarXMLConCertificado(db, xmlSinFirma) {
-  const cert = await db.collection('certificados').findOne({ _id: 'empresa' });
-  if (!cert) {
-    throw new Error('No hay certificado de firma electrónica cargado');
-  }
-  const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
-  const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
-  return firmarXML(xmlSinFirma, privateKeyPem, certificatePem);
+  const pems = await cargarCertificadoSeguro(db);
+  if (!pems) throw new Error('No hay certificado de firma electrónica cargado o es inválido');
+  return firmarXML(xmlSinFirma, pems.privateKeyPem, pems.certificatePem);
 }
 
 // ============================================================
 // LISTAR
 // ============================================================
-router.get('/', async (req, res) => {
+router.get('/', requierePermiso('ventas', 'ver'), async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
     const paginar = wantsPagination(req.query);
-    const search = (req.query.search || '').trim();
-    const { desde, hasta, tipo_documento, estado_pago, estado_sri } = req.query;
+    const search = (typeof req.query.search === 'string' ? req.query.search : '').trim();
+    const { desde, hasta, tipo_documento, estado_pago, estado_sri, clienteId } = req.query;
 
     const matchStage = {};
     if (desde || hasta) {
@@ -143,13 +218,14 @@ router.get('/', async (req, res) => {
       if (desde) { const d = new Date(desde); if (!isNaN(d)) matchStage.fecha_emision.$gte = d; }
       if (hasta) { const h = new Date(hasta); if (!isNaN(h)) { h.setHours(23, 59, 59, 999); matchStage.fecha_emision.$lte = h; } }
     }
-    if (tipo_documento) matchStage.tipo_documento = tipo_documento;
-    if (estado_pago) matchStage.estado_pago = estado_pago;
-    if (estado_sri) matchStage.estado_sri = estado_sri;
+    if (typeof tipo_documento === 'string' && tipo_documento) matchStage.tipo_documento = tipo_documento;
+    if (typeof estado_pago === 'string' && estado_pago) matchStage.estado_pago = estado_pago;
+    if (typeof estado_sri === 'string' && estado_sri) matchStage.estado_sri = estado_sri;
+    if (typeof clienteId === 'string' && ObjectId.isValid(clienteId)) matchStage.clienteId = new ObjectId(clienteId);
 
     const pipeline = [
       { $match: matchStage },
-      { $project: { xml_generado: 0, xml_firmado: 0, xml_autorizado: 0 } },
+      { $project: { xml_generado: 0, xml_firmado: 0, xml_autorizado: 0, respuesta_sri: 0 } },
       { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
     ];
@@ -169,7 +245,7 @@ router.get('/', async (req, res) => {
       });
     }
 
-    const sort = parseSort(req.query);
+    const sort = parseSort(req.query, { fecha_emision: -1 });
 
     if (!paginar) {
       pipeline.push({ $sort: sort });
@@ -177,8 +253,7 @@ router.get('/', async (req, res) => {
       return res.json(ventas);
     }
 
-    const countPipeline = [...pipeline, { $count: 'total' }];
-    const countResult = await req.db.collection('ventas_v2').aggregate(countPipeline).toArray();
+    const countResult = await req.db.collection('ventas_v2').aggregate([...pipeline, { $count: 'total' }]).toArray();
     const total = countResult[0]?.total || 0;
 
     pipeline.push({ $sort: sort });
@@ -186,7 +261,6 @@ router.get('/', async (req, res) => {
     pipeline.push({ $limit: limit });
 
     const ventas = await req.db.collection('ventas_v2').aggregate(pipeline).toArray();
-
     res.json({ data: ventas, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
     console.error('Error listando ventas:', err);
@@ -197,7 +271,7 @@ router.get('/', async (req, res) => {
 // ============================================================
 // VALIDAR CLAVE
 // ============================================================
-router.post('/validar-clave', async (req, res) => {
+router.post('/validar-clave', requierePermiso('ventas', 'ver'), async (req, res) => {
   try {
     const { clave } = req.body;
     const valida = validarClave(clave);
@@ -209,10 +283,39 @@ router.post('/validar-clave', async (req, res) => {
 });
 
 // ============================================================
-// MIGRACIÓN MASIVA: GENERAR CLAVES A TODAS LAS FACTURAS SIN CLAVE
-// (debe ir ANTES de /:id para que no lo capture como parámetro)
+// BUSCAR POR CLAVE
 // ============================================================
-router.post('/migrar-claves', async (req, res) => {
+router.get('/buscar-clave/:clave', requierePermiso('ventas', 'ver'), async (req, res) => {
+  try {
+    const { clave } = req.params;
+    if (!clave || clave.length !== 49) {
+      return res.status(400).json({ error: 'Clave debe tener 49 dígitos' });
+    }
+    const venta = await req.db.collection('ventas_v2').findOne(
+      { clave_acceso: clave },
+      { projection: { xml_generado: 0, xml_firmado: 0, xml_autorizado: 0 } }
+    );
+    if (!venta) return res.status(404).json({ error: 'No se encontró documento con esa clave' });
+
+    const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
+    res.json({ ...venta, cliente });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// MIGRACIÓN MASIVA — SOLO ADMIN
+// ============================================================
+router.post('/migrar-claves', (req, res, next) => {
+  if (req.user?.rol !== 'admin') {
+    return res.status(403).json({
+      error: 'Solo un administrador puede ejecutar migraciones masivas de claves',
+      codigo: 'SOLO_ADMIN'
+    });
+  }
+  next();
+}, async (req, res) => {
   try {
     const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
     if (!config || !config.ruc || config.ruc.length !== 13) {
@@ -235,22 +338,9 @@ router.post('/migrar-claves', async (req, res) => {
     const resultados = [];
     let exitosas = 0;
     let errores = 0;
+    let maxSecuencialUsado = 0;
 
-    // Cargar certificado una sola vez
-    const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
-    let privateKeyPem = null;
-    let certificatePem = null;
-
-    if (cert) {
-      try {
-        const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
-        const loaded = cargarCertificado(p12Buffer, cert.password);
-        privateKeyPem = loaded.privateKeyPem;
-        certificatePem = loaded.certificatePem;
-      } catch (e) {
-        console.warn('Error cargando certificado:', e.message);
-      }
-    }
+    const pems = await cargarCertificadoSeguro(req.db);
 
     for (const venta of facturasSinClave) {
       try {
@@ -265,6 +355,7 @@ router.post('/migrar-claves', async (req, res) => {
           const match = String(venta.numero_factura).match(/(\d+)/g);
           if (match) sec = parseInt(match[match.length - 1], 10) || 1;
         }
+        if (sec > maxSecuencialUsado) maxSecuencialUsado = sec;
 
         const claveAcceso = generarClaveAcceso({
           fechaEmision: new Date(venta.fecha_emision),
@@ -289,9 +380,9 @@ router.post('/migrar-claves', async (req, res) => {
 
         let xmlFirmado = '';
         let estadoSri = 'PENDIENTE';
-        if (privateKeyPem && certificatePem) {
+        if (pems) {
           try {
-            xmlFirmado = firmarXML(xml, privateKeyPem, certificatePem);
+            xmlFirmado = firmarXML(xml, pems.privateKeyPem, pems.certificatePem);
             estadoSri = 'FIRMADO';
           } catch (e) {
             console.warn('Error firmando:', e.message);
@@ -324,11 +415,19 @@ router.post('/migrar-claves', async (req, res) => {
       }
     }
 
+    if (maxSecuencialUsado > 0) {
+      await req.db.collection('contadores').updateOne(
+        { _id: 'factura' },
+        { $max: { valor: maxSecuencialUsado } },
+        { upsert: true }
+      );
+    }
+
     await logAudit(req.db, req, {
       accion: 'migrar-claves',
       coleccion: 'ventas',
       documentoNumero: 'migracion',
-      detalle: `Migración de claves: ${exitosas} exitosas, ${errores} errores`
+      detalle: `Migración de claves: ${exitosas} exitosas, ${errores} errores. Contador factura en ${maxSecuencialUsado}`
     });
 
     res.json({ total: facturasSinClave.length, exitosas, errores, resultados });
@@ -341,7 +440,7 @@ router.post('/migrar-claves', async (req, res) => {
 // ============================================================
 // DESCARGAR XML
 // ============================================================
-router.get('/:id/xml', async (req, res) => {
+router.get('/:id/xml', requierePermiso('ventas', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -350,11 +449,9 @@ router.get('/:id/xml', async (req, res) => {
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
 
     const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
-    if (!claveAcceso || !xml) {
-      return res.status(400).json({ error: motivo || 'No se pudo generar la clave' });
-    }
+    if (!claveAcceso || !xml) return res.status(400).json({ error: motivo || 'No se pudo generar la clave' });
 
-    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${claveAcceso}.xml"`);
     res.send(venta.xml_firmado || xml);
   } catch (err) {
@@ -365,7 +462,7 @@ router.get('/:id/xml', async (req, res) => {
 // ============================================================
 // VER XML (preview)
 // ============================================================
-router.get('/:id/xml-preview', async (req, res) => {
+router.get('/:id/xml-preview', requierePermiso('ventas', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -374,16 +471,9 @@ router.get('/:id/xml-preview', async (req, res) => {
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
 
     const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
-    if (!claveAcceso || !xml) {
-      return res.status(400).json({ error: motivo || 'No se pudo generar la clave' });
-    }
+    if (!claveAcceso || !xml) return res.status(400).json({ error: motivo || 'No se pudo generar la clave' });
 
-    res.json({
-      xml,
-      xml_firmado: venta.xml_firmado || null,
-      clave_acceso: claveAcceso,
-      firmado: !!venta.xml_firmado
-    });
+    res.json({ xml, xml_firmado: venta.xml_firmado || null, clave_acceso: claveAcceso, firmado: !!venta.xml_firmado });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -392,19 +482,16 @@ router.get('/:id/xml-preview', async (req, res) => {
 // ============================================================
 // DESCARGAR XML FIRMADO
 // ============================================================
-router.get('/:id/xml-firmado', async (req, res) => {
+router.get('/:id/xml-firmado', requierePermiso('ventas', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
 
     const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+    if (!venta.xml_firmado) return res.status(404).json({ error: 'Este documento no está firmado' });
 
-    if (!venta.xml_firmado) {
-      return res.status(404).json({ error: 'Este documento no está firmado' });
-    }
-
-    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${venta.clave_acceso}_firmado.xml"`);
     res.send(venta.xml_firmado);
   } catch (err) {
@@ -415,7 +502,7 @@ router.get('/:id/xml-firmado', async (req, res) => {
 // ============================================================
 // OBTENER QR
 // ============================================================
-router.get('/:id/qr', async (req, res) => {
+router.get('/:id/qr', requierePermiso('ventas', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -446,7 +533,7 @@ router.get('/:id/qr', async (req, res) => {
 // ============================================================
 // OBTENER POR ID
 // ============================================================
-router.get('/:id', async (req, res) => {
+router.get('/:id', requierePermiso('ventas', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -466,22 +553,17 @@ router.get('/:id', async (req, res) => {
 // ============================================================
 // FIRMAR MANUALMENTE
 // ============================================================
-router.post('/:id/firmar', async (req, res) => {
+router.post('/:id/firmar', requierePermiso('ventas', 'editar'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
 
     const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
-
-    if (venta.xml_firmado) {
-      return res.status(400).json({ error: 'Este documento ya está firmado' });
-    }
+    if (venta.xml_firmado) return res.status(400).json({ error: 'Este documento ya está firmado' });
 
     const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
-    if (!claveAcceso || !xml) {
-      return res.status(400).json({ error: motivo || 'No se puede firmar' });
-    }
+    if (!claveAcceso || !xml) return res.status(400).json({ error: motivo || 'No se puede firmar' });
 
     let xmlFirmado;
     try {
@@ -497,29 +579,16 @@ router.post('/:id/firmar', async (req, res) => {
 
     await req.db.collection('ventas_v2').updateOne(
       { _id: new ObjectId(id) },
-      {
-        $set: {
-          xml_firmado: xmlFirmado,
-          estado_sri: 'FIRMADO',
-          fecha_firma: new Date(),
-          updatedAt: new Date()
-        }
-      }
+      { $set: { xml_firmado: xmlFirmado, estado_sri: 'FIRMADO', fecha_firma: new Date(), updatedAt: new Date() } }
     );
 
     await logAudit(req.db, req, {
-      accion: 'firmar',
-      coleccion: 'ventas',
-      documentoId: id,
+      accion: 'firmar', coleccion: 'ventas', documentoId: id,
       documentoNumero: venta.numero_factura || '',
       detalle: `Documento firmado electrónicamente: ${venta.numero_factura || ''}`
     });
 
-    res.json({
-      message: 'Documento firmado correctamente',
-      xml_firmado: xmlFirmado,
-      clave_acceso: claveAcceso
-    });
+    res.json({ message: 'Documento firmado correctamente', xml_firmado: xmlFirmado, clave_acceso: claveAcceso });
   } catch (err) {
     console.error('Error firmando:', err);
     res.status(500).json({ error: err.message });
@@ -529,7 +598,7 @@ router.post('/:id/firmar', async (req, res) => {
 // ============================================================
 // GENERAR CLAVE PARA UNA VENTA EXISTENTE
 // ============================================================
-router.post('/:id/generar-clave', async (req, res) => {
+router.post('/:id/generar-clave', requierePermiso('ventas', 'editar'), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -543,10 +612,7 @@ router.post('/:id/generar-clave', async (req, res) => {
 
     const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
     if (!config || !config.ruc || config.ruc.length !== 13) {
-      return res.status(400).json({
-        error: 'La empresa no tiene un RUC válido (13 dígitos) configurado',
-        codigo: 'RUC_INVALIDO'
-      });
+      return res.status(400).json({ error: 'La empresa no tiene un RUC válido (13 dígitos) configurado', codigo: 'RUC_INVALIDO' });
     }
 
     const tipoDoc = venta.tipo_documento || 'factura';
@@ -560,7 +626,9 @@ router.post('/:id/generar-clave', async (req, res) => {
     const serie = formatearSerie(est, pe);
 
     let sec = 1;
-    if (venta.numero_factura) {
+    if (venta.secuencial_sri) {
+      sec = parseInt(venta.secuencial_sri, 10) || 1;
+    } else if (venta.numero_factura) {
       const match = String(venta.numero_factura).match(/(\d+)/g);
       if (match) sec = parseInt(match[match.length - 1], 10) || 1;
     }
@@ -591,12 +659,10 @@ router.post('/:id/generar-clave', async (req, res) => {
     let estadoSri = 'PENDIENTE';
     let fechaFirma = null;
 
-    const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
-    if (cert) {
+    const pems = await cargarCertificadoSeguro(req.db);
+    if (pems) {
       try {
-        const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
-        const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
-        xmlFirmado = firmarXML(xml, privateKeyPem, certificatePem);
+        xmlFirmado = firmarXML(xml, pems.privateKeyPem, pems.certificatePem);
         estadoSri = 'FIRMADO';
         fechaFirma = new Date();
       } catch (e) {
@@ -608,37 +674,25 @@ router.post('/:id/generar-clave', async (req, res) => {
       { _id: new ObjectId(id) },
       {
         $set: {
-          clave_acceso: claveAcceso,
-          serie,
-          secuencial_sri: secuencialFormateado,
-          ruc_emisor: config.ruc,
-          razon_social_emisor: config.razon_social || '',
+          clave_acceso: claveAcceso, serie, secuencial_sri: secuencialFormateado,
+          ruc_emisor: config.ruc, razon_social_emisor: config.razon_social || '',
           ambiente_sri: config.ambiente || '1',
-          xml_generado: xml,
-          xml_firmado: xmlFirmado,
-          estado_sri: estadoSri,
-          fecha_firma: fechaFirma,
-          updatedAt: new Date()
+          xml_generado: xml, xml_firmado: xmlFirmado, estado_sri: estadoSri,
+          fecha_firma: fechaFirma, updatedAt: new Date()
         }
       }
     );
 
     await logAudit(req.db, req, {
-      accion: 'generar-clave',
-      coleccion: 'ventas',
-      documentoId: id,
+      accion: 'generar-clave', coleccion: 'ventas', documentoId: id,
       documentoNumero: venta.numero_factura || '',
       detalle: `Clave de acceso generada: ${claveAcceso}`
     });
 
     res.json({
-      success: true,
-      message: 'Clave de acceso generada correctamente',
-      clave_acceso: claveAcceso,
-      serie,
-      secuencial: secuencialFormateado,
-      firmado: !!xmlFirmado,
-      estado_sri: estadoSri
+      success: true, message: 'Clave de acceso generada correctamente',
+      clave_acceso: claveAcceso, serie, secuencial: secuencialFormateado,
+      firmado: !!xmlFirmado, estado_sri: estadoSri
     });
   } catch (err) {
     console.error('Error generando clave:', err);
@@ -649,64 +703,96 @@ router.post('/:id/generar-clave', async (req, res) => {
 // ============================================================
 // CREAR
 // ============================================================
-router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+router.post('/',
+  requierePermiso('ventas', 'crear'),
+  verificarPeriodoAbierto(),
+  validarVenta,
+  async (req, res) => {
+    if (validar(req, res)) return;
 
-  try {
-    const {
-      clienteId, numero_factura, fecha_emision, tipo_documento,
-      detalles, subtotal, iva, total,
-      numero_guia, transportista, placa, numero_exportacion, pais_destino,
-      numero_retencion, porcentaje_retencion, establecimiento, nombre_comercial, punto_emision,
-      transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
-      direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
-      destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
-      destinatario_direccion, ruta, motivo, documento_aduana,
-      comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
-      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
-      forma_pago, estado_pago, fecha_pago, observaciones
-    } = req.body;
+    const errorTotales = validarTotales(req.body);
+    if (errorTotales) return res.status(400).json({ error: errorTotales });
 
-    const tipoDoc = tipo_documento || 'factura';
-    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+    const errorFecha = validarFechaNoFutura(req.body.fecha_emision);
+    if (errorFecha) return res.status(400).json({ error: errorFecha });
 
-    const session = req.db.client.startSession();
-    let result;
+    try {
+      const {
+        clienteId, numero_factura, fecha_emision, tipo_documento,
+        detalles, subtotal, iva, total,
+        numero_guia, transportista, placa, numero_exportacion, pais_destino,
+        numero_retencion, porcentaje_retencion,
+        tipo_retencion, tipo_impuesto, impuestos_retencion,
+        establecimiento, nombre_comercial, punto_emision,
+        transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
+        direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
+        destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
+        destinatario_direccion, ruta, motivo, documento_aduana,
+        comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
+        comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
+        numero_factura_modificada,
+        forma_pago, estado_pago, fecha_pago, observaciones
+      } = req.body;
 
-    await session.withTransaction(async () => {
-      for (const detalle of detalles) {
-        const producto = await req.db.collection('productos').findOne({ _id: new ObjectId(detalle.productoId) }, { session });
-        if (!producto) throw new Error(`Producto ${detalle.productoId} no existe`);
-        if (producto.stock < detalle.cantidad) {
-          throw new Error(`Stock insuficiente para ${producto.nombre}. Disponible: ${producto.stock}, requerido: ${detalle.cantidad}`);
+      const tipoDoc = tipo_documento || 'factura';
+
+      if (!TIPOS_DOCUMENTO_VALIDOS.includes(tipoDoc)) {
+        return res.status(400).json({
+          error: `Tipo de documento "${tipoDoc}" no es válido`,
+          tipos_validos: TIPOS_DOCUMENTO_VALIDOS
+        });
+      }
+
+      const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+
+      if (tipoDoc === 'nota_credito') {
+        if (!comprobante_clave_acceso && !numero_factura_modificada) {
+          return res.status(400).json({
+            error: 'Las notas de crédito requieren el número o clave de acceso del documento que modifican'
+          });
         }
       }
 
-      const contadorResult = await req.db.collection('contadores').findOneAndUpdate(
-        { _id: tipoDoc }, { $inc: { valor: 1 } }, { upsert: true, returnDocument: 'after', session }
-      );
+      if (tipoDoc === 'retencion') {
+        if (!Array.isArray(impuestos_retencion) && !tipo_retencion) {
+          return res.status(400).json({
+            error: 'Los comprobantes de retención requieren al menos un impuesto (impuestos_retencion[] o tipo_retencion)'
+          });
+        }
+      }
+
+      if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
+        for (const detalle of detalles) {
+          if (!ObjectId.isValid(detalle.productoId)) {
+            throw new Error(`ID de producto inválido: ${detalle.productoId}`);
+          }
+          const producto = await req.db.collection('productos').findOne({ _id: new ObjectId(detalle.productoId) });
+          if (!producto) throw new Error(`Producto ${detalle.productoId} no existe`);
+        }
+      }
+
+      const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && config?.ruc && config.ruc.length === 13;
+
+      const contadorValor = await reservarContador(req.db, tipoDoc);
 
       const prefijos = {
         'factura': 'FAC', 'guia_remision': 'GUI', 'exportacion': 'EXP', 'reembolso': 'REB',
         'retencion': 'RET', 'liquidacion': 'LIQ', 'nota_credito': 'NCR', 'proforma': 'PRO'
       };
       const prefijo = prefijos[tipoDoc] || 'DOC';
-      const codigo = `${prefijo}-${String(contadorResult.valor).padStart(6, '0')}`;
+      const codigo = `${prefijo}-${String(contadorValor).padStart(6, '0')}`;
 
       let claveAcceso = null;
       let partesClave = null;
       let serieFormateada = null;
       let numeroSecuencial = null;
 
-      const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && config?.ruc && config.ruc.length === 13;
-
       if (generaClave) {
         const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
         const est = establecimiento || config.establecimiento || '001';
         const pe = punto_emision || config.punto_emision || '001';
         serieFormateada = formatearSerie(est, pe);
-        numeroSecuencial = contadorResult.valor;
+        numeroSecuencial = contadorValor;
 
         try {
           claveAcceso = generarClaveAcceso({
@@ -724,336 +810,446 @@ router.post('/', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
         }
       }
 
-      let exportacionCodigo = null;
-      if (tipoDoc === 'exportacion') {
-        const expContador = await req.db.collection('contadores').findOneAndUpdate(
-          { _id: 'exportacion_numero' }, { $inc: { valor: 1 } }, { upsert: true, returnDocument: 'after', session }
-        );
-        exportacionCodigo = `EXP-${String(expContador.valor).padStart(6, '0')}`;
-      }
+      const exportacionCodigo = tipoDoc === 'exportacion' ? codigo : null;
 
-      const cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) }, { session });
+      const cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) });
 
-      const venta = {
-        clienteId: new ObjectId(clienteId),
-        numero_factura: numero_factura || codigo,
-        fecha_emision: new Date(fecha_emision),
-        tipo_documento: tipoDoc,
-        detalles, subtotal, iva, total,
-        clave_acceso: claveAcceso || '',
-        numero_autorizacion: '',
-        estado_sri: generaClave ? 'PENDIENTE' : 'NO_APLICA',
-        ambiente_sri: config?.ambiente || '1',
-        serie: serieFormateada || '',
-        secuencial_sri: numeroSecuencial ? String(numeroSecuencial).padStart(9, '0') : '',
-        ruc_emisor: config?.ruc || '',
-        razon_social_emisor: config?.razon_social || '',
-        numero_guia: numero_guia || '', transportista: transportista || '', placa: placa || '',
-        numero_exportacion: numero_exportacion || exportacionCodigo, pais_destino: pais_destino || '',
-        numero_retencion: numero_retencion || '', porcentaje_retencion: porcentaje_retencion || 0,
-        establecimiento: establecimiento || config?.establecimiento || '',
-        nombre_comercial: nombre_comercial || config?.nombre_comercial || '',
-        punto_emision: punto_emision || config?.punto_emision || '',
-        transportista_identificacion: transportista_identificacion || '',
-        transportista_tipo: transportista_tipo || '',
-        transportista_razon_social: transportista_razon_social || '',
-        transportista_correo: transportista_correo || '',
-        direccion_partida: direccion_partida || '',
-        inicio_transporte: inicio_transporte || '', fin_transporte: fin_transporte || '',
-        placa_transporte: placa_transporte || '',
-        destinatario_identificacion: destinatario_identificacion || '',
-        destinatario_tipo: destinatario_tipo || '',
-        destinatario_razon_social: destinatario_razon_social || '',
-        destinatario_direccion: destinatario_direccion || '',
-        ruta: ruta || '', motivo: motivo || '', documento_aduana: documento_aduana || '',
-        comprobante_tipo_emision: comprobante_tipo_emision || '',
-        comprobante_documento: comprobante_documento || '',
-        comprobante_clave_acceso: comprobante_clave_acceso || '',
-        comprobante_numero_autorizacion: comprobante_numero_autorizacion || '',
-        comprobante_numero: comprobante_numero || '',
-        comprobante_fecha_emision: comprobante_fecha_emision || '',
-        forma_pago: forma_pago || '',
-        estado_pago: estado_pago || 'pendiente',
-        fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
-        observaciones: observaciones || '',
-        xml_generado: '', xml_firmado: '',
-        createdAt: new Date(), updatedAt: new Date()
-      };
+      let xmlGenerado = '';
+      let xmlFirmado = '';
+      let estadoSri = generaClave ? 'PENDIENTE' : 'NO_APLICA';
+      let fechaFirma = null;
 
       if (claveAcceso && config) {
         try {
-          venta.xml_generado = generarXMLComprobante(venta, cliente, config);
-        } catch (e) { console.error('Error generando XML:', e.message); }
-      }
-
-      if (venta.xml_generado) {
-        try {
-          const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
-          if (cert) {
-            const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
-            const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
-            venta.xml_firmado = firmarXML(venta.xml_generado, privateKeyPem, certificatePem);
-            venta.estado_sri = 'FIRMADO';
-            venta.fecha_firma = new Date();
-          }
-        } catch (e) { console.error('Error firmando:', e.message); }
-      }
-
-      const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
-      const ventaId = ventaResult.insertedId;
-
-      if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
-        for (const detalle of detalles) {
-          const productoId = new ObjectId(detalle.productoId);
-          await req.db.collection('productos').updateOne(
-            { _id: productoId },
-            { $inc: { stock: -detalle.cantidad }, $set: { updatedAt: new Date() } },
-            { session }
-          );
-          const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
-          await req.db.collection('kardex').insertOne({
-            productoId,
-            fecha: new Date(fecha_emision),
-            tipo_movimiento: 'venta',
-            cantidad: -detalle.cantidad,
-            costo_unitario: detalle.precio_unitario,
-            saldo: productoActualizado.stock,
-            referencia_id: ventaId,
-            referencia_tipo: 'venta',
-            createdAt: new Date()
-          }, { session });
+          const ventaParaXml = {
+            clienteId: new ObjectId(clienteId),
+            numero_factura: numero_factura || codigo,
+            fecha_emision: new Date(fecha_emision),
+            tipo_documento: tipoDoc,
+            detalles, subtotal, iva, total,
+            clave_acceso: claveAcceso,
+            serie: serieFormateada,
+            secuencial_sri: numeroSecuencial ? String(numeroSecuencial).padStart(9, '0') : '',
+            ruc_emisor: config.ruc,
+            razon_social_emisor: config.razon_social || '',
+            establecimiento: establecimiento || config.establecimiento || '001',
+            punto_emision: punto_emision || config.punto_emision || '001',
+            tipo_retencion, tipo_impuesto, impuestos_retencion,
+            numero_retencion, porcentaje_retencion,
+            comprobante_documento, comprobante_numero, comprobante_fecha_emision,
+            numero_factura_modificada
+          };
+          xmlGenerado = generarXMLComprobante(ventaParaXml, cliente, config);
+        } catch (e) {
+          console.error('Error generando XML:', e.message);
         }
       }
 
-      result = { ventaResult, claveAcceso, partesClave };
-    });
+      if (xmlGenerado) {
+        const pems = await cargarCertificadoSeguro(req.db);
+        if (pems) {
+          try {
+            xmlFirmado = firmarXML(xmlGenerado, pems.privateKeyPem, pems.certificatePem);
+            estadoSri = 'FIRMADO';
+            fechaFirma = new Date();
+          } catch (e) {
+            console.error('Error firmando:', e.message);
+          }
+        }
+      }
 
-    const ventaCreada = await req.db.collection('ventas_v2').aggregate([
-      { $match: { _id: result.ventaResult.insertedId } },
-      { $project: { xml_generado: 0, xml_firmado: 0 } },
-      { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
-      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
-    ]).toArray();
+      const result = await conTransaccion(req.db, async (session) => {
+        const venta = {
+          clienteId: new ObjectId(clienteId),
+          numero_factura: numero_factura || codigo,
+          fecha_emision: new Date(fecha_emision),
+          tipo_documento: tipoDoc,
+          detalles, subtotal, iva, total,
+          clave_acceso: claveAcceso || '',
+          numero_autorizacion: '',
+          estado_sri: estadoSri,
+          ambiente_sri: config?.ambiente || '1',
+          serie: serieFormateada || '',
+          secuencial_sri: numeroSecuencial ? String(numeroSecuencial).padStart(9, '0') : '',
+          ruc_emisor: config?.ruc || '',
+          razon_social_emisor: config?.razon_social || '',
+          numero_guia: numero_guia || '',
+          transportista: transportista || '',
+          placa: placa || '',
+          numero_exportacion: numero_exportacion || exportacionCodigo || '',
+          pais_destino: pais_destino || '',
+          numero_retencion: numero_retencion || '',
+          porcentaje_retencion: porcentaje_retencion || 0,
+          tipo_retencion: tipo_retencion || '',
+          tipo_impuesto: tipo_impuesto || '1',
+          impuestos_retencion: Array.isArray(impuestos_retencion) ? impuestos_retencion : undefined,
+          establecimiento: establecimiento || config?.establecimiento || '',
+          nombre_comercial: nombre_comercial || config?.nombre_comercial || '',
+          punto_emision: punto_emision || config?.punto_emision || '',
+          transportista_identificacion: transportista_identificacion || '',
+          transportista_tipo: transportista_tipo || '',
+          transportista_razon_social: transportista_razon_social || '',
+          transportista_correo: transportista_correo || '',
+          direccion_partida: direccion_partida || '',
+          inicio_transporte: inicio_transporte || '',
+          fin_transporte: fin_transporte || '',
+          placa_transporte: placa_transporte || '',
+          destinatario_identificacion: destinatario_identificacion || '',
+          destinatario_tipo: destinatario_tipo || '',
+          destinatario_razon_social: destinatario_razon_social || '',
+          destinatario_direccion: destinatario_direccion || '',
+          ruta: ruta || '',
+          motivo: motivo || '',
+          documento_aduana: documento_aduana || '',
+          comprobante_tipo_emision: comprobante_tipo_emision || '',
+          comprobante_documento: comprobante_documento || '',
+          comprobante_clave_acceso: comprobante_clave_acceso || '',
+          comprobante_numero_autorizacion: comprobante_numero_autorizacion || '',
+          comprobante_numero: comprobante_numero || '',
+          comprobante_fecha_emision: comprobante_fecha_emision || '',
+          numero_factura_modificada: numero_factura_modificada || '',
+          forma_pago: forma_pago || '',
+          estado_pago: estado_pago || 'pendiente',
+          monto_pagado: 0,
+          fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
+          observaciones: observaciones || '',
+          xml_generado: xmlGenerado,
+          xml_firmado: xmlFirmado,
+          fecha_firma: fechaFirma,
+          intentos_envio_sri: 0,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
 
-    await logAudit(req.db, req, {
-      accion: 'crear',
-      coleccion: 'ventas',
-      documentoId: result.ventaResult.insertedId,
-      documentoNumero: ventaCreada[0]?.numero_factura || '',
-      datosNuevos: ventaCreada[0],
-      detalle: `Venta creada: ${ventaCreada[0]?.numero_factura || ''} por $${(ventaCreada[0]?.total || 0).toFixed(2)}`
-    });
+        const ventaResult = await req.db.collection('ventas_v2').insertOne(venta, { session });
+        const ventaId = ventaResult.insertedId;
 
-    if (req.io) req.io.emit('nueva-venta', ventaCreada[0]);
+        const afectaStock = !['guia_remision', 'proforma', 'retencion'].includes(tipoDoc);
+        const signoStock = tipoDoc === 'nota_credito' ? +1 : -1;
 
-    res.status(201).json({
-      ...ventaCreada[0],
-      clave_acceso_partes: result.partesClave
-    });
-  } catch (err) {
-    console.error('Error en venta:', err);
-    res.status(500).json({ error: err.message });
+        if (afectaStock) {
+          for (const detalle of detalles) {
+            const productoId = new ObjectId(detalle.productoId);
+            const productoActualizado = await actualizarStockAtomico(
+              req.db, productoId, detalle.cantidad, signoStock, session
+            );
+
+            const costoUnitario = parseFloat(productoActualizado.precio_compra) || 0;
+            const precioVentaUnitario = parseFloat(detalle.precio_unitario) || 0;
+
+            await req.db.collection('kardex').insertOne({
+              productoId,
+              fecha: new Date(fecha_emision),
+              tipo_movimiento: tipoDoc === 'nota_credito' ? 'devolucion' : 'venta',
+              cantidad: signoStock * detalle.cantidad,
+              costo_unitario: costoUnitario,
+              precio_unitario_venta: precioVentaUnitario,
+              saldo: productoActualizado.stock,
+              referencia_id: ventaId,
+              referencia_tipo: 'venta',
+              createdAt: new Date()
+            }, { session });
+          }
+        }
+
+        return { ventaResult, claveAcceso, partesClave };
+      });
+
+      const ventaCreada = await req.db.collection('ventas_v2').aggregate([
+        { $match: { _id: result.ventaResult.insertedId } },
+        { $project: { xml_generado: 0, xml_firmado: 0 } },
+        { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
+        { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
+      ]).toArray();
+
+      let advertencia = null;
+      const doc = ventaCreada[0];
+      if (generaClave && doc?.estado_sri === 'PENDIENTE') {
+        advertencia = 'El comprobante se guardó sin firma electrónica. Cargue un certificado válido y fírmelo manualmente (POST /api/ventas/{id}/firmar).';
+      } else if (!generaClave && DOCS_CON_CLAVE.includes(tipoDoc)) {
+        advertencia = 'La empresa no tiene un RUC de 13 dígitos configurado. El comprobante se guardó sin clave de acceso.';
+      }
+
+      await logAudit(req.db, req, {
+        accion: 'crear', coleccion: 'ventas',
+        documentoId: result.ventaResult.insertedId,
+        documentoNumero: doc?.numero_factura || '',
+        datosNuevos: doc,
+        detalle: `Venta creada: ${doc?.numero_factura || ''} por $${(doc?.total || 0).toFixed(2)}${advertencia ? ' — ' + advertencia : ''}`
+      });
+
+      if (req.io) req.io.emit('nueva-venta', doc);
+
+      res.status(201).json({
+        ...doc,
+        clave_acceso_partes: result.partesClave,
+        _advertencia: advertencia
+      });
+    } catch (err) {
+      console.error('Error en venta:', err);
+      res.status(500).json({ error: err.message });
+    }
   }
-});
+);
 
 // ============================================================
 // ACTUALIZAR
 // ============================================================
-router.put('/:id', verificarPeriodoAbierto(), validarVenta, async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+router.put('/:id',
+  requierePermiso('ventas', 'editar'),
+  verificarPeriodoAbierto(),
+  validarVenta,
+  async (req, res) => {
+    if (validar(req, res)) return;
 
-  try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
+    const errorTotales = validarTotales(req.body);
+    if (errorTotales) return res.status(400).json({ error: errorTotales });
 
-    const ventaActual = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
-    if (!ventaActual) return res.status(404).json({ error: 'Venta no encontrada' });
+    try {
+      const { id } = req.params;
+      if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
 
-    if (ventaActual.estado_sri === 'AUTORIZADO') {
-      return res.status(400).json({ error: 'Esta factura ya fue autorizada por el SRI. No se puede modificar.' });
-    }
-
-    const {
-      clienteId, numero_factura, fecha_emision, tipo_documento,
-      detalles, subtotal, iva, total,
-      numero_guia, transportista, placa, numero_exportacion, pais_destino,
-      numero_retencion, porcentaje_retencion, establecimiento, nombre_comercial, punto_emision,
-      transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
-      direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
-      destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
-      destinatario_direccion, ruta, motivo, documento_aduana,
-      comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
-      comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
-      forma_pago, estado_pago, fecha_pago, observaciones
-    } = req.body;
-
-    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
-
-    const session = req.db.client.startSession();
-    await session.withTransaction(async () => {
-      if (ventaActual.tipo_documento !== 'nota_credito' && ventaActual.tipo_documento !== 'guia_remision') {
-        for (const detalle of ventaActual.detalles) {
-          const productoId = new ObjectId(detalle.productoId);
-          await req.db.collection('productos').updateOne({ _id: productoId }, { $inc: { stock: detalle.cantidad } }, { session });
-          await req.db.collection('kardex').deleteMany({ referencia_id: new ObjectId(id), referencia_tipo: 'venta' }, { session });
-        }
+      // ✅ Reutiliza el documento que ya leyó verificarPeriodoAbierto()
+      const ventaActual = req._documentoOriginal
+        || await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
+      if (!ventaActual) return res.status(404).json({ error: 'Venta no encontrada' });
+      if (ventaActual.estado_sri === 'AUTORIZADO') {
+        return res.status(400).json({ error: 'Esta factura ya fue autorizada por el SRI. Genere una nota de crédito.' });
+      }
+      if ((ventaActual.intentos_envio_sri || 0) > 0) {
+        return res.status(409).json({
+          error: 'No se puede editar: el documento ya fue enviado al SRI. Genere una nota de crédito o anúlelo con el SRI.',
+          codigo: 'YA_ENVIADO_SRI',
+          intentos: ventaActual.intentos_envio_sri
+        });
       }
 
-      for (const detalle of detalles) {
-        const producto = await req.db.collection('productos').findOne({ _id: new ObjectId(detalle.productoId) }, { session });
-        if (!producto) throw new Error(`Producto ${detalle.productoId} no existe`);
-        if (producto.stock < detalle.cantidad) {
-          throw new Error(`Stock insuficiente para ${producto.nombre}. Disponible: ${producto.stock}`);
-        }
-      }
-
-      let nuevaClave = ventaActual.clave_acceso || '';
-      const fechaCambio = new Date(fecha_emision).getTime() !== new Date(ventaActual.fecha_emision).getTime();
-      const tipoCambio = (tipo_documento || 'factura') !== ventaActual.tipo_documento;
-
-      if (fechaCambio || tipoCambio || !ventaActual.clave_acceso) {
-        const tipoDoc = tipo_documento || 'factura';
-        const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && config?.ruc && config.ruc.length === 13;
-        if (generaClave) {
-          try {
-            const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
-            const est = establecimiento || config.establecimiento || '001';
-            const pe = punto_emision || config.punto_emision || '001';
-            const serie = formatearSerie(est, pe);
-            const secuencial = parseInt(ventaActual.secuencial_sri) || 1;
-            nuevaClave = generarClaveAcceso({
-              fechaEmision: new Date(fecha_emision),
-              tipoComprobante: codigoSRI,
-              ruc: config.ruc,
-              ambiente: config.ambiente || '1',
-              serie, secuencial,
-              tipoEmision: config.tipo_emision || '1'
-            });
-          } catch (e) { console.error('Error regenerando clave:', e.message); }
-        }
-      }
-
-      const cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) }, { session });
-
-      const updateData = {
-        clienteId: new ObjectId(clienteId),
-        numero_factura,
-        fecha_emision: new Date(fecha_emision),
-        tipo_documento: tipo_documento || 'factura',
+      const {
+        clienteId, numero_factura, fecha_emision, tipo_documento,
         detalles, subtotal, iva, total,
-        clave_acceso: nuevaClave,
         numero_guia, transportista, placa, numero_exportacion, pais_destino,
-        numero_retencion, porcentaje_retencion, establecimiento, nombre_comercial, punto_emision,
+        numero_retencion, porcentaje_retencion,
+        tipo_retencion, tipo_impuesto, impuestos_retencion,
+        establecimiento, nombre_comercial, punto_emision,
         transportista_identificacion, transportista_tipo, transportista_razon_social, transportista_correo,
         direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
         destinatario_identificacion, destinatario_tipo, destinatario_razon_social,
         destinatario_direccion, ruta, motivo, documento_aduana,
         comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
         comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
-        forma_pago: forma_pago || '', estado_pago: estado_pago || 'pendiente',
+        numero_factura_modificada,
+        forma_pago, estado_pago, fecha_pago, observaciones
+      } = req.body;
+
+      const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+      const tipoDoc = tipo_documento || 'factura';
+
+      let nuevaClave = ventaActual.clave_acceso || '';
+      const fechaCambio = new Date(fecha_emision).getTime() !== new Date(ventaActual.fecha_emision).getTime();
+      const tipoCambio = tipoDoc !== ventaActual.tipo_documento;
+
+      if ((fechaCambio || tipoCambio || !ventaActual.clave_acceso) && DOCS_CON_CLAVE.includes(tipoDoc)) {
+        const generaClave = config?.ruc && config.ruc.length === 13;
+        if (generaClave) {
+          try {
+            const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
+            const est = establecimiento || config.establecimiento || '001';
+            const pe = punto_emision || config.punto_emision || '001';
+            const serie = formatearSerie(est, pe);
+            const secuencial = parseInt(ventaActual.secuencial_sri, 10) || 1;
+            nuevaClave = generarClaveAcceso({
+              fechaEmision: new Date(fecha_emision),
+              tipoComprobante: codigoSRI,
+              ruc: config.ruc,
+              ambiente: config.ambiente || '1',
+              serie,
+              secuencial,
+              tipoEmision: config.tipo_emision || '1'
+            });
+          } catch (e) {
+            console.error('Error regenerando clave:', e.message);
+          }
+        }
+      }
+
+      const cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) });
+
+      const updateData = {
+        clienteId: new ObjectId(clienteId),
+        numero_factura,
+        fecha_emision: new Date(fecha_emision),
+        tipo_documento: tipoDoc,
+        detalles, subtotal, iva, total,
+        clave_acceso: nuevaClave,
+        numero_guia, transportista, placa,
+        numero_exportacion, pais_destino,
+        numero_retencion, porcentaje_retencion,
+        tipo_retencion: tipo_retencion || ventaActual.tipo_retencion || '',
+        tipo_impuesto: tipo_impuesto || ventaActual.tipo_impuesto || '1',
+        impuestos_retencion: Array.isArray(impuestos_retencion) ? impuestos_retencion : ventaActual.impuestos_retencion,
+        establecimiento, nombre_comercial, punto_emision,
+        transportista_identificacion, transportista_tipo,
+        transportista_razon_social, transportista_correo,
+        direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
+        destinatario_identificacion, destinatario_tipo,
+        destinatario_razon_social, destinatario_direccion,
+        ruta, motivo, documento_aduana,
+        comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
+        comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
+        numero_factura_modificada: numero_factura_modificada || '',
+        forma_pago: forma_pago || '',
+        estado_pago: estado_pago || 'pendiente',
         fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
         observaciones: observaciones || '',
         updatedAt: new Date()
       };
 
-      const ventaParaXML = { ...ventaActual, ...updateData };
       if (nuevaClave && config) {
         try {
+          const ventaParaXML = { ...ventaActual, ...updateData };
           updateData.xml_generado = generarXMLComprobante(ventaParaXML, cliente, config);
-          const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
-          if (cert) {
-            const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
-            const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, cert.password);
-            updateData.xml_firmado = firmarXML(updateData.xml_generado, privateKeyPem, certificatePem);
+
+          const pems = await cargarCertificadoSeguro(req.db);
+          if (pems) {
+            updateData.xml_firmado = firmarXML(updateData.xml_generado, pems.privateKeyPem, pems.certificatePem);
             updateData.estado_sri = 'FIRMADO';
             updateData.fecha_firma = new Date();
           }
-        } catch (e) { console.error('Error regenerando XML/firma:', e.message); }
-      }
-
-      await req.db.collection('ventas_v2').updateOne({ _id: new ObjectId(id) }, { $set: updateData }, { session });
-
-      if (tipo_documento !== 'nota_credito' && tipo_documento !== 'guia_remision') {
-        for (const detalle of detalles) {
-          const productoId = new ObjectId(detalle.productoId);
-          await req.db.collection('productos').updateOne(
-            { _id: productoId },
-            { $inc: { stock: -detalle.cantidad }, $set: { updatedAt: new Date() } },
-            { session }
-          );
-          const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
-          await req.db.collection('kardex').insertOne({
-            productoId,
-            fecha: new Date(fecha_emision),
-            tipo_movimiento: 'venta',
-            cantidad: -detalle.cantidad,
-            costo_unitario: detalle.precio_unitario,
-            saldo: productoActualizado.stock,
-            referencia_id: new ObjectId(id),
-            referencia_tipo: 'venta',
-            createdAt: new Date()
-          }, { session });
+        } catch (e) {
+          console.error('Error regenerando XML/firma:', e.message);
         }
       }
-    });
 
-    const ventaActualizada = await req.db.collection('ventas_v2').aggregate([
-      { $match: { _id: new ObjectId(id) } },
-      { $project: { xml_generado: 0, xml_firmado: 0 } },
-      { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
-      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
-    ]).toArray();
+      await conTransaccion(req.db, async (session) => {
+        const afectaStockAntes = !['guia_remision', 'proforma', 'retencion'].includes(ventaActual.tipo_documento);
+        if (afectaStockAntes) {
+          const signoReversion = ventaActual.tipo_documento === 'nota_credito' ? -1 : +1;
+          for (const detalle of ventaActual.detalles) {
+            const productoId = new ObjectId(detalle.productoId);
+            await actualizarStockAtomico(req.db, productoId, detalle.cantidad, signoReversion, session);
+          }
+          await req.db.collection('kardex').deleteMany(
+            { referencia_id: new ObjectId(id), referencia_tipo: 'venta' },
+            { session }
+          );
+        }
 
-    await logAudit(req.db, req, {
-      accion: 'actualizar',
-      coleccion: 'ventas',
-      documentoId: id,
-      documentoNumero: ventaActualizada[0]?.numero_factura || '',
-      datosAnteriores: { ...ventaActual, xml_generado: undefined, xml_firmado: undefined },
-      datosNuevos: ventaActualizada[0],
-      detalle: `Venta actualizada: ${ventaActualizada[0]?.numero_factura || ''}`
-    });
+        await req.db.collection('ventas_v2').updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData },
+          { session }
+        );
 
-    if (req.io) req.io.emit('venta-actualizada', ventaActualizada[0]);
-    res.json(ventaActualizada[0]);
-  } catch (err) {
-    console.error('Error actualizando venta:', err);
-    res.status(500).json({ error: err.message });
+        const afectaStock = !['guia_remision', 'proforma', 'retencion'].includes(tipoDoc);
+        if (afectaStock) {
+          const signoStock = tipoDoc === 'nota_credito' ? +1 : -1;
+          for (const detalle of detalles) {
+            const productoId = new ObjectId(detalle.productoId);
+            const productoActualizado = await actualizarStockAtomico(
+              req.db, productoId, detalle.cantidad, signoStock, session
+            );
+            const costoUnitario = parseFloat(productoActualizado.precio_compra) || 0;
+            const precioVentaUnitario = parseFloat(detalle.precio_unitario) || 0;
+
+            await req.db.collection('kardex').insertOne({
+              productoId,
+              fecha: new Date(fecha_emision),
+              tipo_movimiento: tipoDoc === 'nota_credito' ? 'devolucion' : 'venta',
+              cantidad: signoStock * detalle.cantidad,
+              costo_unitario: costoUnitario,
+              precio_unitario_venta: precioVentaUnitario,
+              saldo: productoActualizado.stock,
+              referencia_id: new ObjectId(id),
+              referencia_tipo: 'venta',
+              createdAt: new Date()
+            }, { session });
+          }
+        }
+      });
+
+      const ventaActualizada = await req.db.collection('ventas_v2').aggregate([
+        { $match: { _id: new ObjectId(id) } },
+        { $project: { xml_generado: 0, xml_firmado: 0 } },
+        { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
+        { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
+      ]).toArray();
+
+      await logAudit(req.db, req, {
+        accion: 'actualizar', coleccion: 'ventas', documentoId: id,
+        documentoNumero: ventaActualizada[0]?.numero_factura || '',
+        datosAnteriores: { ...ventaActual, xml_generado: undefined, xml_firmado: undefined },
+        datosNuevos: ventaActualizada[0],
+        detalle: `Venta actualizada: ${ventaActualizada[0]?.numero_factura || ''}`
+      });
+
+      if (req.io) req.io.emit('venta-actualizada', ventaActualizada[0]);
+      res.json(ventaActualizada[0]);
+    } catch (err) {
+      console.error('Error actualizando venta:', err);
+      res.status(500).json({ error: err.message });
+    }
   }
-});
+);
 
 // ============================================================
 // ELIMINAR
 // ============================================================
-router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
+router.delete('/:id', requierePermiso('ventas', 'eliminar'), verificarPeriodoAbierto(), async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'ID inválido' });
 
-    const venta = await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
+    // ✅ Reutiliza el documento que ya leyó verificarPeriodoAbierto()
+    const venta = req._documentoOriginal
+      || await req.db.collection('ventas_v2').findOne({ _id: new ObjectId(id) });
     if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
 
     if (venta.estado_sri === 'AUTORIZADO') {
       return res.status(400).json({ error: 'Esta factura ya fue autorizada por el SRI. Genere una nota de crédito.' });
     }
+    if (ESTADOS_SRI_BLOQUEADOS_PARA_DELETE.has(venta.estado_sri)) {
+      return res.status(409).json({
+        error: `No se puede eliminar: el documento está en estado "${venta.estado_sri}". Genere una nota de crédito.`,
+        codigo: 'ESTADO_SRI_NO_ELIMINABLE',
+        estado_sri: venta.estado_sri
+      });
+    }
+    if ((venta.intentos_envio_sri || 0) > 0) {
+      return res.status(409).json({
+        error: 'No se puede eliminar: el documento ya fue enviado al SRI. Genere una nota de crédito.',
+        codigo: 'YA_ENVIADO_SRI',
+        intentos: venta.intentos_envio_sri
+      });
+    }
 
-    const session = req.db.client.startSession();
-    await session.withTransaction(async () => {
-      if (venta.tipo_documento !== 'nota_credito' && venta.tipo_documento !== 'guia_remision') {
+    const pagosAsociados = await req.db.collection('pagos').countDocuments({
+      ventaId: new ObjectId(id), anulado: { $ne: true }
+    });
+    if (pagosAsociados > 0) {
+      return res.status(409).json({
+        error: `No se puede eliminar: hay ${pagosAsociados} pagos registrados. Anule los pagos primero.`,
+        pagosAsociados
+      });
+    }
+
+    await conTransaccion(req.db, async (session) => {
+      const afectaStock = !['guia_remision', 'proforma', 'retencion'].includes(venta.tipo_documento);
+      if (afectaStock) {
+        const signoReversion = venta.tipo_documento === 'nota_credito' ? -1 : +1;
         for (const detalle of venta.detalles) {
           const productoId = new ObjectId(detalle.productoId);
-          await req.db.collection('productos').updateOne({ _id: productoId }, { $inc: { stock: detalle.cantidad } }, { session });
+          await actualizarStockAtomico(req.db, productoId, detalle.cantidad, signoReversion, session);
         }
-        await req.db.collection('kardex').deleteMany({ referencia_id: new ObjectId(id), referencia_tipo: 'venta' }, { session });
+        await req.db.collection('kardex').deleteMany(
+          { referencia_id: new ObjectId(id), referencia_tipo: 'venta' },
+          { session }
+        );
       }
       await req.db.collection('ventas_v2').deleteOne({ _id: new ObjectId(id) }, { session });
     });
 
     await logAudit(req.db, req, {
-      accion: 'eliminar',
-      coleccion: 'ventas',
-      documentoId: id,
+      accion: 'eliminar', coleccion: 'ventas', documentoId: id,
       documentoNumero: venta.numero_factura || '',
       datosAnteriores: venta,
       detalle: `Venta eliminada: ${venta.numero_factura || ''}`

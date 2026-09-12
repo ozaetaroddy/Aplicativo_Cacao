@@ -3,13 +3,15 @@ const express = require('express');
 const router = express.Router();
 const { requierePermiso } = require('../utils/permisos');
 const { logAudit } = require('../utils/audit');
+const { validarRUC, validarEmail } = require('../utils/validators');
 
-// ===== OBTENER CONFIGURACIÓN DE LA EMPRESA =====
+const REGIMENES = ['RIMPE', 'RIMPE_NEGOCIO', 'GENERAL', 'ESPECIAL'];
+
+// ===== OBTENER CONFIGURACIÓN =====
 router.get('/empresa', async (req, res) => {
   try {
     let config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
     if (!config) {
-      // Crear configuración por defecto
       config = {
         _id: 'empresa',
         ruc: '0000000000001',
@@ -23,8 +25,8 @@ router.get('/empresa', async (req, res) => {
         obligado_contabilidad: false,
         regimen: 'RIMPE',
         agente_retencion: '',
-        ambiente: '1', // 1=Pruebas, 2=Producción
-        tipo_emision: '1', // 1=Normal
+        ambiente: '1',
+        tipo_emision: '1',
         establecimiento: '001',
         punto_emision: '001',
         logo_url: '',
@@ -39,8 +41,8 @@ router.get('/empresa', async (req, res) => {
   }
 });
 
-// ===== ACTUALIZAR CONFIGURACIÓN DE LA EMPRESA =====
-router.put('/empresa', requierePermiso('usuarios', 'editar'), async (req, res) => {
+// ===== ACTUALIZAR CONFIGURACIÓN =====
+router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     const anteriores = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
 
@@ -54,20 +56,56 @@ router.put('/empresa', requierePermiso('usuarios', 'editar'), async (req, res) =
       logo_url
     } = req.body;
 
-    // Validar RUC
-    if (ruc && !/^\d{13}$/.test(ruc)) {
-      return res.status(400).json({ error: 'RUC debe tener 13 dígitos numéricos' });
+    // ==== Validaciones ====
+    const errores = [];
+
+    if (ruc) {
+      const rucTrim = String(ruc).trim();
+      if (!validarRUC(rucTrim)) {
+        errores.push('RUC inválido (verifique el dígito verificador y que termine en 001)');
+      }
     }
-    // Validar ambiente
+    if (email) {
+      const check = validarEmail(email);
+      if (!check.valido) errores.push(check.mensaje || 'Email inválido');
+    }
     if (ambiente && !['1', '2'].includes(String(ambiente))) {
-      return res.status(400).json({ error: 'Ambiente debe ser "1" (Pruebas) o "2" (Producción)' });
+      errores.push('Ambiente debe ser "1" (Pruebas) o "2" (Producción)');
     }
-    // Validar establecimiento y punto de emisión
     if (establecimiento && !/^\d{3}$/.test(establecimiento)) {
-      return res.status(400).json({ error: 'Establecimiento debe tener 3 dígitos' });
+      errores.push('Establecimiento debe tener 3 dígitos');
     }
     if (punto_emision && !/^\d{3}$/.test(punto_emision)) {
-      return res.status(400).json({ error: 'Punto de emisión debe tener 3 dígitos' });
+      errores.push('Punto de emisión debe tener 3 dígitos');
+    }
+    if (regimen && !REGIMENES.includes(regimen)) {
+      errores.push(`Régimen inválido. Válidos: ${REGIMENES.join(', ')}`);
+    }
+
+    // Si cambia a producción, verificar certificado cargado y vigente
+    if (String(ambiente) === '2' && anteriores?.ambiente !== '2') {
+      const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
+      if (!cert) {
+        errores.push('No puede activar Producción sin un certificado de firma electrónica cargado');
+      } else {
+        const vence = new Date(cert.info?.validityNotAfter);
+        if (vence < new Date()) {
+          errores.push('No puede activar Producción con un certificado vencido');
+        }
+      }
+    }
+
+    if (errores.length > 0) {
+      return res.status(400).json({ error: errores.join('. '), errores });
+    }
+
+    // Advertencia si cambia el RUC con documentos existentes
+    let advertencia = null;
+    if (ruc && anteriores?.ruc && ruc !== anteriores.ruc) {
+      const docsCount = await req.db.collection('ventas_v2').countDocuments({});
+      if (docsCount > 0) {
+        advertencia = `Cambió el RUC con ${docsCount} documentos existentes. Los documentos anteriores conservan su RUC original.`;
+      }
     }
 
     const updateData = {
@@ -105,23 +143,23 @@ router.put('/empresa', requierePermiso('usuarios', 'editar'), async (req, res) =
       documentoNumero: actualizada.ruc,
       datosAnteriores: anteriores,
       datosNuevos: updateData,
-      detalle: `Configuración de empresa actualizada (${actualizada.razon_social})`
+      detalle: `Configuración actualizada (${actualizada.razon_social})${advertencia ? '. ' + advertencia : ''}`
     });
 
-    res.json(actualizada);
+    res.json({ ...actualizada, _advertencia: advertencia });
   } catch (err) {
     console.error('Error actualizando configuración:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===== VERIFICAR AMBIENTE (PRUEBAS O PRODUCCIÓN) =====
+// ===== VERIFICAR AMBIENTE =====
 router.get('/ambiente', async (req, res) => {
   try {
     const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
     res.json({
       ambiente: config?.ambiente || '1',
-      ambienteNombre: (config?.ambiente === '2') ? 'Producción' : 'Pruebas',
+      ambienteNombre: config?.ambiente === '2' ? 'Producción' : 'Pruebas',
       ruc: config?.ruc || '',
       razon_social: config?.razon_social || ''
     });

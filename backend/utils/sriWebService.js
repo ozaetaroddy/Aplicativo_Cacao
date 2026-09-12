@@ -1,11 +1,16 @@
 // backend/utils/sriWebService.js
-// Cliente para los web services SOAP del SRI
+// Cliente SOAP para los web services del SRI (Ecuador)
+// - RecepcionComprobantesOffline
+// - AutorizacionComprobantesOffline
+//
+// Referencia: https://www.sri.gob.ec/facturacion-electronica
 
 const axios = require('axios');
 const { parseStringPromise } = require('xml2js');
-const zlib = require('zlib');
 
-// ===== URLs del SRI =====
+// ============================================================
+// URLs OFICIALES DEL SRI
+// ============================================================
 const URLS = {
   recepcion: {
     '1': 'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline',
@@ -17,16 +22,20 @@ const URLS = {
   }
 };
 
-/**
- * Convierte el XML firmado a base64 (SRI exige base64 sin comprimir).
- */
+const TIMEOUT_MS = parseInt(process.env.SRI_TIMEOUT_MS || '45000', 10);
+const DEBUG = process.env.SRI_DEBUG === 'true';
+
+// ============================================================
+// HELPERS INTERNOS
+// ============================================================
+function debugLog(...args) {
+  if (DEBUG) console.log('[SRI]', ...args);
+}
+
 function xmlToBase64(xml) {
   return Buffer.from(xml, 'utf-8').toString('base64');
 }
 
-/**
- * Construye el sobre SOAP para validar comprobante.
- */
 function construirEnvioRecepcion(xmlFirmado) {
   const base64 = xmlToBase64(xmlFirmado);
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -40,9 +49,6 @@ function construirEnvioRecepcion(xmlFirmado) {
 </soapenv:Envelope>`;
 }
 
-/**
- * Construye el sobre SOAP para consultar autorización.
- */
 function construirEnvioAutorizacion(claveAcceso) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ec="http://ec.gob.sri.ws.autorizacion">
@@ -56,65 +62,128 @@ function construirEnvioAutorizacion(claveAcceso) {
 }
 
 /**
- * Envía un comprobante firmado al web service de RECEPCIÓN del SRI.
- * @param {string} xmlFirmado - XML firmado con XAdES-BES
- * @param {string} ambiente - '1' Pruebas, '2' Producción
- * @returns {Promise<object>} Respuesta del SRI
+ * Extrae un valor del objeto parseado, sin importar el namespace.
+ * Útil porque el SRI a veces devuelve `ns2:`, `ns3:`, `soap:` o `soapenv:`
  */
+function buscarConNamespace(obj, nombreLocal) {
+  if (!obj || typeof obj !== 'object') return undefined;
+  for (const key of Object.keys(obj)) {
+    // Coincidencia exacta
+    if (key === nombreLocal) return obj[key];
+    // Con prefijo (ns:, ns2:, soapenv:, etc.)
+    if (key.includes(':')) {
+      const local = key.split(':')[1];
+      if (local === nombreLocal) return obj[key];
+    }
+  }
+  return undefined;
+}
+
+function extraerMensajes(contenedor) {
+  const mensajes = [];
+  if (!contenedor) return mensajes;
+  const raw = buscarConNamespace(contenedor, 'mensaje');
+  if (!raw) return mensajes;
+  const arr = Array.isArray(raw) ? raw : [raw];
+  for (const m of arr) {
+    if (!m) continue;
+    mensajes.push({
+      identificador: buscarConNamespace(m, 'identificador') || '',
+      mensaje: buscarConNamespace(m, 'mensaje') || '',
+      informacionAdicional: buscarConNamespace(m, 'informacionAdicional') || '',
+      tipo: buscarConNamespace(m, 'tipo') || ''
+    });
+  }
+  return mensajes;
+}
+
+/**
+ * POST al SRI con reintentos para errores de RED (no para errores del SRI)
+ */
+async function postSOAP(url, body, { reintentos = 2, contexto = 'SRI' } = {}) {
+  let ultimoError = null;
+  for (let intento = 0; intento <= reintentos; intento++) {
+    try {
+      debugLog(`POST ${contexto} (intento ${intento + 1}/${reintentos + 1}) → ${url}`);
+      const response = await axios.post(url, body, {
+        headers: {
+          'Content-Type': 'text/xml; charset=utf-8',
+          'SOAPAction': '',
+          'User-Agent': 'SistemaContable/2.1'
+        },
+        timeout: TIMEOUT_MS,
+        // El SRI a veces devuelve 500 con XML válido dentro
+        validateStatus: (s) => s >= 200 && s < 600,
+        maxRedirects: 0
+      });
+      debugLog(`← ${response.status} ${response.statusText}`);
+      return { ok: true, response };
+    } catch (err) {
+      ultimoError = err;
+      // No reintentar en errores del SRI (5xx con respuesta); sí en red/timeout
+      const esRedError = !err.response || ['ECONNABORTED', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'].includes(err.code);
+      if (!esRedError) break;
+      if (intento < reintentos) {
+        const espera = 1500 * (intento + 1);
+        debugLog(`Error de red, reintentando en ${espera}ms: ${err.message}`);
+        await new Promise(r => setTimeout(r, espera));
+      }
+    }
+  }
+  return { ok: false, error: ultimoError };
+}
+
+// ============================================================
+// RECEPCIÓN
+// ============================================================
 async function enviarRecepcion(xmlFirmado, ambiente = '1') {
   const url = URLS.recepcion[ambiente] || URLS.recepcion['1'];
   const soapBody = construirEnvioRecepcion(xmlFirmado);
 
+  const { ok, response, error } = await postSOAP(url, soapBody, { contexto: 'RECEPCION', reintentos: 2 });
+
+  if (!ok) {
+    let mensaje = error?.message || 'Error desconocido';
+    if (error?.code === 'ECONNABORTED') mensaje = `Timeout al conectar con el SRI (${TIMEOUT_MS / 1000}s)`;
+    if (error?.code === 'ENOTFOUND') mensaje = 'No se pudo resolver el host del SRI';
+    if (error?.code === 'ECONNREFUSED') mensaje = 'El SRI rechazó la conexión';
+    return { estado: 'ERROR_RED', comprobantes: [], exito: false, error: mensaje };
+  }
+
   try {
-    const response = await axios.post(url, soapBody, {
-      headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': '',
-        'User-Agent': 'SistemaContable/2.0'
-      },
-      timeout: 30000
+    const parsed = await parseStringPromise(response.data, {
+      explicitArray: false,
+      tagNameProcessors: [],
+      trim: true
     });
 
-    const parsed = await parseStringPromise(response.data, { explicitArray: false });
+    const envelope = parsed['soap:Envelope'] || parsed['soapenv:Envelope'] || parsed['Envelope'];
+    const body = envelope?.['soap:Body'] || envelope?.['soapenv:Body'] || envelope?.['Body'];
 
-    // Navegar la respuesta SOAP
-    const body = parsed['soap:Envelope']?.['soap:Body'] || parsed['soapenv:Envelope']?.['soapenv:Body'];
-    const respuesta = body?.['ns2:validarComprobanteResponse'] || body?.['ns:validarComprobanteResponse'] || body;
-
-    if (!respuesta) {
-      throw new Error('Respuesta del SRI vacía o malformada');
+    if (!body) {
+      debugLog('Respuesta sin Body:', JSON.stringify(parsed).slice(0, 500));
+      return { estado: 'RESPUESTA_INVALIDA', comprobantes: [], exito: false, error: 'Respuesta del SRI sin Body' };
     }
 
-    // Extraer los datos clave
-    const resp = respuesta.RespuestaRecepcionComprobante || respuesta;
-    const estado = resp.estado || 'DESCONOCIDO';
+    // Buscar la respuesta sin importar namespace
+    const respuesta = buscarConNamespace(body, 'validarComprobanteResponse') || body;
+    const resp = buscarConNamespace(respuesta, 'RespuestaRecepcionComprobante') || respuesta;
+
+    const estado = buscarConNamespace(resp, 'estado') || 'DESCONOCIDO';
 
     const comprobantes = [];
-    const comprobantesRaw = resp.comprobantes?.comprobante || [];
-    const comprobantesArr = Array.isArray(comprobantesRaw) ? comprobantesRaw : [comprobantesRaw];
-
-    for (const c of comprobantesArr) {
-      if (!c || !c.claveAcceso) continue;
-
-      const mensajes = [];
-      const msgRaw = c.mensajes?.mensaje || [];
-      const msgArr = Array.isArray(msgRaw) ? msgRaw : [msgRaw];
-      for (const m of msgArr) {
-        if (m) {
-          mensajes.push({
-            identificador: m.identificador || '',
-            mensaje: m.mensaje || '',
-            informacionAdicional: m.informacionAdicional || '',
-            tipo: m.tipo || ''
-          });
-        }
+    const comprobantesContainer = buscarConNamespace(resp, 'comprobantes');
+    if (comprobantesContainer) {
+      const compsRaw = buscarConNamespace(comprobantesContainer, 'comprobante');
+      const compsArr = !compsRaw ? [] : (Array.isArray(compsRaw) ? compsRaw : [compsRaw]);
+      for (const c of compsArr) {
+        if (!c) continue;
+        comprobantes.push({
+          claveAcceso: buscarConNamespace(c, 'claveAcceso') || '',
+          estado: buscarConNamespace(c, 'estado') || '',
+          mensajes: extraerMensajes(c)
+        });
       }
-
-      comprobantes.push({
-        claveAcceso: c.claveAcceso,
-        estado: c.estado || '',
-        mensajes
-      });
     }
 
     return {
@@ -124,134 +193,108 @@ async function enviarRecepcion(xmlFirmado, ambiente = '1') {
       error: null
     };
   } catch (err) {
-    // Error de red o timeout
-    let mensaje = err.message;
-    if (err.code === 'ECONNABORTED') mensaje = 'Timeout al conectar con el SRI (30s)';
-    if (err.code === 'ENOTFOUND') mensaje = 'No se pudo conectar al servidor del SRI';
-    if (err.response?.status === 500) mensaje = 'Error interno del SRI';
-
+    debugLog('Error parseando respuesta:', err.message, response.data?.slice?.(0, 500));
     return {
-      estado: 'ERROR_RED',
+      estado: 'ERROR_PARSEO',
       comprobantes: [],
       exito: false,
-      error: mensaje
+      error: 'Error parseando respuesta del SRI: ' + err.message
     };
   }
 }
 
-/**
- * Consulta la AUTORIZACIÓN de un comprobante.
- * @param {string} claveAcceso - Clave de acceso de 49 dígitos
- * @param {string} ambiente - '1' Pruebas, '2' Producción
- * @returns {Promise<object>} Respuesta del SRI con autorizaciones
- */
+// ============================================================
+// AUTORIZACIÓN
+// ============================================================
 async function consultarAutorizacion(claveAcceso, ambiente = '1') {
   const url = URLS.autorizacion[ambiente] || URLS.autorizacion['1'];
   const soapBody = construirEnvioAutorizacion(claveAcceso);
 
+  const { ok, response, error } = await postSOAP(url, soapBody, { contexto: 'AUTORIZACION', reintentos: 2 });
+
+  if (!ok) {
+    let mensaje = error?.message || 'Error desconocido';
+    if (error?.code === 'ECONNABORTED') mensaje = `Timeout al conectar con el SRI (${TIMEOUT_MS / 1000}s)`;
+    if (error?.code === 'ENOTFOUND') mensaje = 'No se pudo resolver el host del SRI';
+    return { estado: 'ERROR_RED', autorizaciones: [], exito: false, error: mensaje };
+  }
+
   try {
-    const response = await axios.post(url, soapBody, {
-      headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': '',
-        'User-Agent': 'SistemaContable/2.0'
-      },
-      timeout: 30000
-    });
+    const parsed = await parseStringPromise(response.data, { explicitArray: false, trim: true });
 
-    const parsed = await parseStringPromise(response.data, { explicitArray: false });
+    const envelope = parsed['soap:Envelope'] || parsed['soapenv:Envelope'] || parsed['Envelope'];
+    const body = envelope?.['soap:Body'] || envelope?.['soapenv:Body'] || envelope?.['Body'];
 
-    const body = parsed['soap:Envelope']?.['soap:Body'] || parsed['soapenv:Envelope']?.['soapenv:Body'];
-    const respuesta = body?.['ns2:autorizacionComprobanteResponse'] || body?.['ns:autorizacionComprobanteResponse'] || body;
-
-    if (!respuesta) {
-      throw new Error('Respuesta del SRI vacía');
+    if (!body) {
+      return { estado: 'RESPUESTA_INVALIDA', autorizaciones: [], exito: false, error: 'Respuesta del SRI sin Body' };
     }
 
-    const resp = respuesta.RespuestaAutorizacionComprobante || respuesta;
-    const autorizacionesRaw = resp.autorizaciones?.autorizacion || [];
-    const autorizacionesArr = Array.isArray(autorizacionesRaw) ? autorizacionesRaw : [autorizacionesRaw];
+    const respuesta = buscarConNamespace(body, 'autorizacionComprobanteResponse') || body;
+    const resp = buscarConNamespace(respuesta, 'RespuestaAutorizacionComprobante') || respuesta;
 
     const autorizaciones = [];
-    for (const a of autorizacionesArr) {
-      if (!a) continue;
-
-      const mensajes = [];
-      const msgRaw = a.mensajes?.mensaje || [];
-      const msgArr = Array.isArray(msgRaw) ? msgRaw : [msgRaw];
-      for (const m of msgArr) {
-        if (m) {
-          mensajes.push({
-            identificador: m.identificador || '',
-            mensaje: m.mensaje || '',
-            informacionAdicional: m.informacionAdicional || '',
-            tipo: m.tipo || ''
-          });
-        }
+    const autContainer = buscarConNamespace(resp, 'autorizaciones');
+    if (autContainer) {
+      const autsRaw = buscarConNamespace(autContainer, 'autorizacion');
+      const autsArr = !autsRaw ? [] : (Array.isArray(autsRaw) ? autsRaw : [autsRaw]);
+      for (const a of autsArr) {
+        if (!a) continue;
+        autorizaciones.push({
+          estado: buscarConNamespace(a, 'estado') || '',
+          numeroAutorizacion: buscarConNamespace(a, 'numeroAutorizacion') || '',
+          fechaAutorizacion: buscarConNamespace(a, 'fechaAutorizacion') || '',
+          ambiente: buscarConNamespace(a, 'ambiente') || '',
+          comprobante: buscarConNamespace(a, 'comprobante') || '',
+          mensajes: extraerMensajes(a)
+        });
       }
-
-      autorizaciones.push({
-        estado: a.estado || '',
-        numeroAutorizacion: a.numeroAutorizacion || '',
-        fechaAutorizacion: a.fechaAutorizacion || '',
-        ambiente: a.ambiente || '',
-        comprobante: a.comprobante || '',
-        mensajes
-      });
     }
 
-    // Determinar el estado final
-    const autorizacionPrincipal = autorizaciones[0] || null;
-    const estadoFinal = autorizacionPrincipal?.estado || 'SIN_RESPUESTA';
+    const principal = autorizaciones[0] || null;
+    const estadoFinal = principal?.estado || 'SIN_RESPUESTA';
+    const exito = estadoFinal === 'AUTORIZADO';
 
     return {
       estado: estadoFinal,
       autorizaciones,
-      exito: estadoFinal === 'AUTORIZADO',
-      numeroAutorizacion: autorizacionPrincipal?.numeroAutorizacion || '',
-      fechaAutorizacion: autorizacionPrincipal?.fechaAutorizacion || '',
-      comprobanteAutorizado: autorizacionPrincipal?.comprobante || null,
+      exito,
+      numeroAutorizacion: principal?.numeroAutorizacion || '',
+      fechaAutorizacion: principal?.fechaAutorizacion || '',
+      comprobanteAutorizado: principal?.comprobante || null,
       error: null
     };
   } catch (err) {
-    let mensaje = err.message;
-    if (err.code === 'ECONNABORTED') mensaje = 'Timeout al conectar con el SRI';
-    if (err.code === 'ENOTFOUND') mensaje = 'No se pudo conectar al servidor del SRI';
-
+    debugLog('Error parseando autorización:', err.message);
     return {
-      estado: 'ERROR_RED',
+      estado: 'ERROR_PARSEO',
       autorizaciones: [],
       exito: false,
-      error: mensaje
+      error: 'Error parseando respuesta del SRI: ' + err.message
     };
   }
 }
 
-/**
- * Envía y espera la autorización (con reintentos).
- * El SRI puede tardar unos segundos en autorizar, por eso se reintenta.
- */
+// ============================================================
+// ENVIAR Y ESPERAR AUTORIZACIÓN
+// ============================================================
 async function enviarYAutorizar(xmlFirmado, claveAcceso, ambiente = '1', maxIntentos = 5) {
-  // 1. Enviar a recepción
   const recepcion = await enviarRecepcion(xmlFirmado, ambiente);
   if (!recepcion.exito) {
-    return {
-      exito: false,
-      fase: 'recepcion',
-      recepcion,
-      autorizacion: null
-    };
+    return { exito: false, fase: 'recepcion', recepcion, autorizacion: null };
   }
 
-  // 2. Consultar autorización con reintentos
   let autorizacion = null;
   for (let intento = 1; intento <= maxIntentos; intento++) {
-    await new Promise(r => setTimeout(r, 1500 * intento)); // Espera creciente
+    // Backoff: 1.5s, 3s, 4.5s, 6s, 7.5s
+    const espera = 1500 * intento;
+    await new Promise(r => setTimeout(r, espera));
 
     autorizacion = await consultarAutorizacion(claveAcceso, ambiente);
-    if (autorizacion.exito || autorizacion.estado === 'RECHAZADA' || autorizacion.estado === 'NO AUTORIZADO') {
-      break;
-    }
+
+    if (autorizacion.exito) break;
+    if (['RECHAZADA', 'NO AUTORIZADO', 'ERROR_RED', 'ERROR_PARSEO'].includes(autorizacion.estado)) break;
+
+    debugLog(`Intento ${intento}/${maxIntentos}: estado=${autorizacion.estado}`);
   }
 
   return {
@@ -262,8 +305,40 @@ async function enviarYAutorizar(xmlFirmado, claveAcceso, ambiente = '1', maxInte
   };
 }
 
+// ============================================================
+// DIAGNÓSTICO
+// ============================================================
+async function probarConexion(ambiente = '1') {
+  const url = URLS.recepcion[ambiente] || URLS.recepcion['1'];
+  const inicio = Date.now();
+  try {
+    // Enviamos un SOAP vacío — solo verificamos conectividad
+    await axios.post(url, '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body/></soapenv:Envelope>', {
+      headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+      timeout: 10000,
+      validateStatus: () => true
+    });
+    return {
+      ok: true,
+      ambiente,
+      latencia_ms: Date.now() - inicio,
+      url
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      ambiente,
+      error: err.message,
+      codigo: err.code,
+      url
+    };
+  }
+}
+
 module.exports = {
   enviarRecepcion,
   consultarAutorizacion,
-  enviarYAutorizar
+  enviarYAutorizar,
+  probarConexion,
+  URLS
 };
