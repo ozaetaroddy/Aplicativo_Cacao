@@ -1,158 +1,216 @@
 <template>
-  <div>
+  <div class="ventas-page">
     <!-- ===== HEADER ===== -->
-    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-      <h4 class="section-title mb-0"><i class="fas fa-hand-holding-usd"></i> Ventas</h4>
-      <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-outline-info btn-sm" @click="irEnvioSri">
-          <i class="fas fa-cloud-upload-alt"></i> Consola SRI
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">
+          <span class="title-icon"><i class="fas fa-hand-holding-usd"></i></span>
+          Ventas
+        </h1>
+        <p class="page-subtitle">
+          Gestiona y consulta todos tus comprobantes de venta
+        </p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn-secondary-action" @click="irEnvioSri">
+          <i class="fas fa-cloud-upload-alt"></i>
+          <span>Consola SRI</span>
         </button>
-        <router-link to="/ventas/nuevo" class="btn btn-cacao-primary">
-          <i class="fas fa-plus"></i> Nueva Venta
+        <router-link to="/ventas/nuevo" class="btn-primary-action">
+          <i class="fas fa-plus"></i>
+          <span>Nueva Venta</span>
         </router-link>
       </div>
     </div>
 
-    <!-- ===== KPIs RÁPIDOS ===== -->
-    <div class="row g-3 mb-4">
-      <div class="col-md-3 col-6">
-        <div class="kpi-box" style="border-left-color: #3498db;">
-          <div class="kpi-icon" style="background: rgba(52,152,219,0.12); color:#3498db;">
-            <i class="fas fa-file-invoice"></i>
-          </div>
-          <div class="kpi-body">
-            <div class="kpi-number">{{ stats.total }}</div>
-            <div class="kpi-label">Total documentos</div>
-          </div>
+    <!-- ===== KPIs ===== -->
+    <div class="kpi-row">
+      <div class="kpi-stat" style="--stat-color: #3498db;">
+        <div class="stat-icon"><i class="fas fa-file-invoice"></i></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ stats.total }}</div>
+          <div class="stat-label">Total documentos</div>
         </div>
       </div>
-      <div class="col-md-3 col-6">
-        <div class="kpi-box" style="border-left-color: #f39c12;">
-          <div class="kpi-icon" style="background: rgba(243,156,18,0.12); color:#f39c12;">
-            <i class="fas fa-signature"></i>
-          </div>
-          <div class="kpi-body">
-            <div class="kpi-number">{{ stats.firmados }}</div>
-            <div class="kpi-label">Firmados</div>
-          </div>
+      <div class="kpi-stat" style="--stat-color: #f39c12;">
+        <div class="stat-icon"><i class="fas fa-signature"></i></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ stats.firmados }}</div>
+          <div class="stat-label">Firmados</div>
         </div>
       </div>
-      <div class="col-md-3 col-6">
-        <div class="kpi-box" style="border-left-color: #27ae60;">
-          <div class="kpi-icon" style="background: rgba(39,174,96,0.12); color:#27ae60;">
-            <i class="fas fa-check-double"></i>
-          </div>
-          <div class="kpi-body">
-            <div class="kpi-number">{{ stats.autorizados }}</div>
-            <div class="kpi-label">Autorizados SRI</div>
-          </div>
+      <div class="kpi-stat" style="--stat-color: #27ae60;">
+        <div class="stat-icon"><i class="fas fa-check-double"></i></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ stats.autorizados }}</div>
+          <div class="stat-label">Autorizados SRI</div>
         </div>
       </div>
-      <div class="col-md-3 col-6">
-        <div class="kpi-box" style="border-left-color: #e74c3c;">
-          <div class="kpi-icon" style="background: rgba(231,76,60,0.12); color:#e74c3c;">
-            <i class="fas fa-exclamation-triangle"></i>
-          </div>
-          <div class="kpi-body">
-            <div class="kpi-number">{{ stats.rechazados }}</div>
-            <div class="kpi-label">Rechazados SRI</div>
-          </div>
+      <div class="kpi-stat" style="--stat-color: #e74c3c;">
+        <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="stat-body">
+          <div class="stat-number">{{ stats.rechazados }}</div>
+          <div class="stat-label">Rechazados SRI</div>
         </div>
       </div>
     </div>
 
     <!-- ===== FILTROS ===== -->
-    <div class="card card-cacao mb-3">
-      <div class="card-body py-2">
-        <div class="d-flex gap-2 flex-wrap align-items-center">
-          <span class="text-muted small me-2"><i class="fas fa-filter"></i> Filtrar:</span>
-          <button class="btn btn-sm" :class="filtroEstadoSri === '' ? 'btn-primary' : 'btn-outline-secondary'" @click="cambiarFiltroSri('')">Todos</button>
-          <button class="btn btn-sm" :class="filtroEstadoSri === 'PENDIENTE' ? 'btn-warning' : 'btn-outline-warning'" @click="cambiarFiltroSri('PENDIENTE')">
-            <i class="fas fa-clock"></i> Pendientes
-          </button>
-          <button class="btn btn-sm" :class="filtroEstadoSri === 'FIRMADO' ? 'btn-info' : 'btn-outline-info'" @click="cambiarFiltroSri('FIRMADO')">
-            <i class="fas fa-signature"></i> Firmados
-          </button>
-          <button class="btn btn-sm" :class="filtroEstadoSri === 'AUTORIZADO' ? 'btn-success' : 'btn-outline-success'" @click="cambiarFiltroSri('AUTORIZADO')">
-            <i class="fas fa-check-double"></i> Autorizados
-          </button>
-          <button class="btn btn-sm" :class="filtroEstadoSri === 'RECHAZADA' ? 'btn-danger' : 'btn-outline-danger'" @click="cambiarFiltroSri('RECHAZADA')">
-            <i class="fas fa-times-circle"></i> Rechazados
-          </button>
-        </div>
+    <div class="filters-bar">
+      <div class="filters-group">
+        <span class="filters-label">
+          <i class="fas fa-filter"></i>
+          Filtrar:
+        </span>
+        <button
+          class="filter-chip"
+          :class="{ active: filtroEstadoSri === '' }"
+          @click="cambiarFiltroSri('')"
+        >
+          <i class="fas fa-list"></i>
+          <span>Todos</span>
+          <span class="chip-count">{{ stats.total }}</span>
+        </button>
+        <button
+          class="filter-chip chip-warning"
+          :class="{ active: filtroEstadoSri === 'PENDIENTE' }"
+          @click="cambiarFiltroSri('PENDIENTE')"
+        >
+          <i class="fas fa-clock"></i>
+          <span>Pendientes</span>
+        </button>
+        <button
+          class="filter-chip chip-info"
+          :class="{ active: filtroEstadoSri === 'FIRMADO' }"
+          @click="cambiarFiltroSri('FIRMADO')"
+        >
+          <i class="fas fa-signature"></i>
+          <span>Firmados</span>
+          <span v-if="stats.firmados > 0" class="chip-count">{{ stats.firmados }}</span>
+        </button>
+        <button
+          class="filter-chip chip-success"
+          :class="{ active: filtroEstadoSri === 'AUTORIZADO' }"
+          @click="cambiarFiltroSri('AUTORIZADO')"
+        >
+          <i class="fas fa-check-double"></i>
+          <span>Autorizados</span>
+        </button>
+        <button
+          class="filter-chip chip-danger"
+          :class="{ active: filtroEstadoSri === 'RECHAZADA' }"
+          @click="cambiarFiltroSri('RECHAZADA')"
+        >
+          <i class="fas fa-times-circle"></i>
+          <span>Rechazados</span>
+        </button>
       </div>
     </div>
 
     <!-- ===== TABLA ===== -->
-    <div class="card card-cacao">
-      <div class="card-body">
+    <div class="card-cacao">
+      <div class="card-body p-0">
         <div class="table-responsive">
-          <table class="table table-cacao tabla-ventas">
+          <table class="table-modern">
             <thead>
               <tr>
-                <th style="min-width:90px;">Fecha</th>
-                <th style="min-width:120px;">Nº Factura</th>
-                <th style="min-width:180px;">Cliente</th>
-                <th style="min-width:80px;">Tipo</th>
-                <th style="min-width:90px;" class="text-end">Total</th>
-                <th style="min-width:90px;">Pago</th>
-                <th style="min-width:100px;">Estado SRI</th>
-                <th style="min-width:120px;">Nº Autorización</th>
-                <th style="min-width:140px;">Clave Acceso</th>
-                <th style="width:180px;" class="text-center">Acciones</th>
+                <th style="min-width:100px;">Fecha</th>
+                <th style="min-width:130px;">Nº Factura</th>
+                <th style="min-width:200px;">Cliente</th>
+                <th style="min-width:100px;">Tipo</th>
+                <th style="min-width:110px;" class="text-end">Total</th>
+                <th style="min-width:100px;">Pago</th>
+                <th style="min-width:130px;">Estado SRI</th>
+                <th style="min-width:140px;">Nº Autorización</th>
+                <th style="min-width:150px;">Clave Acceso</th>
+                <th style="width:200px;" class="text-center">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="10" class="text-center py-4">
-                  <i class="fas fa-spinner fa-spin"></i> Cargando...
-                </td>
-              </tr>
+              <!-- Loading -->
+              <template v-if="loading">
+                <tr v-for="n in 5" :key="`sk-${n}`">
+                  <td v-for="col in 10" :key="`c-${col}`">
+                    <div class="skeleton-line"></div>
+                  </td>
+                </tr>
+              </template>
+
+              <!-- Empty -->
               <tr v-else-if="ventas.length === 0">
-                <td colspan="10" class="text-center text-muted py-4">
-                  No hay ventas registradas
+                <td colspan="10" class="empty-state-cell">
+                  <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-file-invoice"></i></div>
+                    <div class="empty-title">No hay ventas registradas</div>
+                    <div class="empty-text">
+                      {{ filtroEstadoSri ? `No hay ventas con estado "${filtroEstadoSri}"` : 'Crea tu primera venta para comenzar' }}
+                    </div>
+                    <router-link to="/ventas/nuevo" class="btn-empty-action">
+                      <i class="fas fa-plus"></i> Crear Nueva Venta
+                    </router-link>
+                  </div>
                 </td>
               </tr>
-              <tr v-else v-for="v in ventas" :key="v._id">
-                <td class="small">{{ formatFecha(v.fecha_emision) }}</td>
-                <td class="small font-monospace">{{ v.numero_factura }}</td>
+
+              <!-- Rows -->
+              <tr v-else v-for="v in ventas" :key="v._id" class="venta-row">
                 <td>
-                  <div class="fw-bold small">{{ v.cliente?.nombre || 'N/A' }}</div>
-                  <div class="text-muted" style="font-size:0.7rem;">{{ v.cliente?.ruc || '' }}</div>
+                  <div class="cell-date">
+                    <div class="date-main">{{ formatFecha(v.fecha_emision) }}</div>
+                    <div class="date-sub">{{ formatHora(v.fecha_emision) }}</div>
+                  </div>
+                </td>
+                <td>
+                  <span class="badge-doc">{{ v.numero_factura }}</span>
+                </td>
+                <td>
+                  <div class="cliente-cell">
+                    <div class="cliente-avatar">
+                      {{ getInitials(v.cliente?.nombre) }}
+                    </div>
+                    <div class="cliente-info">
+                      <div class="cliente-nombre">{{ v.cliente?.nombre || 'N/A' }}</div>
+                      <div class="cliente-ruc">{{ v.cliente?.ruc || '—' }}</div>
+                    </div>
+                  </div>
                 </td>
                 <td>
                   <span class="badge-tipo">{{ v.tipo_documento || 'N/A' }}</span>
                 </td>
-                <td class="text-end fw-bold">${{ (v.total || 0).toFixed(2) }}</td>
+                <td class="text-end">
+                  <div class="cell-total">${{ (v.total || 0).toFixed(2) }}</div>
+                  <div class="cell-total-sub">IVA: ${{ (v.iva || 0).toFixed(2) }}</div>
+                </td>
                 <td>
-                  <span class="badge" :class="v.estado_pago === 'pagado' ? 'bg-success' : 'bg-warning text-dark'">
+                  <span class="badge-pago" :class="v.estado_pago === 'pagado' ? 'badge-pago-ok' : 'badge-pago-pending'">
+                    <i :class="v.estado_pago === 'pagado' ? 'fas fa-check' : 'fas fa-clock'"></i>
                     {{ v.estado_pago || 'pendiente' }}
                   </span>
                 </td>
                 <td>
-                  <span class="badge" :class="getEstadoSriClass(v.estado_sri)">
-                    <i :class="getEstadoSriIcon(v.estado_sri)" class="me-1"></i>
-                    {{ v.estado_sri || 'N/A' }}
+                  <span class="badge-sri" :class="getEstadoSriClass(v.estado_sri)">
+                    <i :class="getEstadoSriIcon(v.estado_sri)"></i>
+                    <span>{{ v.estado_sri || 'N/A' }}</span>
                   </span>
                 </td>
                 <td class="small font-monospace">
-                  <span v-if="v.numero_autorizacion" :title="v.numero_autorizacion">
+                  <span v-if="v.numero_autorizacion" :title="v.numero_autorizacion" class="code-value">
                     {{ v.numero_autorizacion.substring(0, 12) }}...
                   </span>
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td class="small font-monospace">
-                  <span v-if="v.clave_acceso" class="clave-corta" :title="v.clave_acceso">
+                  <span v-if="v.clave_acceso" :title="v.clave_acceso" class="code-value">
                     {{ v.clave_acceso.substring(0, 12) }}...
                   </span>
                   <span v-else class="text-muted">—</span>
                 </td>
-                <td class="text-center">
-                  <div class="acciones-cell">
-                    <!-- Firma -->
+                <td>
+                  <div class="actions-cell">
+                    <!-- Firmar -->
                     <button
                       v-if="puedeFirmar(v)"
-                      class="btn-accion btn-warning-accion"
+                      class="action-icon-btn btn-action-warning"
                       @click="firmar(v)"
                       title="Firmar electrónicamente"
                     >
@@ -162,17 +220,17 @@
                     <!-- Enviar al SRI -->
                     <button
                       v-if="puedeEnviarSri(v)"
-                      class="btn-accion btn-success-accion"
+                      class="action-icon-btn btn-action-success"
                       @click="enviarAlSRI(v)"
                       title="Enviar al SRI"
                     >
                       <i class="fas fa-paper-plane"></i>
                     </button>
 
-                    <!-- Reintentar (rechazado) -->
+                    <!-- Reintentar -->
                     <button
                       v-if="puedeReintentar(v)"
-                      class="btn-accion btn-warning-accion"
+                      class="action-icon-btn btn-action-warning"
                       @click="enviarAlSRI(v)"
                       title="Reintentar envío al SRI"
                     >
@@ -182,63 +240,64 @@
                     <!-- Consultar autorización -->
                     <button
                       v-if="puedeConsultar(v)"
-                      class="btn-accion btn-info-accion"
+                      class="action-icon-btn btn-action-info"
                       @click="consultarSRI(v)"
-                      title="Consultar autorización en el SRI"
+                      title="Consultar autorización"
                     >
                       <i class="fas fa-search"></i>
                     </button>
 
                     <!-- Ver documento -->
                     <button
-                      class="btn-accion btn-secondary-accion"
+                      class="action-icon-btn btn-action-secondary"
                       @click="irDocumento(v)"
                       title="Ver documento (RIDE)"
                     >
                       <i class="fas fa-eye"></i>
                     </button>
 
-                    <!-- Menú desplegable para más acciones -->
-                    <div class="dropdown d-inline-block">
+                    <!-- Menú más acciones -->
+                    <div class="dropdown-more">
                       <button
-                        class="btn-accion btn-secondary-accion"
-                        type="button"
+                        class="action-icon-btn btn-action-secondary"
                         @click.stop="toggleMenuAcciones(v._id)"
                         title="Más acciones"
                       >
                         <i class="fas fa-ellipsis-v"></i>
                       </button>
-                      <ul
-                        v-if="menuAbierto === v._id"
-                        class="dropdown-menu-acciones"
-                        @click.stop
-                      >
-                        <li v-if="v.clave_acceso">
-                          <a href="#" @click.prevent="descargarXML(v, v.estado_sri === 'FIRMADO' || v.estado_sri === 'AUTORIZADO')">
-                            <i class="fas fa-file-code text-success"></i>
-                            Descargar XML
-                          </a>
-                        </li>
-                        <li v-if="v.clave_acceso">
-                          <a href="#" @click.prevent="abrirModalEmail(v)">
-                            <i class="fas fa-envelope text-info"></i>
-                            Enviar por email
-                          </a>
-                        </li>
-                        <li v-if="v.estado_sri !== 'AUTORIZADO'">
-                          <a href="#" @click.prevent="editar(v)">
-                            <i class="fas fa-edit text-primary"></i>
-                            Editar
-                          </a>
-                        </li>
-                        <li v-if="v.estado_sri !== 'AUTORIZADO'" class="divider"></li>
-                        <li v-if="v.estado_sri !== 'AUTORIZADO'">
-                          <a href="#" @click.prevent="eliminar(v)" class="text-danger">
-                            <i class="fas fa-trash"></i>
-                            Eliminar
-                          </a>
-                        </li>
-                      </ul>
+                      <transition name="dropdown-menu-fade">
+                        <ul
+                          v-if="menuAbierto === v._id"
+                          class="dropdown-menu-actions"
+                          @click.stop
+                        >
+                          <li v-if="v.clave_acceso">
+                            <a href="#" @click.prevent="descargarXML(v, v.estado_sri === 'FIRMADO' || v.estado_sri === 'AUTORIZADO')">
+                              <i class="fas fa-file-code"></i>
+                              <span>Descargar XML</span>
+                            </a>
+                          </li>
+                          <li v-if="v.clave_acceso">
+                            <a href="#" @click.prevent="abrirModalEmail(v)">
+                              <i class="fas fa-envelope"></i>
+                              <span>Enviar por email</span>
+                            </a>
+                          </li>
+                          <li v-if="v.estado_sri !== 'AUTORIZADO'">
+                            <a href="#" @click.prevent="editar(v)">
+                              <i class="fas fa-edit"></i>
+                              <span>Editar</span>
+                            </a>
+                          </li>
+                          <li v-if="v.estado_sri !== 'AUTORIZADO'" class="divider"></li>
+                          <li v-if="v.estado_sri !== 'AUTORIZADO'">
+                            <a href="#" @click.prevent="eliminar(v)" class="danger">
+                              <i class="fas fa-trash"></i>
+                              <span>Eliminar</span>
+                            </a>
+                          </li>
+                        </ul>
+                      </transition>
                     </div>
                   </div>
                 </td>
@@ -248,12 +307,13 @@
         </div>
 
         <!-- Paginación -->
-        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
-          <div class="text-muted small">
-            Mostrando {{ ventas.length }} registros
+        <div class="table-footer">
+          <div class="footer-info">
+            Mostrando <strong>{{ ventas.length }}</strong> de <strong>{{ stats.total }}</strong> registros
           </div>
-          <button class="btn btn-sm btn-outline-primary" @click="cargar" :disabled="loading">
-            <i class="fas fa-sync" :class="{ 'fa-spin': loading }"></i> Actualizar
+          <button class="btn-refresh" @click="cargar" :disabled="loading">
+            <i class="fas fa-sync" :class="{ 'fa-spin': loading }"></i>
+            <span>Actualizar</span>
           </button>
         </div>
       </div>
@@ -293,19 +353,28 @@ const stats = ref({
 // ===== HELPERS =====
 const formatFecha = (fecha) => {
   if (!fecha) return ''
-  return new Date(fecha).toLocaleDateString('es-EC')
+  return new Date(fecha).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+const formatHora = (fecha) => {
+  if (!fecha) return ''
+  return new Date(fecha).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })
+}
+
+const getInitials = (nombre) => {
+  if (!nombre) return '?'
+  return String(nombre).split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 }
 
 const getEstadoSriClass = (estado) => {
   switch (estado) {
-    case 'AUTORIZADO': return 'bg-success'
-    case 'FIRMADO': return 'bg-info'
+    case 'AUTORIZADO': return 'badge-sri-success'
+    case 'FIRMADO': return 'badge-sri-info'
     case 'PENDIENTE':
-    case 'RECIBIDA': return 'bg-warning text-dark'
+    case 'RECIBIDA': return 'badge-sri-warning'
     case 'RECHAZADA':
-    case 'DEVUELTA': return 'bg-danger'
-    case 'NO_APLICA': return 'bg-secondary'
-    default: return 'bg-secondary'
+    case 'DEVUELTA': return 'badge-sri-danger'
+    default: return 'badge-sri-secondary'
   }
 }
 
@@ -321,7 +390,6 @@ const getEstadoSriIcon = (estado) => {
   }
 }
 
-// ===== CONDICIONES DE ACCIONES =====
 const puedeFirmar = (v) => v.clave_acceso && !['FIRMADO', 'AUTORIZADO', 'RECHAZADA', 'DEVUELTA'].includes(v.estado_sri)
 const puedeEnviarSri = (v) => v.clave_acceso && v.estado_sri === 'FIRMADO'
 const puedeReintentar = (v) => v.clave_acceso && ['RECHAZADA', 'DEVUELTA'].includes(v.estado_sri)
@@ -334,15 +402,16 @@ const cargar = async () => {
     let datos = await find('ventas')
     if (!Array.isArray(datos)) datos = []
 
+    stats.value.total = datos.length
+    stats.value.firmados = datos.filter(v => v.estado_sri === 'FIRMADO').length
+    stats.value.autorizados = datos.filter(v => v.estado_sri === 'AUTORIZADO').length
+    stats.value.rechazados = datos.filter(v => v.estado_sri === 'RECHAZADA' || v.estado_sri === 'DEVUELTA').length
+
     if (filtroEstadoSri.value) {
       datos = datos.filter(v => v.estado_sri === filtroEstadoSri.value)
     }
 
     ventas.value = datos
-    stats.value.total = datos.length
-    stats.value.firmados = datos.filter(v => v.estado_sri === 'FIRMADO').length
-    stats.value.autorizados = datos.filter(v => v.estado_sri === 'AUTORIZADO').length
-    stats.value.rechazados = datos.filter(v => v.estado_sri === 'RECHAZADA' || v.estado_sri === 'DEVUELTA').length
   } catch (e) {
     toast.error('Error al cargar: ' + e.message)
   } finally {
@@ -355,23 +424,17 @@ const cambiarFiltroSri = (estado) => {
   cargar()
 }
 
-// ===== MENÚ DE ACCIONES =====
+// ===== MENÚ =====
 const toggleMenuAcciones = (id) => {
   menuAbierto.value = menuAbierto.value === id ? null : id
 }
-
-const cerrarMenu = () => {
-  menuAbierto.value = null
-}
+const cerrarMenu = () => { menuAbierto.value = null }
 
 // ===== ACCIONES =====
 const firmar = async (row) => {
   if (!confirm('¿Firmar electrónicamente este documento?')) return
   try {
-    await api.request(`/ventas/${row._id}/firmar`, {
-      method: 'POST',
-      loaderMessage: 'Firmando documento...'
-    })
+    await api.request(`/ventas/${row._id}/firmar`, { method: 'POST', loaderMessage: 'Firmando documento...' })
     toast.success('Documento firmado correctamente')
     cargar()
   } catch (e) {
@@ -382,16 +445,12 @@ const firmar = async (row) => {
 const enviarAlSRI = async (row) => {
   if (!confirm('¿Enviar este documento al SRI?\n\nEl proceso puede tardar unos segundos.')) return
   try {
-    const res = await api.request(`/sri/enviar/${row._id}`, {
-      method: 'POST',
-      loaderMessage: 'Enviando al SRI...'
-    })
-
+    const res = await api.request(`/sri/enviar/${row._id}`, { method: 'POST', loaderMessage: 'Enviando al SRI...' })
     if (res.success) {
       toast.success(`✅ Autorizado: ${res.numero_autorizacion}`)
     } else if (res.estado === 'DEVUELTA' || res.estado === 'RECHAZADA') {
       const mensajes = (res.mensajes || []).slice(0, 2).map(m => `${m.identificador}: ${m.mensaje}`).join(' | ')
-      toast.error(`❌ Rechazado: ${mensajes || 'Sin detalle'}`)
+      toast.error(`❌ Rechazado: ${mensajes || 'Sin detalle'}`, { timeout: 8000 })
     } else {
       toast.warning(`Estado: ${res.estado}`)
     }
@@ -403,10 +462,7 @@ const enviarAlSRI = async (row) => {
 
 const consultarSRI = async (row) => {
   try {
-    const res = await api.request(`/sri/consultar/${row._id}`, {
-      method: 'POST',
-      loaderMessage: 'Consultando autorización...'
-    })
+    const res = await api.request(`/sri/consultar/${row._id}`, { method: 'POST', loaderMessage: 'Consultando...' })
     if (res.success) {
       toast.success(`✅ Autorizado: ${res.numero_autorizacion}`)
     } else {
@@ -419,6 +475,7 @@ const consultarSRI = async (row) => {
 }
 
 const descargarXML = async (row, firmado = false) => {
+  cerrarMenu()
   if (!row.clave_acceso) {
     toast.warning('Este documento no tiene clave de acceso')
     return
@@ -426,24 +483,14 @@ const descargarXML = async (row, firmado = false) => {
   try {
     const token = localStorage.getItem('token')
     const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
-    let url = `${baseUrl}/ventas/${row._id}/xml`
-    let sufijo = ''
-
-    if (firmado) {
-      url = `${baseUrl}/ventas/${row._id}/xml-firmado`
-      sufijo = '_firmado'
-    }
-
-    const response = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    const url = firmado ? `${baseUrl}/ventas/${row._id}/xml-firmado` : `${baseUrl}/ventas/${row._id}/xml`
+    const response = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
     if (!response.ok) throw new Error('Error al descargar')
-
     const blob = await response.blob()
     const objectUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = objectUrl
-    a.download = `${row.clave_acceso}${sufijo}.xml`
+    a.download = `${row.clave_acceso}${firmado ? '_firmado' : ''}.xml`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -455,8 +502,8 @@ const descargarXML = async (row, firmado = false) => {
 }
 
 const abrirModalEmail = (row) => {
-  ventaParaEmail.value = row
   cerrarMenu()
+  ventaParaEmail.value = row
   setTimeout(() => {
     const modalEl = document.getElementById('modalEnviarEmail')
     const modal = Modal.getOrCreateInstance(modalEl)
@@ -492,10 +539,8 @@ const eliminar = async (row) => {
   }
 }
 
-// ===== CLICK FUERA PARA CERRAR MENÚ =====
-const handleClickOutside = () => {
-  cerrarMenu()
-}
+// ===== CLICK FUERA =====
+const handleClickOutside = () => cerrarMenu()
 
 onMounted(() => {
   cargar()
@@ -508,212 +553,636 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ===== KPIs ===== */
-.kpi-box {
+.ventas-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ===== HEADER ===== */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.page-title {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-left: 4px solid #3498db;
-  border-radius: 12px;
-  transition: var(--transition);
-  height: 80px;
+  gap: 14px;
+  margin-bottom: 6px;
 }
-.kpi-box:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px var(--shadow-hover);
-}
-.kpi-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+
+.title-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2rem;
+  font-size: 1.3rem;
+  box-shadow: 0 8px 20px rgba(52, 152, 219, 0.3);
+}
+
+.page-subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  padding-left: 62px;
+}
+
+.page-header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-primary-action,
+.btn-secondary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.88rem;
+  transition: all var(--transition);
+  cursor: pointer;
+  text-decoration: none;
+  border: none;
+  font-family: inherit;
+}
+
+.btn-primary-action {
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+.btn-primary-action:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(52, 152, 219, 0.4);
+  color: #fff;
+}
+
+.btn-secondary-action {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-color);
+  color: var(--text-secondary);
+}
+.btn-secondary-action:hover {
+  border-color: var(--info);
+  color: var(--info);
+  background: var(--info-bg);
+  transform: translateY(-2px);
+}
+
+/* ===== KPIs ===== */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.kpi-stat {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.kpi-stat::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--stat-color);
+}
+
+.kpi-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--stat-color) 15%, transparent);
+  color: var(--stat-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
   flex-shrink: 0;
 }
-.kpi-body { flex: 1; min-width: 0; }
-.kpi-number {
+
+.stat-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.stat-number {
   font-size: 1.5rem;
   font-weight: 800;
   color: var(--text-primary);
   line-height: 1.1;
+  letter-spacing: -0.02em;
 }
-.kpi-label {
+
+.stat-label {
   font-size: 0.72rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.4px;
   font-weight: 600;
+  margin-top: 2px;
+}
+
+/* ===== FILTROS ===== */
+.filters-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+}
+
+.filters-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filters-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-full);
+  background: var(--bg-table-stripe);
+  border: 1.5px solid var(--border-color);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+.filter-chip:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+.filter-chip.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+.chip-warning.active { background: #f39c12; border-color: #f39c12; box-shadow: 0 4px 12px rgba(243, 156, 18, 0.3); }
+.chip-info.active { background: #3498db; border-color: #3498db; box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3); }
+.chip-success.active { background: #27ae60; border-color: #27ae60; box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3); }
+.chip-danger.active { background: #e74c3c; border-color: #e74c3c; box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3); }
+
+.chip-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: inherit;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 18px;
+  text-align: center;
+}
+.filter-chip:not(.active) .chip-count {
+  background: var(--border-color);
+  color: var(--text-muted);
 }
 
 /* ===== TABLA ===== */
-.tabla-ventas {
-  margin-bottom: 0;
+.table-modern {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 0.85rem;
 }
-.tabla-ventas th {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  color: var(--text-muted);
+
+.table-modern thead {
+  background: var(--bg-table-stripe);
+}
+
+.table-modern th {
+  padding: 14px 12px;
+  text-align: left;
+  font-size: 0.7rem;
   font-weight: 700;
-  padding: 10px 8px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--border-color);
   white-space: nowrap;
 }
-.tabla-ventas td {
-  padding: 10px 8px;
+
+.table-modern td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border-light);
   vertical-align: middle;
 }
 
+.venta-row {
+  transition: background var(--transition-fast);
+}
+.venta-row:hover {
+  background: var(--bg-table-stripe);
+}
+
+/* Celda fecha */
+.cell-date .date-main {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+.cell-date .date-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Badge documento */
+.badge-doc {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  background: var(--bg-table-stripe);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+}
+
+/* Celda cliente */
+.cliente-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cliente-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+.cliente-info { min-width: 0; }
+.cliente-nombre {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.cliente-ruc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Badge tipo */
 .badge-tipo {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  background: rgba(108,117,125,0.15);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(108, 117, 125, 0.12);
   color: #6c757d;
   font-size: 0.7rem;
   font-weight: 700;
   text-transform: capitalize;
+  letter-spacing: 0.2px;
 }
 
-.clave-corta {
-  font-family: 'JetBrains Mono', monospace;
+/* Celda total */
+.cell-total {
+  font-weight: 800;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+.cell-total-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Badge pago */
+.badge-pago {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  letter-spacing: 0.2px;
+}
+.badge-pago-ok {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.badge-pago-pending {
+  background: var(--warning-bg);
+  color: #d68910;
+}
+
+/* Badge SRI */
+.badge-sri {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.badge-sri-success { background: var(--success-bg); color: var(--success); }
+.badge-sri-info { background: var(--info-bg); color: var(--info); }
+.badge-sri-warning { background: var(--warning-bg); color: #d68910; }
+.badge-sri-danger { background: var(--danger-bg); color: var(--danger); }
+.badge-sri-secondary { background: var(--bg-table-stripe); color: var(--text-muted); }
+
+.code-value {
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--primary-color);
   cursor: help;
 }
 
-/* ===== CELDA DE ACCIONES COMPACTA ===== */
-.acciones-cell {
+/* ===== ACCIONES ===== */
+.actions-cell {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   justify-content: center;
   align-items: center;
   flex-wrap: nowrap;
 }
 
-.btn-accion {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
+.action-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border-color);
   background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.75rem;
-  color: var(--text-primary);
+  font-size: 0.78rem;
+  transition: all var(--transition-fast);
   padding: 0;
   flex-shrink: 0;
+  font-family: inherit;
 }
-.btn-accion:hover {
+.action-icon-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
-.btn-warning-accion {
-  border-color: #f39c12;
-  color: #f39c12;
-}
-.btn-warning-accion:hover {
-  background: #f39c12;
-  color: #fff;
-  border-color: #f39c12;
+.btn-action-warning { border-color: #f39c12; color: #f39c12; }
+.btn-action-warning:hover { background: #f39c12; color: #fff; border-color: #f39c12; }
+
+.btn-action-success { border-color: #27ae60; color: #27ae60; }
+.btn-action-success:hover { background: #27ae60; color: #fff; border-color: #27ae60; }
+
+.btn-action-info { border-color: #3498db; color: #3498db; }
+.btn-action-info:hover { background: #3498db; color: #fff; border-color: #3498db; }
+
+.btn-action-secondary { color: var(--text-muted); }
+.btn-action-secondary:hover { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+
+/* ===== DROPDOWN MÁS ACCIONES ===== */
+.dropdown-more {
+  position: relative;
 }
 
-.btn-success-accion {
-  border-color: #27ae60;
-  color: #27ae60;
-}
-.btn-success-accion:hover {
-  background: #27ae60;
-  color: #fff;
-  border-color: #27ae60;
-}
-
-.btn-info-accion {
-  border-color: #3498db;
-  color: #3498db;
-}
-.btn-info-accion:hover {
-  background: #3498db;
-  color: #fff;
-  border-color: #3498db;
-}
-
-.btn-secondary-accion {
-  border-color: var(--border-color);
-  color: var(--text-muted);
-}
-.btn-secondary-accion:hover {
-  background: var(--primary-color);
-  color: #fff;
-  border-color: var(--primary-color);
-}
-
-/* ===== MENÚ DESPLEGABLE DE ACCIONES ===== */
-.dropdown-menu-acciones {
+.dropdown-menu-actions {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
   right: 0;
   z-index: 1050;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   padding: 6px;
   min-width: 200px;
   list-style: none;
-  margin: 6px 0 0 0;
-  animation: fadeInMenu 0.15s ease;
+  margin: 0;
 }
-@keyframes fadeInMenu {
-  from { opacity: 0; transform: translateY(-5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.dropdown-menu-acciones li a {
+
+.dropdown-menu-actions li a {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   color: var(--text-primary);
   text-decoration: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
-  transition: background 0.15s;
+  font-weight: 500;
+  transition: background var(--transition-fast);
 }
-.dropdown-menu-acciones li a:hover {
+.dropdown-menu-actions li a:hover {
   background: var(--bg-table-stripe);
 }
-.dropdown-menu-acciones li a i {
+.dropdown-menu-actions li a i {
   width: 16px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  color: var(--primary-color);
 }
-.dropdown-menu-acciones li.divider {
+.dropdown-menu-actions li a.danger {
+  color: var(--danger);
+}
+.dropdown-menu-actions li a.danger i {
+  color: var(--danger);
+}
+.dropdown-menu-actions li a.danger:hover {
+  background: var(--danger-bg);
+}
+.dropdown-menu-actions li.divider {
   height: 1px;
-  background: var(--border-color);
+  background: var(--border-light);
   margin: 4px 8px;
+}
+
+.dropdown-menu-fade-enter-active,
+.dropdown-menu-fade-leave-active {
+  transition: all 0.15s var(--ease-out);
+}
+.dropdown-menu-fade-enter-from,
+.dropdown-menu-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* ===== EMPTY ===== */
+.empty-state-cell {
+  padding: 0 !important;
+}
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.empty-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--bg-table-stripe);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 2rem;
+  margin-bottom: 6px;
+}
+.empty-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+}
+.empty-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  max-width: 380px;
+  margin-bottom: 8px;
+}
+.btn-empty-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.88rem;
+  text-decoration: none;
+  transition: all var(--transition);
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+.btn-empty-action:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(52, 152, 219, 0.4);
+  color: #fff;
+}
+
+/* ===== SKELETON ===== */
+.skeleton-line {
+  height: 14px;
+  background: linear-gradient(90deg, var(--border-light) 25%, var(--bg-table-stripe) 50%, var(--border-light) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-xs);
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ===== FOOTER DE TABLA ===== */
+.table-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-table-stripe);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.footer-info {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.footer-info strong {
+  color: var(--text-primary);
+}
+
+.btn-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+.btn-refresh:hover:not(:disabled) {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+.btn-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
-  .kpi-box {
-    height: 70px;
-    padding: 10px 12px;
-  }
-  .kpi-icon {
-    width: 36px;
-    height: 36px;
-    font-size: 1rem;
-  }
-  .kpi-number { font-size: 1.2rem; }
-  .tabla-ventas { font-size: 0.78rem; }
-  .btn-accion { width: 28px; height: 28px; font-size: 0.7rem; }
+  .page-subtitle { padding-left: 0; }
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .table-modern { font-size: 0.78rem; }
+  .table-modern th,
+  .table-modern td { padding: 10px 8px; }
+  .action-icon-btn { width: 28px; height: 28px; font-size: 0.72rem; }
+  .actions-cell { gap: 3px; }
 }
 </style>
