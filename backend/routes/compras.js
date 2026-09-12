@@ -15,6 +15,9 @@ const validarCompra = [
   body('total').isNumeric().withMessage('Total debe ser número'),
 ];
 
+// ============================================================
+// LISTAR
+// ============================================================
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -66,7 +69,7 @@ router.get('/', async (req, res) => {
       });
     }
 
-    const sort = parseSort(req.query);
+    const sort = parseSort(req.query, { fecha_emision: -1 });
 
     if (!paginar) {
       pipeline.push({ $sort: sort });
@@ -97,6 +100,9 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ============================================================
+// OBTENER POR ID
+// ============================================================
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -120,6 +126,9 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// ============================================================
+// CREAR
+// ============================================================
 router.post('/', verificarPeriodoAbierto(), validarCompra, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -239,6 +248,9 @@ router.post('/', verificarPeriodoAbierto(), validarCompra, async (req, res) => {
   }
 });
 
+// ============================================================
+// ACTUALIZAR
+// ============================================================
 router.put('/:id', verificarPeriodoAbierto(), validarCompra, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -360,7 +372,7 @@ router.put('/:id', verificarPeriodoAbierto(), validarCompra, async (req, res) =>
       documentoNumero: compraActualizada[0]?.numero_factura || compraActual.numero_factura || '',
       datosAnteriores: compraActual,
       datosNuevos: compraActualizada[0],
-      detalle: `Compra actualizada: ${compraActualizada[0]?.numero_factura || compraActual.numero_factura || ''}`
+      detalle: `Compra actualizada: ${compraActualizada[0]?.numero_factura || ''}`
     });
 
     if (req.io) req.io.emit('compra-actualizada', compraActualizada[0]);
@@ -371,6 +383,9 @@ router.put('/:id', verificarPeriodoAbierto(), validarCompra, async (req, res) =>
   }
 });
 
+// ============================================================
+// ELIMINAR
+// ============================================================
 router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
   try {
     const { id } = req.params;
@@ -417,6 +432,9 @@ router.delete('/:id', verificarPeriodoAbierto(), async (req, res) => {
   }
 });
 
+// ============================================================
+// REPORTE MENSUAL
+// ============================================================
 router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   try {
     const { mes, anio } = req.params;
@@ -460,6 +478,9 @@ router.get('/reporte-mensual/:mes/:anio', async (req, res) => {
   }
 });
 
+// ============================================================
+// IMPORTAR TXT (formato SRI)
+// ============================================================
 router.post('/importar-txt', async (req, res) => {
   try {
     const { lineas } = req.body;
@@ -467,46 +488,76 @@ router.post('/importar-txt', async (req, res) => {
       return res.status(400).json({ error: 'No se enviaron líneas para importar' });
     }
 
+    // ⚠️ Mapa de productos para búsqueda por código (se carga una vez)
+    const productosCache = new Map();
+    const cargarProductosCache = async (session) => {
+      if (productosCache.size === 0) {
+        const prods = await req.db.collection('productos').find({}, { session }).toArray();
+        prods.forEach(p => {
+          if (p.codigo) productosCache.set(String(p.codigo).toLowerCase(), p);
+          if (p.codigo_barras) productosCache.set(String(p.codigo_barras).toLowerCase(), p);
+        });
+      }
+      return productosCache;
+    };
+
+    // ⚠️ Mapa de proveedores por RUC (evita consultas repetidas)
+    const proveedoresCache = new Map();
+    const buscarOCrearProveedor = async (ruc, razonSocial, session) => {
+      const key = String(ruc).trim();
+      if (proveedoresCache.has(key)) return proveedoresCache.get(key);
+
+      let prov = await req.db.collection('proveedores').findOne({ ruc: key }, { session });
+      if (!prov) {
+        const nuevoProv = {
+          nombre: (razonSocial || `Proveedor ${ruc}`).trim(),
+          ruc: key,
+          telefono: '',
+          email: '',
+          direccion: '',
+          createdAt: new Date()
+        };
+        const resultProv = await req.db.collection('proveedores').insertOne(nuevoProv, { session });
+        prov = { ...nuevoProv, _id: resultProv.insertedId };
+      }
+      proveedoresCache.set(key, prov);
+      return prov;
+    };
+
     const session = req.db.client.startSession();
     const resultados = [];
     const errores = [];
     let importados = 0;
 
     await session.withTransaction(async () => {
+      const prodsMap = await cargarProductosCache(session);
+
       for (const linea of lineas) {
         try {
-          const { ruc, razonSocial, fechaEmision, total, valorSinImpuestos, iva, tipo_compra, codigoProducto } = linea;
+          const {
+            ruc, razonSocial, fechaEmision,
+            total, valorSinImpuestos, iva,
+            tipo_compra, codigoProducto
+          } = linea;
 
           if (!ruc || !total || total === 0) {
-            errores.push(`Línea sin RUC o total: ${JSON.stringify(linea)}`);
+            errores.push(`Línea sin RUC o total: ${JSON.stringify(linea).slice(0, 120)}`);
             continue;
           }
 
-          let proveedor = await req.db.collection('proveedores').findOne({ ruc }, { session });
-          if (!proveedor) {
-            const nuevoProveedor = {
-              nombre: razonSocial || `Proveedor ${ruc}`,
-              ruc: ruc,
-              telefono: '',
-              email: '',
-              direccion: '',
-              createdAt: new Date()
-            };
-            const resultProv = await req.db.collection('proveedores').insertOne(nuevoProveedor, { session });
-            proveedor = { ...nuevoProveedor, _id: resultProv.insertedId };
+          const proveedor = await buscarOCrearProveedor(ruc, razonSocial, session);
+
+          // ⚠️ Si hay código de producto, usarlo. Si no, error claro (ya no hay fallback "CACAO").
+          let producto = null;
+          if (codigoProducto) {
+            producto = prodsMap.get(String(codigoProducto).toLowerCase());
           }
 
-          let productoId = null;
-          if (codigoProducto) {
-            const prod = await req.db.collection('productos').findOne({ codigo: codigoProducto }, { session });
-            if (prod) productoId = prod._id;
-          }
-          if (!productoId) {
-            const prod = await req.db.collection('productos').findOne({ nombre: { $regex: 'CACAO', $options: 'i' } }, { session });
-            if (prod) productoId = prod._id;
-          }
-          if (!productoId) {
-            errores.push(`No se encontró producto para la compra (RUC: ${ruc})`);
+          if (!producto) {
+            errores.push(
+              `Línea RUC ${ruc}: no se encontró producto${codigoProducto ? ` con código "${codigoProducto}"` : ' (no se indicó código)'}. ` +
+              `Cree el producto primero o indique el código correcto.`
+            );
             continue;
           }
 
@@ -523,7 +574,7 @@ router.post('/importar-txt', async (req, res) => {
             fecha_emision: new Date(fechaEmision || new Date()),
             detalles: [
               {
-                productoId: productoId,
+                productoId: producto._id,
                 cantidad: 1,
                 costo_unitario: parseFloat(total) || 0,
                 aplica_iva: parseFloat(iva) > 0
@@ -548,13 +599,13 @@ router.post('/importar-txt', async (req, res) => {
 
           if (tipo_compra === 'inventario') {
             await req.db.collection('productos').updateOne(
-              { _id: productoId },
+              { _id: producto._id },
               { $inc: { stock: 1 }, $set: { precio_compra: parseFloat(total), updatedAt: new Date() } },
               { session }
             );
-            const productoActualizado = await req.db.collection('productos').findOne({ _id: productoId }, { session });
+            const productoActualizado = await req.db.collection('productos').findOne({ _id: producto._id }, { session });
             await req.db.collection('kardex').insertOne({
-              productoId,
+              productoId: producto._id,
               fecha: compraData.fecha_emision,
               tipo_movimiento: 'compra',
               cantidad: 1,
@@ -566,10 +617,10 @@ router.post('/importar-txt', async (req, res) => {
             }, { session });
           }
 
-          resultados.push({ compraId, numero: compraData.numero_factura });
+          resultados.push({ compraId, numero: compraData.numero_factura, ruc });
           importados++;
         } catch (lineaError) {
-          throw new Error(`Error en línea: ${lineaError.message}`);
+          errores.push(`Línea RUC ${linea?.ruc || '?'}: ${lineaError.message}`);
         }
       }
     });
@@ -582,7 +633,13 @@ router.post('/importar-txt', async (req, res) => {
       detalle: `Importación TXT: ${importados} facturas importadas, ${errores.length} errores`
     });
 
-    res.json({ success: true, importados, errores, resultados });
+    res.json({
+      success: true,
+      importados,
+      errores,
+      resultados,
+      proveedoresCreados: proveedoresCache.size
+    });
   } catch (err) {
     console.error('Error en importación:', err);
     res.status(500).json({ error: err.message });
