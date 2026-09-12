@@ -140,13 +140,6 @@
             </ul>
           </li>
 
-          <li v-if="puedeVerProductos">
-  <router-link class="dropdown-item" to="/productos/etiquetas" @click="cerrarTodo">
-    <i class="fas fa-tags"></i>
-    <span>Etiquetas</span>
-  </router-link>
-</li>
-
           <!-- ===== INVENTARIOS ===== -->
           <li v-if="puedeVerInventario || puedeVerKardex" class="nav-item dropdown" :class="{ show: dropdowns.inventarios }">
             <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('inventarios')">
