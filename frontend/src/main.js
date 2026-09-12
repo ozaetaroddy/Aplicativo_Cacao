@@ -1,21 +1,22 @@
-import { createApp } from 'vue';
-import { createPinia } from 'pinia';
-import Toast from 'vue-toastification';
-import 'vue-toastification/dist/index.css';
-import App from './App.vue';
-import router from './router';
-import 'bootstrap/dist/css/bootstrap.min.css';
-import 'bootstrap/dist/js/bootstrap.bundle.min.js';
-import '@fortawesome/fontawesome-free/css/all.min.css';
-import './styles.css';
-import io from 'socket.io-client';
-import { useThemeStore } from './stores/themeStore'; // <-- Importar
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import Toast from 'vue-toastification'
+import 'vue-toastification/dist/index.css'
+import App from './App.vue'
+import router from './router'
+import 'bootstrap/dist/css/bootstrap.min.css'
+import 'bootstrap/dist/js/bootstrap.bundle.min.js'
+import '@fortawesome/fontawesome-free/css/all.min.css'
+import './styles.css'
+import io from 'socket.io-client'
+import { useThemeStore } from './stores/themeStore'
 
-const app = createApp(App);
-const pinia = createPinia();
+const app = createApp(App)
+const pinia = createPinia()
 
-app.use(pinia);
-app.use(router);
+app.use(pinia)
+app.use(router)
+
 app.use(Toast, {
   position: 'top-right',
   timeout: 5000,
@@ -29,19 +30,29 @@ app.use(Toast, {
   closeButton: 'button',
   icon: true,
   rtl: false
-});
+})
 
 // Socket.io
 const socket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
   transports: ['websocket'],
   upgrade: false
-});
-app.provide('socket', socket);
-app.config.globalProperties.$socket = socket;
+})
+app.provide('socket', socket)
+app.config.globalProperties.$socket = socket
 
-// Cargar tema al inicio (importante)
-const themeStore = useThemeStore();
-themeStore.aplicarTema();
+// Cargar tema al inicio
+const themeStore = useThemeStore()
+themeStore.aplicarTema()
 
-app.mount('#app');
-document.title = 'Sistema Contable';
+app.mount('#app')
+
+document.title = 'Sistema Contable'
+
+// ===== REGISTRO DEL SERVICE WORKER (solo en producción) =====
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.ready.then(() => {
+      console.log('✅ PWA lista')
+    })
+  })
+}

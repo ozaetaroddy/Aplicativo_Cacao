@@ -19,23 +19,27 @@
       <NotificationStock />
     </div>
     <LoaderOverlay />
+
+    <!-- Prompt de instalación PWA -->
+    <PwaInstallPrompt />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, inject, watch } from 'vue'
+import { computed, onMounted, ref, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'vue-toastification'
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
 import NotificationStock from './components/NotificationStock.vue'
 import LoaderOverlay from './components/LoaderOverlay.vue'
+import PwaInstallPrompt from './components/PwaInstallPrompt.vue'
 import { useInactivityTimeout } from './composables/useInactivityTimeout'
 import { usePermisos } from './composables/usePermisos'
 
 const route = useRoute()
 const toast = useToast()
-const { cargarPermisos, limpiarCache } = usePermisos()
+const { cargarPermisos } = usePermisos()
 
 const isLoginPage = computed(() => route.path === '/login')
 const isAuthenticated = computed(() => !!localStorage.getItem('token'))
@@ -44,28 +48,6 @@ const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 const socket = inject('socket')
 
 useInactivityTimeout(30)
-
-// ===== Watcher: reaccionar a cambios de ruta =====
-watch(
-  () => route.path,
-  async (newPath) => {
-    if (newPath === '/login') {
-      limpiarCache()
-      user.value = null
-      return
-    }
-
-    // Al entrar a cualquier otra ruta con sesión activa, refrescar usuario y permisos
-    if (localStorage.getItem('token')) {
-      user.value = JSON.parse(localStorage.getItem('user') || 'null')
-      try {
-        await cargarPermisos()
-      } catch (e) {
-        console.warn('No se pudieron cargar permisos:', e)
-      }
-    }
-  }
-)
 
 onMounted(async () => {
   if (isAuthenticated.value) {
@@ -88,5 +70,5 @@ onMounted(async () => {
 </script>
 
 <style>
-/* Los estilos ya están en styles.css */
+/* Los estilos están en styles.css */
 </style>
