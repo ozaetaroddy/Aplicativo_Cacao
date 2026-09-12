@@ -1,5 +1,7 @@
 // services/printService.js
 // Generador de RIDE (Representación Impresa del Documento Electrónico)
+// Al inicio de frontend/src/services/printService.js
+import { generarBarcodeHTML } from '../utils/barcodeGenerator'
 
 export const printService = {
   printDocument(doc, formato = 'A4', obtenerNombreProducto = (id) => 'Producto') {
@@ -825,41 +827,12 @@ export const printService = {
 </html>`
   },
 
-  /**
-   * Genera el código de barras SVG.
+  
+    /**
+   * Genera el código de barras SVG — delegado al generador profesional.
+   * Reemplaza la vieja implementación con patrones falsos.
    */
   generarBarcodeHTML(texto, formato = 'A4', maxHeight = 45) {
-    if (!texto) return ''
-
-    // En ticket mostramos solo los últimos 22 dígitos
-    const textoBarras = formato === 'ticket' && texto.length > 30
-      ? texto.slice(-22)
-      : texto
-
-    const barras = []
-    for (let i = 0; i < textoBarras.length; i++) {
-      const charCode = textoBarras.charCodeAt(i)
-      const w1 = (charCode % 4) + 1
-      const w2 = ((charCode >> 2) % 4) + 1
-      const w3 = ((charCode >> 4) % 3) + 1
-      const w4 = ((charCode >> 6) % 3) + 1
-      barras.push(w1, w2, w3, w4)
-    }
-
-    const totalWidth = barras.reduce((a, b) => a + b, 0) + barras.length
-
-    let svg = `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} 60" preserveAspectRatio="none" style="max-width: 100%; height: ${maxHeight}px;">`
-    let x = 0
-    let black = true
-    for (let i = 0; i < barras.length; i++) {
-      const w = barras[i]
-      if (black) {
-        svg += `<rect x="${x}" y="0" width="${w}" height="60" fill="#1a1a1a" />`
-      }
-      x += w + 1
-      black = !black
-    }
-    svg += `</svg>`
-    return svg
+    return generarBarcodeHTML(texto, formato, maxHeight)
   }
 }

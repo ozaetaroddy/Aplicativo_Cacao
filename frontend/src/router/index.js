@@ -27,6 +27,7 @@ const ClientesList = () => import('../components/clientes/ClientesList.vue')
 const ClienteForm = () => import('../components/clientes/ClienteForm.vue')
 const ProveedoresList = () => import('../components/proveedores/ProveedoresList.vue')
 const ProveedorForm = () => import('../components/proveedores/ProveedorForm.vue')
+const EtiquetasProducto = () => import('../components/productos/EtiquetasProducto.vue')
 
 // Retenciones
 const RetencionesList = () => import('../components/retenciones/RetencionesList.vue')
@@ -199,6 +200,12 @@ const routes = [
     meta: { requiresAuth: true, modulo: 'productos', accion: 'editar', title: 'Editar Producto' }
   },
 
+  {
+  path: '/productos/etiquetas',
+  name: 'EtiquetasProducto',
+  component: EtiquetasProducto,
+  meta: { requiresAuth: true, modulo: 'productos', accion: 'ver', title: 'Etiquetas de Productos' }
+},
   // ===== CATEGORÍAS =====
   {
     path: '/categorias',
