@@ -118,6 +118,7 @@
                   class="toggle-password"
                   @click="mostrarPassword = !mostrarPassword"
                   :title="mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  tabindex="-1"
                 >
                   <i :class="mostrarPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
                 </button>
@@ -158,7 +159,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useToast } from 'vue-toastification'
 
@@ -175,6 +176,27 @@ const errorGeneral = ref('')
 
 const year = computed(() => new Date().getFullYear())
 
+// ===== AL MONTAR: si ya está logueado, redirigir =====
+onMounted(() => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    const redirect = route.query.redirect || '/'
+    router.replace(redirect)
+    return
+  }
+  // Recordar último email usado
+  const savedEmail = localStorage.getItem('last_email')
+  if (savedEmail) {
+    email.value = savedEmail
+    // Enfocar password directamente
+    setTimeout(() => {
+      const passInput = document.getElementById('password')
+      if (passInput) passInput.focus()
+    }, 100)
+  }
+})
+
+// ===== LOGIN =====
 const login = async () => {
   if (!email.value || !password.value) {
     errorGeneral.value = 'Complete todos los campos'
@@ -189,7 +211,10 @@ const login = async () => {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value, password: password.value })
+      body: JSON.stringify({
+        email: email.value.trim().toLowerCase(),
+        password: password.value
+      })
     })
 
     const data = await res.json()
@@ -198,16 +223,29 @@ const login = async () => {
       throw new Error(data.error || 'Credenciales inválidas')
     }
 
+    // Guardar auth
     localStorage.setItem('token', data.token)
     localStorage.setItem('user', JSON.stringify(data.user))
+    localStorage.setItem('last_email', data.user.email)
+
+    // Limpiar cache de permisos anterior (por si hay cambio de usuario)
+    try {
+      const { usePermisos } = await import('../composables/usePermisos')
+      usePermisos().limpiarCache()
+    } catch (e) { /* ignorar */ }
 
     toast.success(`Bienvenido ${data.user.nombre}`)
 
+    // Redirigir a la ruta deseada o al dashboard
     const redirect = route.query.redirect || '/'
     router.push(redirect)
   } catch (e) {
     errorGeneral.value = e.message
-    toast.error(e.message)
+    // No mostrar toast duplicado para errores de credenciales (menos ruido)
+    const silencioso = /credenciales|intentos|desactivado/i.test(e.message)
+    if (!silencioso) {
+      toast.error(e.message)
+    }
   } finally {
     cargando.value = false
   }

@@ -1,98 +1,60 @@
+// composables/useEstadisticas.js
 import { ref } from 'vue'
-import { useMongoDB } from './useMongoDB'
+import { api } from '../services/api'
 
+/**
+ * Estadísticas del dashboard. Ahora hace UN solo request
+ * que el backend agrega, en lugar de descargar toda la BD.
+ */
 export function useEstadisticas() {
-  const { find } = useMongoDB()
   const ventasHoy = ref(0)
+  const ventasAyer = ref(0)
   const ventasMes = ref(0)
   const comprasHoy = ref(0)
+  const comprasAyer = ref(0)
   const comprasMes = ref(0)
+  const facturasMes = ref(0)
+  const comprasDelMes = ref(0)
+  const tendenciaVentas = ref(0)
+  const tendenciaCompras = ref(0)
   const ventasDiarias = ref([])
   const comprasDiarias = ref([])
   const dias = ref([])
   const topProductos = ref([])
+  const cuentasPorPagar = ref(0)
+  const stockBajo = ref(0)
+  const sri = ref({ pendientes: 0, firmados: 0, autorizados: 0, rechazados: 0 })
   const loading = ref(false)
+  const loadedOnce = ref(false)
 
-  const formatearFecha = (fecha) => {
-    const d = new Date(fecha)
-    return d.toISOString().split('T')[0]
-  }
+  const cargarEstadisticas = async (forzar = false) => {
+    // Evitar recargas innecesarias si ya se cargó hace poco
+    if (loadedOnce.value && !forzar) return
 
-  const obtenerUltimos7Dias = () => {
-    const fechas = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      fechas.push(d.toISOString().split('T')[0])
-    }
-    return fechas
-  }
-
-  const cargarEstadisticas = async () => {
     loading.value = true
     try {
-      const hoy = formatearFecha(new Date())
-      const inicioMes = new Date()
-      inicioMes.setDate(1)
-      const inicioMesStr = formatearFecha(inicioMes)
-
-      console.log('📊 Cargando estadísticas...')
-      const [ventas, compras] = await Promise.all([
-        find('ventas'),
-        find('compras')
-      ])
-      console.log('📊 Ventas recibidas:', ventas.length)
-      console.log('📊 Compras recibidas:', compras.length)
-
-      // Ventas de hoy y del mes
-      const ventasHoyArr = ventas.filter(v => v.fecha_emision && v.fecha_emision.startsWith(hoy))
-      ventasHoy.value = ventasHoyArr.reduce((sum, v) => sum + (v.total || 0), 0)
-
-      const ventasMesArr = ventas.filter(v => v.fecha_emision && v.fecha_emision >= inicioMesStr)
-      ventasMes.value = ventasMesArr.reduce((sum, v) => sum + (v.total || 0), 0)
-
-      // Compras de hoy y del mes
-      const comprasHoyArr = compras.filter(c => c.fecha_emision && c.fecha_emision.startsWith(hoy))
-      comprasHoy.value = comprasHoyArr.reduce((sum, c) => sum + (c.total || 0), 0)
-
-      const comprasMesArr = compras.filter(c => c.fecha_emision && c.fecha_emision >= inicioMesStr)
-      comprasMes.value = comprasMesArr.reduce((sum, c) => sum + (c.total || 0), 0)
-
-      // Ventas diarias de los últimos 7 días
-      const ultimos7 = obtenerUltimos7Dias()
-      dias.value = ultimos7.map(d => new Date(d).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' }))
-
-      ventasDiarias.value = ultimos7.map(d => {
-        return ventas
-          .filter(v => v.fecha_emision && v.fecha_emision.startsWith(d))
-          .reduce((sum, v) => sum + (v.total || 0), 0)
+      const data = await api.request('/estadisticas/dashboard', {
+        method: 'GET',
+        skipLoader: true // silencioso: no molestar con overlay
       })
-
-      comprasDiarias.value = ultimos7.map(d => {
-        return compras
-          .filter(c => c.fecha_emision && c.fecha_emision.startsWith(d))
-          .reduce((sum, c) => sum + (c.total || 0), 0)
-      })
-
-      console.log('📊 Ventas diarias:', ventasDiarias.value)
-      console.log('📊 Compras diarias:', comprasDiarias.value)
-
-      // Top 5 productos más vendidos
-      const productosVendidos = {}
-      ventas.forEach(v => {
-        if (v.detalles) {
-          v.detalles.forEach(d => {
-            const id = d.productoId
-            if (!productosVendidos[id]) productosVendidos[id] = 0
-            productosVendidos[id] += d.cantidad || 0
-          })
-        }
-      })
-      const sorted = Object.entries(productosVendidos)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-      topProductos.value = sorted
-
+      ventasHoy.value = data.ventasHoy || 0
+      ventasAyer.value = data.ventasAyer || 0
+      ventasMes.value = data.ventasMes || 0
+      facturasMes.value = data.facturasMes || 0
+      comprasHoy.value = data.comprasHoy || 0
+      comprasAyer.value = data.comprasAyer || 0
+      comprasMes.value = data.comprasMes || 0
+      comprasDelMes.value = data.comprasDelMes || 0
+      tendenciaVentas.value = data.tendenciaVentas || 0
+      tendenciaCompras.value = data.tendenciaCompras || 0
+      ventasDiarias.value = data.ventasDiarias || []
+      comprasDiarias.value = data.comprasDiarias || []
+      dias.value = data.dias || []
+      topProductos.value = data.topProductos || []
+      cuentasPorPagar.value = data.cuentasPorPagar || 0
+      stockBajo.value = data.stockBajo || 0
+      sri.value = data.sri || { pendientes: 0, firmados: 0, autorizados: 0, rechazados: 0 }
+      loadedOnce.value = true
     } catch (e) {
       console.error('Error cargando estadísticas:', e)
     } finally {
@@ -101,14 +63,11 @@ export function useEstadisticas() {
   }
 
   return {
-    ventasHoy,
-    ventasMes,
-    comprasHoy,
-    comprasMes,
-    ventasDiarias,
-    comprasDiarias,
-    dias,
-    topProductos,
+    ventasHoy, ventasAyer, ventasMes, facturasMes,
+    comprasHoy, comprasAyer, comprasMes, comprasDelMes,
+    tendenciaVentas, tendenciaCompras,
+    ventasDiarias, comprasDiarias, dias,
+    topProductos, cuentasPorPagar, stockBajo, sri,
     loading,
     cargarEstadisticas
   }
