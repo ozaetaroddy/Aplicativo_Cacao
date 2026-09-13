@@ -13,12 +13,7 @@ const { cargarCertificado, firmarXML, validarFirma, descifrarSecreto } = require
 const { conTransaccion } = require('../utils/transacciones');
 const { validar } = require('../utils/validacion');
 const { fechaSRI } = require('../utils/fechaEC');
-const {
-  TIPOS_SIN_MOVIMIENTO_STOCK,
-  DOCS_CON_CLAVE,
-  TIPO_COMPROBANTE_SRI,
-  PREFIJOS_CONTADOR
-} = require('../utils/tiposDocumento');
+
 
 const {
   TIPOS_SIN_MOVIMIENTO_STOCK,
