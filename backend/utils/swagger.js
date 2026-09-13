@@ -11,7 +11,7 @@ function buildSpec() {
       openapi: '3.0.3',
       info: {
         title: 'Cacao Backend API',
-        version: require('../../package.json').version,
+        version: require('../package.json').version,
         description: 'API para sistema contable con facturación electrónica SRI Ecuador'
       },
       servers: [
