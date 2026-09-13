@@ -13,8 +13,23 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Sistema Contable" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="robots" content="noindex, nofollow" />
 
-    <!-- Open Graph para compartir -->
+    <!-- CSP: bloquea scripts inline no firmados y limita orígenes.
+         Ajusta connect-src con el dominio real del backend. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' 'unsafe-inline' 'unsafe-eval';
+               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+               img-src 'self' data: blob:;
+               font-src 'self' data: https://fonts.gstatic.com;
+               connect-src 'self' https: wss:;
+               object-src 'none';
+               base-uri 'self';
+               form-action 'self';"
+    />
+
     <meta property="og:title" content="Sistema Contable — System Ozaet's Electronics" />
     <meta property="og:description" content="Sistema contable completo con facturación electrónica SRI" />
     <meta property="og:image" content="/pwa-512x512.png" />
@@ -22,12 +37,66 @@
 
     <title>Sistema Contable Universal</title>
 
-    <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+
+    <!-- ============================================================
+         LOADING SCREEN — se oculta automáticamente al montar Vue
+         ============================================================ -->
+    <style>
+      #app-loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background: linear-gradient(135deg, #0f1626 0%, #1a2332 50%, #2c3e50 100%);
+        color: #ecf0f1;
+        font-family: 'Inter', -apple-system, sans-serif;
+        z-index: 99999;
+        transition: opacity 0.4s ease;
+      }
+      #app-loading.hide { opacity: 0; pointer-events: none; }
+      #app-loading .logo {
+        width: 72px; height: 72px; border-radius: 18px;
+        background: linear-gradient(135deg, #3498db, #2980b9);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 2rem; font-weight: 800; color: #fff;
+        box-shadow: 0 12px 32px rgba(52,152,219,0.4);
+        animation: float 2.4s ease-in-out infinite;
+      }
+      #app-loading .name {
+        font-size: 1.15rem; font-weight: 700; color: #f1c40f;
+        letter-spacing: 0.3px;
+      }
+      #app-loading .sub {
+        font-size: 0.8rem; color: rgba(255,255,255,0.5);
+      }
+      #app-loading .spinner {
+        width: 32px; height: 32px; margin-top: 12px;
+        border: 3px solid rgba(255,255,255,0.15);
+        border-top-color: #3498db;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+      }
+    </style>
   </head>
   <body>
+    <div id="app-loading">
+      <div class="logo">S</div>
+      <div class="name">System Ozaet's Electronics</div>
+      <div class="sub">Sistema Contable · Ecuador</div>
+      <div class="spinner"></div>
+    </div>
+
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>

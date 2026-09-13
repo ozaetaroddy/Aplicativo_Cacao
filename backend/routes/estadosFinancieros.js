@@ -2,12 +2,13 @@
 const express = require('express');
 const router = express.Router();
 const { requierePermiso } = require('../utils/permisos');
+const {
+  TIPOS_NO_COMERCIALES,
+  matchVentasNetas
+} = require('../utils/tiposDocumento');
 
 router.use(requierePermiso('reportes', 'ver'));
 
-// ============================================================
-// ESTADO DE RESULTADOS
-// ============================================================
 router.get('/resultados', async (req, res) => {
   try {
     const { desde, hasta, comparar } = req.query;
@@ -24,7 +25,7 @@ router.get('/resultados', async (req, res) => {
       {
         $match: {
           fecha_emision: { $gte: fechaDesde, $lte: fechaHasta },
-          tipo_documento: { $nin: ['guia_remision', 'nota_credito', 'proforma'] }
+          ...matchVentasNetas()
         }
       },
       {
@@ -146,7 +147,7 @@ router.get('/resultados', async (req, res) => {
         {
           $match: {
             fecha_emision: { $gte: anteriorDesde, $lte: anteriorHasta },
-            tipo_documento: { $nin: ['guia_remision', 'nota_credito', 'proforma'] }
+            ...matchVentasNetas()
           }
         },
         { $group: { _id: null, subtotal: { $sum: '$subtotal' } } }
@@ -201,13 +202,6 @@ router.get('/resultados', async (req, res) => {
   }
 });
 
-// ============================================================
-// BALANCE GENERAL (CxC y CxP netos por cliente/proveedor)
-// Criterio consistente con /estadisticas/dashboard:
-//   saldo cliente = SUM(débitos) - SUM(NC) - SUM(cobros del cliente)
-//   saldo proveedor = SUM(compras) - SUM(pagos al proveedor)
-// Solo se suman los saldos POSITIVOS.
-// ============================================================
 router.get('/balance', async (req, res) => {
   try {
     const { fecha } = req.query;
@@ -221,12 +215,11 @@ router.get('/balance', async (req, res) => {
     const inventarioValorCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
     const inventarioValorVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
 
-    // CxC neta por cliente (filtrada por fecha de corte)
     const cxcAgg = await req.db.collection('ventas_v2').aggregate([
       {
         $match: {
           fecha_emision: { $lte: fechaCorte },
-          tipo_documento: { $nin: ['guia_remision', 'proforma'] }
+          tipo_documento: { $nin: [...TIPOS_NO_COMERCIALES] }
         }
       },
       {
@@ -308,7 +301,7 @@ router.get('/balance', async (req, res) => {
       {
         $match: {
           fecha_emision: { $lte: fechaCorte },
-          tipo_documento: { $nin: ['guia_remision', 'nota_credito', 'proforma'] }
+          ...matchVentasNetas()
         }
       },
       { $group: { _id: null, iva: { $sum: '$iva' } } }
@@ -323,7 +316,7 @@ router.get('/balance', async (req, res) => {
       {
         $match: {
           fecha_emision: { $lte: fechaCorte },
-          tipo_documento: { $nin: ['guia_remision', 'nota_credito', 'proforma'] }
+          ...matchVentasNetas()
         }
       },
       { $group: { _id: null, subtotal: { $sum: '$subtotal' } } }

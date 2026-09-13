@@ -5,12 +5,11 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const rateLimit = require('express-rate-limit');
 const { requierePermiso } = require('../utils/permisos');
-const { validarCedula } = require('../utils/validators'); // 🔒 reutiliza el validador central
+const { validarCedula } = require('../utils/validators');
+const { CircuitBreaker } = require('../utils/circuitBreaker');
+const log = require('../utils/logger');
 
 const DEBUG = process.env.SRI_DEBUG === 'true' || process.env.NODE_ENV !== 'production';
-function debugLog(...args) {
-  if (DEBUG) console.log('[CONSULTAS]', ...args);
-}
 
 const consultaLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -22,6 +21,13 @@ const consultaLimiter = rateLimit({
 
 const CACHE_DIAS = 30;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+// ✅ Circuit breaker: si el sitio externo falla 5 veces, deja de intentar 10 min.
+const breakerExterno = new CircuitBreaker({
+  nombre: 'ecuadorlegalonline',
+  umbralFallos: 5,
+  cooldownMs: 10 * 60 * 1000
+});
 
 function extraerNombre($) {
   let nombre = null;
@@ -62,6 +68,7 @@ router.get('/cedula/:cedula',
 
       const cacheKey = `cedula:${cedula}`;
 
+      // 1. Cache
       try {
         const cached = await req.db.collection('cache_consultas').findOne({
           _id: cacheKey,
@@ -72,24 +79,34 @@ router.get('/cedula/:cedula',
         }
       } catch (e) { /* noop */ }
 
-      debugLog(`Consultando cédula: ${cedula}`);
+      // 2. Llamada externa protegida por circuit breaker
       let response;
       try {
-        response = await axios.post(
-          'https://www.ecuadorlegalonline.com/consultar-nombre-cedula/',
-          new URLSearchParams({ cedula }),
-          {
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'User-Agent': USER_AGENT,
-              'Accept': 'text/html,application/xhtml+xml',
-              'Accept-Language': 'es-EC,es;q=0.9'
-            },
-            timeout: 12000,
-            maxRedirects: 3
-          }
-        );
+        response = await breakerExterno.ejecutar(async () => {
+          return await axios.post(
+            'https://www.ecuadorlegalonline.com/consultar-nombre-cedula/',
+            new URLSearchParams({ cedula }),
+            {
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': USER_AGENT,
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Language': 'es-EC,es;q=0.9'
+              },
+              timeout: 12000,
+              maxRedirects: 3
+            }
+          );
+        });
       } catch (err) {
+        if (err.codigo === 'CIRCUIT_OPEN') {
+          res.setHeader('Retry-After', String(err.retryAfter || 60));
+          return res.status(503).json({
+            error: err.message,
+            codigo: 'CIRCUIT_OPEN',
+            retryAfter: err.retryAfter
+          });
+        }
         if (err.code === 'ECONNABORTED') {
           return res.status(504).json({ error: 'Timeout consultando el servicio externo' });
         }
@@ -100,7 +117,7 @@ router.get('/cedula/:cedula',
       const nombre = extraerNombre($);
 
       if (!nombre) {
-        debugLog(`No se encontró nombre para la cédula ${cedula}`);
+        if (DEBUG) log.debug({ cedula }, 'No se encontró nombre');
         return res.status(404).json({ error: 'No se encontró información para esta cédula' });
       }
 
@@ -120,13 +137,12 @@ router.get('/cedula/:cedula',
           { upsert: true }
         );
       } catch (e) {
-        console.warn('No se pudo guardar cache:', e.message);
+        log.warn({ err: e.message }, 'No se pudo guardar cache');
       }
 
-      debugLog(`Nombre encontrado: ${nombre}`);
       res.json({ nombre, cache: false });
     } catch (error) {
-      console.error('Error en consulta de cédula:', error.message);
+      log.error({ err: error.message }, 'Error en consulta de cédula');
       res.status(500).json({ error: 'Error al consultar el servicio externo' });
     }
   }
@@ -140,6 +156,11 @@ router.delete('/cache/:cedula', requierePermiso('clientes', 'editar'), async (re
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Endpoint de diagnóstico del breaker
+router.get('/circuit-stats', requierePermiso('usuarios', 'ver'), async (req, res) => {
+  res.json(breakerExterno.stats());
 });
 
 module.exports = router;

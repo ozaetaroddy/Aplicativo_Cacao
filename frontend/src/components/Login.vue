@@ -176,27 +176,22 @@ const errorGeneral = ref('')
 
 const year = computed(() => new Date().getFullYear())
 
-// ===== AL MONTAR: si ya está logueado, redirigir =====
 onMounted(() => {
-  const token = localStorage.getItem('token')
-  if (token) {
+  // Si ya hay hint de sesión, redirigir
+  if (localStorage.getItem('auth_hint')) {
     const redirect = route.query.redirect || '/'
     router.replace(redirect)
     return
   }
-  // Recordar último email usado
   const savedEmail = localStorage.getItem('last_email')
   if (savedEmail) {
     email.value = savedEmail
-    // Enfocar password directamente
     setTimeout(() => {
-      const passInput = document.getElementById('password')
-      if (passInput) passInput.focus()
+      document.getElementById('password')?.focus()
     }, 100)
   }
 })
 
-// ===== LOGIN =====
 const login = async () => {
   if (!email.value || !password.value) {
     errorGeneral.value = 'Complete todos los campos'
@@ -210,7 +205,11 @@ const login = async () => {
   try {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // ← IMPORTANTE: recibe las cookies httpOnly
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
       body: JSON.stringify({
         email: email.value.trim().toLowerCase(),
         password: password.value
@@ -223,29 +222,24 @@ const login = async () => {
       throw new Error(data.error || 'Credenciales inválidas')
     }
 
-    // Guardar auth
-    localStorage.setItem('token', data.token)
+    // Solo guardamos el usuario (no sensible). El token vive en la cookie.
     localStorage.setItem('user', JSON.stringify(data.user))
+    localStorage.setItem('auth_hint', '1')
     localStorage.setItem('last_email', data.user.email)
 
-    // Limpiar cache de permisos anterior (por si hay cambio de usuario)
     try {
       const { usePermisos } = await import('../composables/usePermisos')
       usePermisos().limpiarCache()
-    } catch (e) { /* ignorar */ }
+    } catch (_) { /* noop */ }
 
     toast.success(`Bienvenido ${data.user.nombre}`)
 
-    // Redirigir a la ruta deseada o al dashboard
     const redirect = route.query.redirect || '/'
     router.push(redirect)
   } catch (e) {
     errorGeneral.value = e.message
-    // No mostrar toast duplicado para errores de credenciales (menos ruido)
     const silencioso = /credenciales|intentos|desactivado/i.test(e.message)
-    if (!silencioso) {
-      toast.error(e.message)
-    }
+    if (!silencioso) toast.error(e.message)
   } finally {
     cargando.value = false
   }

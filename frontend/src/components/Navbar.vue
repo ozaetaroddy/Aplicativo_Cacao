@@ -1,494 +1,473 @@
 <template>
-  <nav class="navbar navbar-expand-lg navbar-cacao" ref="navbar">
-    <div class="container-fluid px-3">
+  <nav class="navbar-app" ref="navbar" :class="{ 'navbar-scrolled': scrolled }">
+    <div class="container navbar-inner">
 
       <!-- ===== BRAND ===== -->
-      <router-link class="navbar-brand" to="/" @click="cerrarTodo">
+      <router-link class="brand" to="/" @click="cerrarTodo" data-tour="brand">
         <div class="brand-logo">
           <i class="fas fa-calculator"></i>
         </div>
-        <div class="brand-text-wrapper">
-          <span class="brand-text">Sistema Contable</span>
-          <span class="brand-version">v2.0</span>
+        <div class="brand-text">
+          <span class="brand-name">Sistema Contable</span>
+          <span class="brand-tag">v3.0</span>
         </div>
       </router-link>
 
-      <!-- ===== HAMBURGUESA ===== -->
+      <!-- ===== BOTÓN HAMBURGUESA MÓVIL ===== -->
       <button
-        class="navbar-toggler"
+        class="burger"
         type="button"
         @click="toggleNavbar"
-        aria-controls="navbarNav"
         :aria-expanded="navbarAbierto"
-        aria-label="Toggle navigation"
+        aria-label="Abrir menú"
       >
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
+        <span class="burger-line" :class="{ open: navbarAbierto }"></span>
+        <span class="burger-line" :class="{ open: navbarAbierto }"></span>
+        <span class="burger-line" :class="{ open: navbarAbierto }"></span>
       </button>
 
-      <div class="collapse navbar-collapse" :class="{ show: navbarAbierto }" id="navbarNav">
-        <!-- ===== MENÚ PRINCIPAL ===== -->
-        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-          <li class="nav-item">
-            <router-link class="nav-link" to="/" exact-active-class="active" @click="cerrarTodo">
+      <!-- ===== MENÚ ===== -->
+      <div class="nav-menu" :class="{ 'nav-menu-open': navbarAbierto }">
+        <ul class="nav-list">
+          <li>
+            <router-link class="nav-item" to="/" exact-active-class="active" @click="cerrarTodo">
               <i class="fas fa-home"></i>
-              <span class="nav-text">Inicio</span>
+              <span>Inicio</span>
             </router-link>
           </li>
 
           <!-- ===== DOCUMENTOS ===== -->
-          <li v-if="puedeVerVentas || puedeVerCompras" class="nav-item dropdown" :class="{ show: dropdowns.documentos }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('documentos')">
+          <li
+            v-if="puedeVerVentas || puedeVerCompras"
+            class="nav-dropdown"
+            :class="{ open: dropdowns.documentos }"
+            data-tour="documentos"
+          >
+            <button class="nav-item" @click.stop="toggleDropdown('documentos')">
               <i class="fas fa-file-invoice"></i>
-              <span class="nav-text">Documentos</span>
-              <i class="fas fa-chevron-down nav-chevron"></i>
-            </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.documentos }">
-              <li class="dropdown-header">
-                <i class="fas fa-inbox"></i>
-                <span>Bandejas</span>
-              </li>
-              <li v-if="puedeVerVentas">
-                <router-link class="dropdown-item" to="/ventas" @click="cerrarTodo">
-                  <i class="fas fa-hand-holding-usd"></i>
-                  <span>Bandeja de Ventas</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerCompras">
-                <router-link class="dropdown-item" to="/compras" @click="cerrarTodo">
-                  <i class="fas fa-inbox"></i>
-                  <span>Bandeja de Compras</span>
-                </router-link>
-              </li>
+              <span>Documentos</span>
+              <i class="fas fa-chevron-down nav-caret"></i>
+            </button>
+            <transition name="dropdown">
+              <ul v-if="dropdowns.documentos" class="dropdown-panel">
+                <li class="dropdown-section">Bandejas</li>
+                <li v-if="puedeVerVentas">
+                  <router-link class="dropdown-link" to="/ventas" @click="cerrarTodo">
+                    <i class="fas fa-hand-holding-usd"></i>
+                    <span>Bandeja de Ventas</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerCompras">
+                  <router-link class="dropdown-link" to="/compras" @click="cerrarTodo">
+                    <i class="fas fa-inbox"></i>
+                    <span>Bandeja de Compras</span>
+                  </router-link>
+                </li>
 
-              <li v-if="puedeCrearVentas" class="dropdown-header">
-                <i class="fas fa-plus-circle"></i>
-                <span>Crear Documento</span>
-              </li>
-              <li v-if="puedeCrearVentas">
-                <router-link class="dropdown-item" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">
-                  <i class="fas fa-file-invoice"></i>
-                  <span>Nueva Factura</span>
-                  <span class="dropdown-shortcut">01</span>
-                </router-link>
-              </li>
-              <li v-if="puedeCrearVentas">
-                <router-link class="dropdown-item" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">
-                  <i class="fas fa-truck"></i>
-                  <span>Guía de Remisión</span>
-                  <span class="dropdown-shortcut">06</span>
-                </router-link>
-              </li>
-              <li v-if="puedeCrearVentas">
-                <router-link class="dropdown-item" to="/ventas/nuevo?tipo=nota_credito" @click="cerrarTodo">
-                  <i class="fas fa-minus-circle"></i>
-                  <span>Nota de Crédito</span>
-                  <span class="dropdown-shortcut">04</span>
-                </router-link>
-              </li>
-              <li v-if="puedeCrearVentas">
-                <router-link class="dropdown-item" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">
-                  <i class="fas fa-percent"></i>
-                  <span>Comprobante Retención</span>
-                  <span class="dropdown-shortcut">07</span>
-                </router-link>
-              </li>
+                <li v-if="puedeCrearVentas" class="dropdown-section">Crear documento</li>
+                <li v-if="puedeCrearVentas">
+                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">
+                    <i class="fas fa-file-invoice"></i>
+                    <span>Nueva Factura</span>
+                    <span class="shortcut">01</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeCrearVentas">
+                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">
+                    <i class="fas fa-truck"></i>
+                    <span>Guía de Remisión</span>
+                    <span class="shortcut">06</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeCrearVentas">
+                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=nota_credito" @click="cerrarTodo">
+                    <i class="fas fa-minus-circle"></i>
+                    <span>Nota de Crédito</span>
+                    <span class="shortcut">04</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeCrearVentas">
+                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">
+                    <i class="fas fa-percent"></i>
+                    <span>Retención</span>
+                    <span class="shortcut">07</span>
+                  </router-link>
+                </li>
 
-              <li><hr class="dropdown-divider"></li>
-              <li>
-                <router-link class="dropdown-item dropdown-item-highlight" to="/consultar-documentos" @click="cerrarTodo">
-                  <i class="fas fa-search"></i>
-                  <span>Consultar Documentos</span>
-                </router-link>
-              </li>
-            </ul>
+                <li class="dropdown-divider"></li>
+                <li>
+                  <router-link class="dropdown-link highlight" to="/consultar-documentos" @click="cerrarTodo">
+                    <i class="fas fa-search"></i>
+                    <span>Consultar Documentos</span>
+                  </router-link>
+                </li>
+              </ul>
+            </transition>
           </li>
 
           <!-- ===== BASE DE DATOS ===== -->
-          <li v-if="puedeVerClientes || puedeVerProveedores || puedeVerProductos || puedeVerCategorias" class="nav-item dropdown" :class="{ show: dropdowns.maestros }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('maestros')">
+          <li
+            v-if="puedeVerClientes || puedeVerProveedores || puedeVerProductos || puedeVerCategorias"
+            class="nav-dropdown"
+            :class="{ open: dropdowns.maestros }"
+          >
+            <button class="nav-item" @click.stop="toggleDropdown('maestros')">
               <i class="fas fa-database"></i>
-              <span class="nav-text">Base de datos</span>
-              <i class="fas fa-chevron-down nav-chevron"></i>
-            </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.maestros }">
-              <li v-if="puedeVerProductos">
-                <router-link class="dropdown-item" to="/productos" @click="cerrarTodo">
-                  <i class="fas fa-boxes"></i>
-                  <span>Productos</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerCategorias">
-                <router-link class="dropdown-item" to="/categorias" @click="cerrarTodo">
-                  <i class="fas fa-tags"></i>
-                  <span>Categorías</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerClientes">
-                <router-link class="dropdown-item" to="/clientes" @click="cerrarTodo">
-                  <i class="fas fa-users"></i>
-                  <span>Clientes</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerProveedores">
-                <router-link class="dropdown-item" to="/proveedores" @click="cerrarTodo">
-                  <i class="fas fa-truck-loading"></i>
-                  <span>Proveedores</span>
-                </router-link>
-              </li>
-            </ul>
+              <span>Base de datos</span>
+              <i class="fas fa-chevron-down nav-caret"></i>
+            </button>
+            <transition name="dropdown">
+              <ul v-if="dropdowns.maestros" class="dropdown-panel">
+                <li v-if="puedeVerProductos">
+                  <router-link class="dropdown-link" to="/productos" @click="cerrarTodo">
+                    <i class="fas fa-boxes"></i>
+                    <span>Productos</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerCategorias">
+                  <router-link class="dropdown-link" to="/categorias" @click="cerrarTodo">
+                    <i class="fas fa-tags"></i>
+                    <span>Categorías</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerClientes">
+                  <router-link class="dropdown-link" to="/clientes" @click="cerrarTodo">
+                    <i class="fas fa-users"></i>
+                    <span>Clientes</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerProveedores">
+                  <router-link class="dropdown-link" to="/proveedores" @click="cerrarTodo">
+                    <i class="fas fa-truck-loading"></i>
+                    <span>Proveedores</span>
+                  </router-link>
+                </li>
+              </ul>
+            </transition>
           </li>
 
-          <!-- ===== INVENTARIOS ===== -->
-          <li v-if="puedeVerInventario || puedeVerKardex" class="nav-item dropdown" :class="{ show: dropdowns.inventarios }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('inventarios')">
+          <!-- ===== INVENTARIO ===== -->
+          <li
+            v-if="puedeVerInventario || puedeVerKardex"
+            class="nav-dropdown"
+            :class="{ open: dropdowns.inventarios }"
+          >
+            <button class="nav-item" @click.stop="toggleDropdown('inventarios')">
               <i class="fas fa-warehouse"></i>
-              <span class="nav-text">Inventarios</span>
-              <i class="fas fa-chevron-down nav-chevron"></i>
-            </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.inventarios }">
-              <li v-if="puedeVerKardex">
-                <router-link class="dropdown-item" to="/kardex" @click="cerrarTodo">
-                  <i class="fas fa-clipboard-list"></i>
-                  <span>Kardex</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerInventario">
-                <router-link class="dropdown-item" to="/inventario/stock" @click="cerrarTodo">
-                  <i class="fas fa-boxes"></i>
-                  <span>Stock Actual</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerInventario">
-                <router-link class="dropdown-item" to="/inventario/planificacion" @click="cerrarTodo">
-                  <i class="fas fa-calendar-alt"></i>
-                  <span>Planificación</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerInventario">
-                <router-link class="dropdown-item" to="/inventario/conteo" @click="cerrarTodo">
-                  <i class="fas fa-clipboard-check"></i>
-                  <span>Conteo Físico</span>
-                </router-link>
-              </li>
-              <li v-if="puedeEditarInventario">
-                <router-link class="dropdown-item" to="/inventario/ajustes" @click="cerrarTodo">
-                  <i class="fas fa-edit"></i>
-                  <span>Ajustes</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerInventario">
-                <router-link class="dropdown-item" to="/inventario/valorizado" @click="cerrarTodo">
-                  <i class="fas fa-dollar-sign"></i>
-                  <span>Valorizado</span>
-                </router-link>
-              </li>
-            </ul>
+              <span>Inventario</span>
+              <i class="fas fa-chevron-down nav-caret"></i>
+            </button>
+            <transition name="dropdown">
+              <ul v-if="dropdowns.inventarios" class="dropdown-panel">
+                <li v-if="puedeVerKardex">
+                  <router-link class="dropdown-link" to="/kardex" @click="cerrarTodo">
+                    <i class="fas fa-clipboard-list"></i>
+                    <span>Kardex</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerInventario">
+                  <router-link class="dropdown-link" to="/inventario/stock" @click="cerrarTodo">
+                    <i class="fas fa-boxes"></i>
+                    <span>Stock actual</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerInventario">
+                  <router-link class="dropdown-link" to="/inventario/valorizado" @click="cerrarTodo">
+                    <i class="fas fa-dollar-sign"></i>
+                    <span>Valorizado</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerInventario">
+                  <router-link class="dropdown-link" to="/inventario/conteo" @click="cerrarTodo">
+                    <i class="fas fa-clipboard-check"></i>
+                    <span>Conteo físico</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeEditarInventario">
+                  <router-link class="dropdown-link" to="/inventario/ajustes" @click="cerrarTodo">
+                    <i class="fas fa-edit"></i>
+                    <span>Ajustes</span>
+                  </router-link>
+                </li>
+              </ul>
+            </transition>
           </li>
 
           <!-- ===== REPORTES ===== -->
-          <li v-if="puedeVerReportes" class="nav-item dropdown" :class="{ show: dropdowns.reportes }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('reportes')">
+          <li
+            v-if="puedeVerReportes"
+            class="nav-dropdown"
+            :class="{ open: dropdowns.reportes }"
+          >
+            <button class="nav-item" @click.stop="toggleDropdown('reportes')">
               <i class="fas fa-chart-bar"></i>
-              <span class="nav-text">Reportes</span>
-              <i class="fas fa-chevron-down nav-chevron"></i>
-            </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.reportes }">
-              <li class="dropdown-header">
-                <i class="fas fa-chart-line"></i>
-                <span>Análisis</span>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/reportes/ventas" @click="cerrarTodo">
-                  <i class="fas fa-arrow-up"></i>
-                  <span>Ventas</span>
-                </router-link>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/reportes/compras" @click="cerrarTodo">
-                  <i class="fas fa-arrow-down"></i>
-                  <span>Compras</span>
-                </router-link>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/reportes/mensual" @click="cerrarTodo">
-                  <i class="fas fa-file-invoice"></i>
-                  <span>Reporte Mensual</span>
-                </router-link>
-              </li>
+              <span>Reportes</span>
+              <i class="fas fa-chevron-down nav-caret"></i>
+            </button>
+            <transition name="dropdown">
+              <ul v-if="dropdowns.reportes" class="dropdown-panel">
+                <li class="dropdown-section">Análisis</li>
+                <li>
+                  <router-link class="dropdown-link" to="/reportes/ventas" @click="cerrarTodo">
+                    <i class="fas fa-arrow-up"></i>
+                    <span>Ventas</span>
+                  </router-link>
+                </li>
+                <li>
+                  <router-link class="dropdown-link" to="/reportes/compras" @click="cerrarTodo">
+                    <i class="fas fa-arrow-down"></i>
+                    <span>Compras</span>
+                  </router-link>
+                </li>
+                <li>
+                  <router-link class="dropdown-link" to="/reportes/mensual" @click="cerrarTodo">
+                    <i class="fas fa-calendar-alt"></i>
+                    <span>Reporte mensual</span>
+                  </router-link>
+                </li>
 
-              <li class="dropdown-header">
-                <i class="fas fa-calculator"></i>
-                <span>Contabilidad</span>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/reportes/estado-cuenta" @click="cerrarTodo">
-                  <i class="fas fa-file-invoice-dollar"></i>
-                  <span>Estado de Cuenta</span>
-                </router-link>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/reportes/cartera" @click="cerrarTodo">
-                  <i class="fas fa-chart-pie"></i>
-                  <span>Cartera General</span>
-                </router-link>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/reportes/estados-financieros" @click="cerrarTodo">
-                  <i class="fas fa-chart-line"></i>
-                  <span>Estados Financieros</span>
-                </router-link>
-              </li>
+                <li class="dropdown-section">Contabilidad</li>
+                <li>
+                  <router-link class="dropdown-link" to="/reportes/estado-cuenta" @click="cerrarTodo">
+                    <i class="fas fa-file-invoice-dollar"></i>
+                    <span>Estado de cuenta</span>
+                  </router-link>
+                </li>
+                <li>
+                  <router-link class="dropdown-link" to="/reportes/cartera" @click="cerrarTodo">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Cartera general</span>
+                  </router-link>
+                </li>
+                <li>
+                  <router-link class="dropdown-link" to="/reportes/estados-financieros" @click="cerrarTodo">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Estados financieros</span>
+                  </router-link>
+                </li>
 
-              <li class="dropdown-header">
-                <i class="fas fa-file-export"></i>
-                <span>SRI</span>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/reportes/ats" @click="cerrarTodo">
-                  <i class="fas fa-file-export"></i>
-                  <span>Anexo ATS</span>
-                </router-link>
-              </li>
-              <li>
-                <router-link class="dropdown-item" to="/periodos-cerrados" @click="cerrarTodo">
-                  <i class="fas fa-lock"></i>
-                  <span>Períodos Cerrados</span>
-                </router-link>
-              </li>
-            </ul>
+                <li class="dropdown-section">SRI</li>
+                <li>
+                  <router-link class="dropdown-link" to="/reportes/ats" @click="cerrarTodo">
+                    <i class="fas fa-file-export"></i>
+                    <span>Anexo ATS</span>
+                  </router-link>
+                </li>
+                <li>
+                  <router-link class="dropdown-link" to="/periodos-cerrados" @click="cerrarTodo">
+                    <i class="fas fa-lock"></i>
+                    <span>Períodos cerrados</span>
+                  </router-link>
+                </li>
+              </ul>
+            </transition>
           </li>
 
           <!-- ===== RETENCIONES ===== -->
-          <li v-if="puedeVerRetenciones" class="nav-item dropdown" :class="{ show: dropdowns.retenciones }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('retenciones')">
+          <li
+            v-if="puedeVerRetenciones"
+            class="nav-dropdown"
+            :class="{ open: dropdowns.retenciones }"
+          >
+            <button class="nav-item" @click.stop="toggleDropdown('retenciones')">
               <i class="fas fa-percent"></i>
-              <span class="nav-text">Retenciones</span>
-              <i class="fas fa-chevron-down nav-chevron"></i>
-            </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.retenciones }">
-              <li>
-                <router-link class="dropdown-item" to="/retenciones" @click="cerrarTodo">
-                  <i class="fas fa-list"></i>
-                  <span>Lista de Retenciones</span>
-                </router-link>
-              </li>
-              <li v-if="puedeCrearRetenciones">
-                <router-link class="dropdown-item" to="/retenciones/nuevo" @click="cerrarTodo">
-                  <i class="fas fa-plus"></i>
-                  <span>Nueva Retención</span>
-                </router-link>
-              </li>
-            </ul>
+              <span>Retenciones</span>
+              <i class="fas fa-chevron-down nav-caret"></i>
+            </button>
+            <transition name="dropdown">
+              <ul v-if="dropdowns.retenciones" class="dropdown-panel">
+                <li>
+                  <router-link class="dropdown-link" to="/retenciones" @click="cerrarTodo">
+                    <i class="fas fa-list"></i>
+                    <span>Lista de retenciones</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeCrearRetenciones">
+                  <router-link class="dropdown-link" to="/retenciones/nuevo" @click="cerrarTodo">
+                    <i class="fas fa-plus"></i>
+                    <span>Nueva retención</span>
+                  </router-link>
+                </li>
+              </ul>
+            </transition>
           </li>
 
           <!-- ===== ADMINISTRACIÓN ===== -->
-          <li v-if="puedeVerAuditoria || puedeVerUsuarios" class="nav-item dropdown" :class="{ show: dropdowns.admin }">
-            <a class="nav-link dropdown-toggle" href="#" role="button" @click.prevent="toggleDropdown('admin')">
+          <li
+            v-if="puedeVerUsuarios || puedeVerAuditoria"
+            class="nav-dropdown"
+            :class="{ open: dropdowns.admin }"
+          >
+            <button class="nav-item" @click.stop="toggleDropdown('admin')">
               <i class="fas fa-cog"></i>
-              <span class="nav-text">Administración</span>
-              <i class="fas fa-chevron-down nav-chevron"></i>
-              <span v-if="certificadoPorVencer" class="nav-badge-warning" title="Certificado próximo a vencer">
-                <i class="fas fa-exclamation"></i>
-              </span>
-              <span v-if="documentosFirmados > 0" class="nav-badge-info" :title="`${documentosFirmados} documentos pendientes de envío al SRI`">
-                {{ documentosFirmados > 9 ? '9+' : documentosFirmados }}
-              </span>
-            </a>
-            <ul class="dropdown-menu" :class="{ show: dropdowns.admin }">
-              <li v-if="puedeVerUsuarios">
-                <router-link class="dropdown-item" to="/diagnostico" @click="cerrarTodo">
-                  <i class="fas fa-stethoscope"></i>
-                  <span>Diagnóstico del Sistema</span>
-                </router-link>
-              </li>
+              <span>Admin</span>
+              <i class="fas fa-chevron-down nav-caret"></i>
+              <span v-if="certificadoPorVencer" class="nav-alert-dot warning" :title="`Certificado vence en ${certificadoDiasRestantes} días`"></span>
+              <span v-else-if="documentosFirmados > 0" class="nav-alert-dot info" :title="`${documentosFirmados} docs pendientes de envío SRI`"></span>
+            </button>
+            <transition name="dropdown">
+              <ul v-if="dropdowns.admin" class="dropdown-panel">
+                <li v-if="puedeVerUsuarios">
+                  <router-link class="dropdown-link" to="/diagnostico" @click="cerrarTodo">
+                    <i class="fas fa-stethoscope"></i>
+                    <span>Diagnóstico</span>
+                  </router-link>
+                </li>
 
-              <li v-if="puedeVerUsuarios" class="dropdown-header">
-                <i class="fas fa-sliders-h"></i>
-                <span>Configuración</span>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <router-link class="dropdown-item" to="/configuracion-empresa" @click="cerrarTodo">
-                  <i class="fas fa-building"></i>
-                  <span>Configuración Empresa</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <router-link class="dropdown-item" to="/certificado-firma" @click="cerrarTodo">
-                  <i class="fas fa-shield-alt"></i>
-                  <span>Certificado Firma</span>
-                  <span v-if="certificadoPorVencer" class="badge bg-warning text-dark ms-auto">
-                    {{ certificadoDiasRestantes }}d
-                  </span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <router-link class="dropdown-item" to="/envio-sri" @click="cerrarTodo">
-                  <i class="fas fa-cloud-upload-alt"></i>
-                  <span>Envío al SRI</span>
-                  <span v-if="documentosFirmados > 0" class="badge bg-info ms-auto">
-                    {{ documentosFirmados }}
-                  </span>
-                </router-link>
-              </li>
+                <li v-if="puedeVerUsuarios" class="dropdown-section">Configuración</li>
+                <li v-if="puedeVerUsuarios">
+                  <router-link class="dropdown-link" to="/configuracion-empresa" @click="cerrarTodo">
+                    <i class="fas fa-building"></i>
+                    <span>Empresa</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerUsuarios">
+                  <router-link class="dropdown-link" to="/certificado-firma" @click="cerrarTodo">
+                    <i class="fas fa-shield-alt"></i>
+                    <span>Certificado</span>
+                    <span v-if="certificadoPorVencer" class="badge-mini warning">
+                      {{ certificadoDiasRestantes }}d
+                    </span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerUsuarios">
+                  <router-link class="dropdown-link" to="/envio-sri" @click="cerrarTodo">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <span>Envío al SRI</span>
+                    <span v-if="documentosFirmados > 0" class="badge-mini info">
+                      {{ documentosFirmados }}
+                    </span>
+                  </router-link>
+                </li>
 
-              <li class="dropdown-header">
-                <i class="fas fa-shield-alt"></i>
-                <span>Seguridad</span>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <router-link class="dropdown-item" to="/usuarios" @click="cerrarTodo">
-                  <i class="fas fa-user-cog"></i>
-                  <span>Usuarios</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerAuditoria">
-                <router-link class="dropdown-item" to="/auditoria" @click="cerrarTodo">
-                  <i class="fas fa-history"></i>
-                  <span>Auditoría</span>
-                </router-link>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <router-link class="dropdown-item" to="/backups" @click="cerrarTodo">
-                  <i class="fas fa-database"></i>
-                  <span>Backups</span>
-                </router-link>
-              </li>
-            </ul>
+                <li v-if="puedeVerUsuarios" class="dropdown-section">Seguridad</li>
+                <li v-if="puedeVerUsuarios">
+                  <router-link class="dropdown-link" to="/usuarios" @click="cerrarTodo">
+                    <i class="fas fa-user-cog"></i>
+                    <span>Usuarios</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerAuditoria">
+                  <router-link class="dropdown-link" to="/auditoria" @click="cerrarTodo">
+                    <i class="fas fa-history"></i>
+                    <span>Auditoría</span>
+                  </router-link>
+                </li>
+                <li v-if="puedeVerUsuarios">
+                  <router-link class="dropdown-link" to="/backups" @click="cerrarTodo">
+                    <i class="fas fa-database"></i>
+                    <span>Backups</span>
+                  </router-link>
+                </li>
+              </ul>
+            </transition>
           </li>
         </ul>
 
         <!-- ===== CONTROLES DERECHA ===== -->
-        <div class="nav-user-controls">
-
-          <!-- Atajo de teclado hint -->
-          <div class="kbd-hint d-none d-xxl-flex" title="Presiona Ctrl + K para buscar">
-            <kbd>Ctrl</kbd><span>+</span><kbd>K</kbd>
-          </div>
-
+        <div class="nav-controls">
           <!-- Buscador -->
-          <div class="search-wrapper">
+          <div class="search-container" data-tour="search">
             <SearchBar ref="searchBar" />
           </div>
 
-          <!-- Toggle de tema -->
+          <!-- Toggle tema -->
           <ThemeToggle />
 
-          <!-- Botón de usuario -->
-          <div class="dropdown user-dropdown" ref="userDropdown" :class="{ show: userMenuOpen }">
+          <!-- ===== USER MENU ===== -->
+          <div class="user-wrapper" ref="userDropdown" data-tour="user-menu">
             <button class="user-btn" @click.stop="toggleUserMenu">
-              <div class="user-avatar-small" :data-rol="user?.rol">
+              <div class="user-avatar" :data-rol="user?.rol">
                 {{ getInitials(user?.nombre) }}
               </div>
-              <div class="user-info">
+              <div class="user-details">
                 <span class="user-name">{{ user?.nombre?.split(' ')[0] || 'Usuario' }}</span>
-                <span v-if="user?.rol" class="user-rol-inline">{{ user.rol }}</span>
+                <span class="user-role">{{ user?.rol || 'user' }}</span>
               </div>
-              <i class="fas fa-chevron-down user-chevron" :class="{ rotated: userMenuOpen }"></i>
+              <i class="fas fa-chevron-down user-caret" :class="{ rotated: userMenuOpen }"></i>
             </button>
 
-            <ul class="dropdown-menu dropdown-menu-end user-menu" :class="{ show: userMenuOpen }">
-              <!-- Header -->
-              <li class="user-menu-header">
-                <div class="user-avatar-large" :data-rol="user?.rol">
-                  {{ getInitials(user?.nombre) }}
+            <transition name="dropdown">
+              <div v-if="userMenuOpen" class="user-panel" @click.stop>
+                <!-- Header -->
+                <div class="user-panel-header">
+                  <div class="user-avatar-lg" :data-rol="user?.rol">
+                    {{ getInitials(user?.nombre) }}
+                  </div>
+                  <div class="user-panel-info">
+                    <div class="user-panel-name">{{ user?.nombre || 'Usuario' }}</div>
+                    <div class="user-panel-email">{{ user?.email }}</div>
+                    <span class="user-panel-badge" :class="`badge-rol-${user?.rol}`">
+                      {{ user?.rol }}
+                    </span>
+                  </div>
                 </div>
-                <div class="user-menu-info">
-                  <div class="user-menu-name">{{ user?.nombre || 'Usuario' }}</div>
-                  <div class="user-menu-email">{{ user?.email }}</div>
-                  <span v-if="user?.rol" class="badge-rol-small" :class="`badge-rol-${user.rol}`">
-                    {{ user.rol }}
-                  </span>
-                </div>
-              </li>
 
-              <!-- Alertas del sistema -->
-              <li v-if="certificadoPorVencer" class="user-menu-alert warning">
-                <i class="fas fa-exclamation-triangle"></i>
-                <div>
-                  <div class="alert-title">Certificado por vencer</div>
-                  <div class="alert-text">Vence en {{ certificadoDiasRestantes }} días</div>
+                <!-- Alertas -->
+                <div v-if="certificadoPorVencer" class="user-alert warning">
+                  <i class="fas fa-exclamation-triangle"></i>
+                  <div>
+                    <div class="user-alert-title">Certificado por vencer</div>
+                    <div class="user-alert-text">Vence en {{ certificadoDiasRestantes }} días</div>
+                  </div>
                 </div>
-              </li>
-              <li v-if="documentosFirmados > 0" class="user-menu-alert info">
-                <i class="fas fa-cloud-upload-alt"></i>
-                <div>
-                  <div class="alert-title">Documentos pendientes</div>
-                  <div class="alert-text">{{ documentosFirmados }} firmados sin enviar al SRI</div>
-                </div>
-              </li>
-
-              <li><hr class="dropdown-divider"></li>
-
-              <!-- Acciones -->
-              <li>
-                <a class="dropdown-item" href="#" @click.prevent="irPerfil">
-                  <i class="fas fa-id-card"></i>
-                  <span>Mi Perfil</span>
-                  <i class="fas fa-chevron-right ms-auto opacity-50"></i>
-                </a>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <a class="dropdown-item" href="#" @click.prevent="irConfigEmpresa">
-                  <i class="fas fa-building"></i>
-                  <span>Configuración Empresa</span>
-                  <i class="fas fa-chevron-right ms-auto opacity-50"></i>
-                </a>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <a class="dropdown-item" href="#" @click.prevent="irCertificado">
-                  <i class="fas fa-shield-alt"></i>
-                  <span>Certificado Firma</span>
-                  <span v-if="certificadoPorVencer" class="badge bg-warning text-dark ms-auto">⚠</span>
-                </a>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <a class="dropdown-item" href="#" @click.prevent="irEnvioSri">
+                <div v-if="documentosFirmados > 0" class="user-alert info">
                   <i class="fas fa-cloud-upload-alt"></i>
-                  <span>Envío al SRI</span>
-                  <span v-if="documentosFirmados > 0" class="badge bg-info ms-auto">
-                    {{ documentosFirmados }}
-                  </span>
-                </a>
-              </li>
-              <li v-if="puedeVerAuditoria">
-                <a class="dropdown-item" href="#" @click.prevent="irAuditoria">
-                  <i class="fas fa-history"></i>
-                  <span>Auditoría</span>
-                </a>
-              </li>
-              <li v-if="puedeVerUsuarios">
-                <a class="dropdown-item" href="#" @click.prevent="irBackups">
-                  <i class="fas fa-database"></i>
-                  <span>Backups</span>
-                </a>
-              </li>
+                  <div>
+                    <div class="user-alert-title">Documentos pendientes</div>
+                    <div class="user-alert-text">{{ documentosFirmados }} sin enviar al SRI</div>
+                  </div>
+                </div>
 
-              <li><hr class="dropdown-divider"></li>
+                <!-- Acciones -->
+                <div class="user-menu-actions">
+                  <button class="user-action" @click="irPerfil">
+                    <i class="fas fa-id-card"></i>
+                    <span>Mi perfil</span>
+                  </button>
+                  <button v-if="puedeVerUsuarios" class="user-action" @click="irConfigEmpresa">
+                    <i class="fas fa-building"></i>
+                    <span>Configuración empresa</span>
+                  </button>
+                  <button v-if="puedeVerUsuarios" class="user-action" @click="irCertificado">
+                    <i class="fas fa-shield-alt"></i>
+                    <span>Certificado firma</span>
+                    <span v-if="certificadoPorVencer" class="badge-mini warning">⚠</span>
+                  </button>
+                  <button v-if="puedeVerUsuarios" class="user-action" @click="irEnvioSri">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <span>Envío al SRI</span>
+                    <span v-if="documentosFirmados > 0" class="badge-mini info">{{ documentosFirmados }}</span>
+                  </button>
 
-              <!-- Footer con versión -->
-              <li class="user-menu-footer">
-                <span class="version-badge">
-                  <i class="fas fa-code-branch"></i>
-                  v2.0
-                </span>
-                <span class="connection-status">
-                  <span class="status-dot"></span>
-                  En línea
-                </span>
-              </li>
+                  <div class="user-divider"></div>
 
-              <li><hr class="dropdown-divider"></li>
+                  <button class="user-action" @click="reiniciarTour">
+                    <i class="fas fa-question-circle"></i>
+                    <span>Ver tour de nuevo</span>
+                  </button>
+                </div>
 
-              <!-- Logout -->
-              <li>
-                <a class="dropdown-item dropdown-item-danger" href="#" @click.prevent="cerrarSesion">
+                <!-- Footer -->
+                <div class="user-panel-footer">
+                  <div class="version-tag">
+                    <i class="fas fa-code-branch"></i>
+                    v3.0
+                  </div>
+                  <div class="status-indicator">
+                    <span class="status-dot"></span>
+                    En línea
+                  </div>
+                </div>
+
+                <div class="user-divider"></div>
+
+                <button class="user-action danger" @click="cerrarSesion">
                   <i class="fas fa-sign-out-alt"></i>
-                  <span>Cerrar Sesión</span>
-                </a>
-              </li>
-            </ul>
+                  <span>Cerrar sesión</span>
+                </button>
+              </div>
+            </transition>
           </div>
         </div>
       </div>
@@ -509,9 +488,9 @@ const router = useRouter()
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
 
-// ===== ESTADO =====
 const navbarAbierto = ref(false)
 const userMenuOpen = ref(false)
+const scrolled = ref(false)
 const navbar = ref(null)
 const userDropdown = ref(null)
 const searchBar = ref(null)
@@ -554,8 +533,8 @@ const cargarInfoSistema = async () => {
   if (!puedeVerUsuarios.value) return
   try {
     const [cert, sri] = await Promise.all([
-      api.request('/certificado/info', { method: 'GET' }).catch(() => null),
-      api.request('/sri/estado', { method: 'GET' }).catch(() => null)
+      api.request('/certificado/info', { method: 'GET', skipLoader: true }).catch(() => null),
+      api.request('/sri/estado', { method: 'GET', skipLoader: true }).catch(() => null)
     ])
     certificadoInfo.value = cert
     estadoSri.value = sri
@@ -566,7 +545,7 @@ const cargarInfoSistema = async () => {
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
   if (!navbarAbierto.value) {
-    Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
+    Object.keys(dropdowns.value).forEach(k => dropdowns.value[k] = false)
   }
 }
 
@@ -575,60 +554,52 @@ const toggleDropdown = (nombre) => {
     dropdowns.value[nombre] = !dropdowns.value[nombre]
     return
   }
-  Object.keys(dropdowns.value).forEach(key => {
-    dropdowns.value[key] = (key === nombre) ? !dropdowns.value[nombre] : false
+  Object.keys(dropdowns.value).forEach(k => {
+    dropdowns.value[k] = (k === nombre) ? !dropdowns.value[nombre] : false
   })
-  // Cerrar user menu si se abre un dropdown
   if (userMenuOpen.value) userMenuOpen.value = false
 }
 
 const toggleUserMenu = () => {
   userMenuOpen.value = !userMenuOpen.value
   if (userMenuOpen.value) {
-    Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
+    Object.keys(dropdowns.value).forEach(k => dropdowns.value[k] = false)
   }
 }
 
 const cerrarTodo = () => {
   navbarAbierto.value = false
-  Object.keys(dropdowns.value).forEach(key => dropdowns.value[key] = false)
+  Object.keys(dropdowns.value).forEach(k => dropdowns.value[k] = false)
   userMenuOpen.value = false
 }
 
 // ===== CLICK FUERA =====
-const handleClickOutside = (event) => {
-  if (navbar.value && navbar.value.contains(event.target)) return
-  if (searchBar.value && searchBar.value.$el && searchBar.value.$el.contains(event.target)) return
+const handleClickOutside = (e) => {
+  if (navbar.value && navbar.value.contains(e.target)) return
   cerrarTodo()
 }
 
-// ===== ATAJOS DE TECLADO =====
+// ===== SCROLL =====
+const handleScroll = () => {
+  scrolled.value = window.scrollY > 8
+}
+
+// ===== ATAJOS =====
 const handleKeyboard = (e) => {
-  // Ctrl/Cmd + K → enfocar buscador
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault()
-    if (searchBar.value && searchBar.value.$el) {
-      const input = searchBar.value.$el.querySelector('.search-input')
+    if (searchBar.value?.$el) {
+      const input = searchBar.value.$el.querySelector('input')
       if (input) input.focus()
     }
   }
-  // Esc → cerrar todo
-  if (e.key === 'Escape') {
-    cerrarTodo()
-  }
-  // Alt + 1-9 → navegación rápida
+  if (e.key === 'Escape') cerrarTodo()
   if (e.altKey && /^[1-9]$/.test(e.key)) {
     e.preventDefault()
     const shortcuts = {
-      '1': '/',
-      '2': '/ventas',
-      '3': '/compras',
-      '4': '/clientes',
-      '5': '/productos',
-      '6': '/consultar-documentos',
-      '7': '/reportes/ventas',
-      '8': '/kardex',
-      '9': '/auditoria'
+      '1': '/', '2': '/ventas', '3': '/compras',
+      '4': '/clientes', '5': '/productos', '6': '/consultar-documentos',
+      '7': '/reportes/ventas', '8': '/kardex', '9': '/auditoria'
     }
     if (shortcuts[e.key]) router.push(shortcuts[e.key])
   }
@@ -636,486 +607,401 @@ const handleKeyboard = (e) => {
 
 // ===== NAVEGACIÓN =====
 const irPerfil = () => { cerrarTodo(); router.push('/mi-perfil') }
-const irAuditoria = () => { cerrarTodo(); router.push('/auditoria') }
-const irUsuarios = () => { cerrarTodo(); router.push('/usuarios') }
-const irBackups = () => { cerrarTodo(); router.push('/backups') }
 const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
 const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
 const irEnvioSri = () => { cerrarTodo(); router.push('/envio-sri') }
 const cerrarSesion = () => { cerrarTodo(); logout() }
 
-// ===== HELPERS =====
+const reiniciarTour = () => {
+  cerrarTodo()
+  if (typeof window.__reiniciarTour__ === 'function') {
+    window.__reiniciarTour__()
+  }
+}
+
 const getInitials = (nombre) => {
   if (!nombre) return '?'
   return String(nombre).split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 }
 
-// ===== CICLO DE VIDA =====
+// ===== CICLO =====
 onMounted(async () => {
-  try { await cargarPermisos() } catch (e) { console.warn(e) }
+  try { await cargarPermisos() } catch (e) {}
   await cargarInfoSistema()
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeyboard)
+  window.addEventListener('scroll', handleScroll, { passive: true })
+  handleScroll()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeyboard)
+  window.removeEventListener('scroll', handleScroll)
 })
 </script>
 
 <style scoped>
 /* ============================================================
-   NAVBAR PRINCIPAL
+   NAVBAR BASE
    ============================================================ */
-.navbar-cacao {
-  padding: 10px 0;
-  background: var(--bg-navbar) !important;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.15);
-  transition: all var(--transition);
+.navbar-app {
   position: sticky;
   top: 0;
-  z-index: 1000;
+  z-index: 900;
+  background: var(--bg-navbar);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all var(--transition);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+.navbar-app.navbar-scrolled {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.navbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  min-height: 64px;
 }
 
 /* ============================================================
    BRAND
    ============================================================ */
-.navbar-brand {
+.brand {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 6px 12px;
   border-radius: var(--radius-md);
   transition: all var(--transition);
-  margin-right: 24px;
   text-decoration: none;
-  color: #fff !important;
+  flex-shrink: 0;
 }
-.navbar-brand:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-1px);
-}
+.brand:hover { background: rgba(255, 255, 255, 0.08); }
 
 .brand-logo {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(241, 196, 15, 0.2), rgba(230, 126, 34, 0.15));
-  border: 1.5px solid rgba(241, 196, 15, 0.35);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.15));
+  border: 1.5px solid rgba(245, 158, 11, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--accent-color);
-  font-size: 1.3rem;
-  box-shadow: 0 4px 12px rgba(241, 196, 15, 0.15);
+  font-size: 1.15rem;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
   transition: all var(--transition);
   flex-shrink: 0;
 }
-.navbar-brand:hover .brand-logo {
-  transform: rotate(-8deg) scale(1.08);
-  box-shadow: 0 8px 20px rgba(241, 196, 15, 0.3);
+.brand:hover .brand-logo {
+  transform: rotate(-6deg) scale(1.06);
+  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.35);
 }
 
-.brand-text-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.brand-text {
-  font-size: 1.15rem;
-  font-weight: 800;
+.brand-text { display: flex; align-items: center; gap: 8px; }
+.brand-name {
+  font-size: 1.05rem;
+  font-weight: var(--fw-extrabold);
   color: #fff;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--ls-tight);
   white-space: nowrap;
 }
-
-.brand-version {
-  font-size: 0.62rem;
-  padding: 2px 8px;
+.brand-tag {
+  font-size: 0.6rem;
+  font-weight: var(--fw-bold);
+  padding: 2px 7px;
   border-radius: var(--radius-full);
-  background: rgba(241, 196, 15, 0.18);
+  background: rgba(245, 158, 11, 0.18);
   color: var(--accent-color);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  border: 1px solid rgba(241, 196, 15, 0.25);
+  letter-spacing: var(--ls-wider);
+  border: 1px solid rgba(245, 158, 11, 0.28);
 }
 
 /* ============================================================
-   HAMBURGUESA
+   BURGER (móvil)
    ============================================================ */
-.navbar-toggler {
-  border: none;
-  padding: 8px 10px;
+.burger {
+  display: none;
+  width: 42px;
+  height: 42px;
   background: rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition);
-  display: flex;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  cursor: pointer;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  margin-left: auto;
+  transition: all var(--transition);
+  padding: 0;
 }
-.navbar-toggler:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-.navbar-toggler:focus {
-  box-shadow: none;
-  outline: 2px solid rgba(241, 196, 15, 0.5);
-  outline-offset: 2px;
-}
+.burger:hover { background: rgba(255, 255, 255, 0.15); }
 
-.hamburger-line {
-  width: 22px;
+.burger-line {
+  width: 20px;
   height: 2px;
   background: #fff;
   border-radius: 2px;
   transition: all var(--transition);
 }
+.burger-line.open:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.burger-line.open:nth-child(2) { opacity: 0; }
+.burger-line.open:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
 
 /* ============================================================
-   MENÚ PRINCIPAL
+   MENÚ
    ============================================================ */
-.navbar-cacao .navbar-nav {
-  gap: 2px;
+.nav-menu {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  justify-content: space-between;
 }
 
-.navbar-cacao .nav-link {
+.nav-list {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-item {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 14px !important;
+  padding: 9px 14px;
   border-radius: var(--radius-full);
-  color: rgba(255, 255, 255, 0.85) !important;
-  font-weight: 500;
-  font-size: 0.88rem;
-  transition: all var(--transition);
-  position: relative;
-  white-space: nowrap;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: var(--fw-medium);
   cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  text-decoration: none;
 }
 
-.navbar-cacao .nav-link > i:not(.nav-chevron):not(.fa-chevron-down) {
-  font-size: 0.95rem;
-  transition: transform var(--transition);
-}
-
-.navbar-cacao .nav-link:hover {
+.nav-item:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #fff !important;
-}
-.navbar-cacao .nav-link:hover > i:not(.nav-chevron):not(.fa-chevron-down) {
-  transform: scale(1.15);
+  color: #fff;
 }
 
-.navbar-cacao .nav-link.active {
+.nav-item.active {
   background: var(--primary-color);
-  color: #fff !important;
-  box-shadow: 0 4px 14px rgba(52, 152, 219, 0.45);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
 }
 
-/* Chevron indicador */
-.nav-chevron,
-.navbar-cacao .nav-link .fa-chevron-down {
-  font-size: 0.65rem;
+.nav-item > i:first-child { font-size: 0.9rem; }
+
+.nav-caret {
+  font-size: 0.6rem;
   opacity: 0.6;
   margin-left: 2px;
   transition: transform var(--transition);
 }
-.navbar-cacao .nav-item.dropdown.show .nav-chevron,
-.navbar-cacao .nav-item.dropdown.show .fa-chevron-down {
+.nav-dropdown.open .nav-caret {
   transform: rotate(180deg);
   opacity: 1;
 }
 
-/* ============================================================
-   BADGES EN NAVBAR
-   ============================================================ */
-.nav-badge-warning {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
+.nav-alert-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #f39c12;
-  color: #fff;
-  font-size: 0.6rem;
   margin-left: 4px;
-  animation: pulse-warning 2s infinite;
-  box-shadow: 0 2px 8px rgba(243, 156, 18, 0.5);
+  animation: pulse-dot 2s infinite;
 }
-@keyframes pulse-warning {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7); }
-  50% { box-shadow: 0 0 0 6px rgba(243, 156, 18, 0); }
-}
+.nav-alert-dot.warning { background: var(--warning); }
+.nav-alert-dot.info { background: var(--info); }
 
-.nav-badge-info {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: var(--radius-full);
-  background: var(--info);
-  color: #fff;
-  font-size: 0.62rem;
-  font-weight: 700;
-  margin-left: 4px;
-  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.5);
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  50% { box-shadow: 0 0 0 4px transparent; opacity: 0.7; }
 }
 
 /* ============================================================
-   DROPDOWNS
+   DROPDOWN
    ============================================================ */
-.navbar-cacao .dropdown-menu {
-  background: rgba(30, 42, 61, 0.98);
+.nav-dropdown { position: relative; }
+
+.dropdown-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 260px;
+  background: rgba(20, 30, 48, 0.98);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
   padding: 8px;
-  margin-top: 10px;
-  animation: dropdownIn 0.2s var(--ease-out);
-  min-width: 260px;
+  list-style: none;
+  margin: 0;
+  z-index: 100;
+  animation: dropdown-in 0.2s var(--ease-out);
 }
 
-@keyframes dropdownIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.dropdown-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px 6px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: rgba(241, 196, 15, 0.9);
+.dropdown-section {
+  font-size: 0.65rem;
+  font-weight: var(--fw-bold);
+  color: rgba(245, 158, 11, 0.9);
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: var(--ls-widest);
+  padding: 10px 14px 6px;
   pointer-events: none;
 }
-.dropdown-header i {
-  font-size: 0.75rem;
-}
 
-.navbar-cacao .dropdown-item {
-  color: rgba(255, 255, 255, 0.85) !important;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 0.86rem;
-  transition: all var(--transition-fast);
+.dropdown-link {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 500;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  color: rgba(255, 255, 255, 0.88);
+  text-decoration: none;
+  font-size: 0.86rem;
+  font-weight: var(--fw-medium);
+  transition: all var(--transition-fast);
 }
-
-.navbar-cacao .dropdown-item > i {
+.dropdown-link > i {
   width: 18px;
   color: var(--accent-color);
+  font-size: 0.88rem;
   transition: all var(--transition-fast);
-  font-size: 0.9rem;
 }
-
-.navbar-cacao .dropdown-item span:not(.dropdown-shortcut):not(.badge) {
-  flex: 1;
-}
-
-.navbar-cacao .dropdown-item:hover {
+.dropdown-link > span:first-of-type { flex: 1; }
+.dropdown-link:hover {
   background: var(--primary-color);
-  color: #fff !important;
+  color: #fff;
   transform: translateX(4px);
 }
-.navbar-cacao .dropdown-item:hover > i {
-  color: #fff;
-  transform: scale(1.15);
-}
+.dropdown-link:hover > i { color: #fff; transform: scale(1.1); }
 
-.dropdown-item-highlight {
-  background: rgba(241, 196, 15, 0.08);
-  border: 1px solid rgba(241, 196, 15, 0.2);
+.dropdown-link.highlight {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
-.dropdown-item-highlight > i {
-  color: var(--accent-color) !important;
-}
-.dropdown-item-highlight:hover {
-  background: var(--accent-color) !important;
-  color: #1a2a3a !important;
-}
-.dropdown-item-highlight:hover > i {
-  color: #1a2a3a !important;
-}
+.dropdown-link.highlight:hover { background: var(--accent-color); color: #1a2a3a; }
 
-.dropdown-item-danger {
-  color: rgba(231, 76, 60, 0.9) !important;
-}
-.dropdown-item-danger > i {
-  color: #e74c3c !important;
-}
-.dropdown-item-danger:hover {
-  background: var(--danger) !important;
-  color: #fff !important;
-}
-.dropdown-item-danger:hover > i {
-  color: #fff !important;
-}
-
-.dropdown-shortcut {
+.shortcut {
   font-size: 0.65rem;
   padding: 2px 6px;
   border-radius: var(--radius-xs);
-  background: rgba(241, 196, 15, 0.15);
+  background: rgba(245, 158, 11, 0.15);
   color: var(--accent-color);
-  font-weight: 700;
   font-family: var(--font-mono);
+  font-weight: var(--fw-bold);
   letter-spacing: 0.3px;
-  border: 1px solid rgba(241, 196, 15, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
-.navbar-cacao .dropdown-divider {
-  border-color: rgba(255, 255, 255, 0.08);
+.badge-mini {
+  font-size: 0.65rem;
+  font-weight: var(--fw-bold);
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  min-width: 22px;
+  text-align: center;
+}
+.badge-mini.info { background: var(--info-bg); color: var(--info); }
+.badge-mini.warning { background: var(--warning-bg); color: var(--warning-hover); }
+
+.dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
   margin: 6px 8px;
+  list-style: none;
 }
 
 /* ============================================================
    CONTROLES DERECHA
    ============================================================ */
-.nav-user-controls {
+.nav-controls {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
-/* Hint de atajo */
-.kbd-hint {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-sm);
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.5);
-  font-weight: 500;
-}
-.kbd-hint kbd {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.8);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
-}
-.kbd-hint span {
-  opacity: 0.5;
-}
-
-.search-wrapper {
+.search-container {
   width: 260px;
+  flex-shrink: 0;
 }
 
 /* ============================================================
-   BOTÓN DE USUARIO
+   USER BUTTON
    ============================================================ */
-.user-dropdown {
-  position: relative;
-}
+.user-wrapper { position: relative; }
 
 .user-btn {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 5px 12px 5px 5px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #fff;
-  padding: 5px 12px 5px 5px;
   border-radius: var(--radius-full);
-  font-size: 0.85rem;
-  font-weight: 600;
+  color: #fff;
   cursor: pointer;
+  font-family: inherit;
   transition: all var(--transition);
   max-width: 240px;
-  font-family: inherit;
 }
 .user-btn:hover {
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.25);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-.user-avatar-small {
+.user-avatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-color), #e67e22);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
+  font-weight: var(--fw-extrabold);
   font-size: 0.72rem;
   color: #1a2a3a;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(241, 196, 15, 0.3);
   letter-spacing: 0.3px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35);
 }
-.user-avatar-small[data-rol="admin"] {
-  background: linear-gradient(135deg, #e74c3c, #c0392b);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(231, 76, 60, 0.3);
-}
-.user-avatar-small[data-rol="contador"] {
-  background: linear-gradient(135deg, #3498db, #2980b9);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
-}
-.user-avatar-small[data-rol="vendedor"] {
-  background: linear-gradient(135deg, #27ae60, #1e8449);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(39, 174, 96, 0.3);
-}
-.user-avatar-small[data-rol="bodeguero"] {
-  background: linear-gradient(135deg, #f39c12, #d68910);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(243, 156, 18, 0.3);
-}
-.user-avatar-small[data-rol="auditor"] {
-  background: linear-gradient(135deg, #8e44ad, #6c3483);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(155, 89, 182, 0.3);
-}
+.user-avatar[data-rol="admin"] { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35); }
+.user-avatar[data-rol="contador"] { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35); }
+.user-avatar[data-rol="vendedor"] { background: linear-gradient(135deg, #10b981, #059669); color: #fff; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35); }
+.user-avatar[data-rol="bodeguero"] { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35); }
+.user-avatar[data-rol="auditor"] { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.35); }
 
-.user-info {
+.user-details {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 1px;
   min-width: 0;
 }
-
 .user-name {
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
@@ -1123,94 +1009,82 @@ onBeforeUnmount(() => {
   max-width: 110px;
   line-height: 1.1;
 }
-
-.user-rol-inline {
+.user-role {
   font-size: 0.6rem;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: rgba(241, 196, 15, 0.9);
-  font-weight: 700;
+  letter-spacing: var(--ls-wider);
+  color: rgba(245, 158, 11, 0.9);
+  font-weight: var(--fw-bold);
 }
 
-.user-chevron {
+.user-caret {
   font-size: 0.65rem;
   opacity: 0.6;
   transition: transform var(--transition);
   flex-shrink: 0;
 }
-.user-chevron.rotated {
-  transform: rotate(180deg);
-  opacity: 1;
-}
+.user-caret.rotated { transform: rotate(180deg); opacity: 1; }
 
 /* ============================================================
-   MENÚ DE USUARIO
+   USER PANEL
    ============================================================ */
-.user-menu {
-  min-width: 320px !important;
-  padding: 0 !important;
+.user-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  min-width: 320px;
+  background: rgba(20, 30, 48, 0.99);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
   overflow: hidden;
+  z-index: 100;
+  animation: dropdown-in 0.2s var(--ease-out);
 }
 
-.user-menu-header {
+.user-panel-header {
   display: flex;
   gap: 14px;
-  padding: 20px 20px 16px;
+  padding: 20px;
   align-items: center;
-  background: linear-gradient(135deg, rgba(52, 152, 219, 0.08), rgba(241, 196, 15, 0.04));
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(245, 158, 11, 0.05));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.user-avatar-large {
+.user-avatar-lg {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-color), #e67e22);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
-  font-size: 1.1rem;
+  font-weight: var(--fw-extrabold);
+  font-size: 1.05rem;
   color: #1a2a3a;
   flex-shrink: 0;
-  box-shadow: 0 6px 16px rgba(241, 196, 15, 0.35);
   letter-spacing: 0.5px;
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.35);
+  background: linear-gradient(135deg, #f59e0b, #d97706);
 }
-.user-avatar-large[data-rol="admin"] {
-  background: linear-gradient(135deg, #e74c3c, #c0392b);
-  color: #fff;
-}
-.user-avatar-large[data-rol="contador"] {
-  background: linear-gradient(135deg, #3498db, #2980b9);
-  color: #fff;
-}
-.user-avatar-large[data-rol="vendedor"] {
-  background: linear-gradient(135deg, #27ae60, #1e8449);
-  color: #fff;
-}
-.user-avatar-large[data-rol="bodeguero"] {
-  background: linear-gradient(135deg, #f39c12, #d68910);
-  color: #fff;
-}
-.user-avatar-large[data-rol="auditor"] {
-  background: linear-gradient(135deg, #8e44ad, #6c3483);
-  color: #fff;
-}
+.user-avatar-lg[data-rol="admin"] { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
+.user-avatar-lg[data-rol="contador"] { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; }
+.user-avatar-lg[data-rol="vendedor"] { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
+.user-avatar-lg[data-rol="bodeguero"] { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; }
+.user-avatar-lg[data-rol="auditor"] { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; }
 
-.user-menu-info {
-  flex: 1;
-  min-width: 0;
-}
-.user-menu-name {
+.user-panel-info { flex: 1; min-width: 0; }
+.user-panel-name {
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: #fff;
   margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.user-menu-email {
+.user-panel-email {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
   margin-bottom: 6px;
@@ -1218,189 +1092,180 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.badge-rol-small {
+.user-panel-badge {
   display: inline-block;
   font-size: 0.62rem;
   padding: 3px 10px;
   border-radius: var(--radius-full);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: var(--ls-wider);
 }
-.badge-rol-admin { background: rgba(231,76,60,0.25); color: #ff9585; }
-.badge-rol-contador { background: rgba(52,152,219,0.25); color: #63b4e0; }
-.badge-rol-vendedor { background: rgba(39,174,96,0.25); color: #58d68d; }
-.badge-rol-bodeguero { background: rgba(243,156,18,0.25); color: #f7b731; }
-.badge-rol-auditor { background: rgba(155,89,182,0.25); color: #c39bd3; }
+.badge-rol-admin { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
+.badge-rol-contador { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
+.badge-rol-vendedor { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; }
+.badge-rol-bodeguero { background: rgba(245, 158, 11, 0.25); color: #fbbf24; }
+.badge-rol-auditor { background: rgba(139, 92, 246, 0.25); color: #c4b5fd; }
 
-/* Alertas dentro del menú de usuario */
-.user-menu-alert {
+.user-alert {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
   padding: 12px 20px;
   font-size: 0.78rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  align-items: flex-start;
 }
-.user-menu-alert i {
-  font-size: 1rem;
-  margin-top: 2px;
-  flex-shrink: 0;
+.user-alert.warning { background: rgba(245, 158, 11, 0.08); }
+.user-alert.warning > i { color: var(--warning); }
+.user-alert.info { background: rgba(14, 165, 233, 0.08); }
+.user-alert.info > i { color: var(--info); }
+.user-alert > i { font-size: 1rem; margin-top: 2px; flex-shrink: 0; }
+.user-alert-title { font-weight: var(--fw-bold); color: #fff; margin-bottom: 2px; font-size: 0.78rem; }
+.user-alert-text { color: rgba(255, 255, 255, 0.55); font-size: 0.72rem; }
+
+.user-menu-actions { padding: 8px; }
+
+.user-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.88);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: var(--fw-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
-.user-menu-alert .alert-title {
-  font-weight: 700;
-  color: #fff;
-  margin-bottom: 2px;
-  font-size: 0.78rem;
+.user-action > i {
+  width: 18px;
+  color: var(--accent-color);
+  font-size: 0.9rem;
+  transition: all var(--transition-fast);
 }
-.user-menu-alert .alert-text {
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 0.72rem;
-  line-height: 1.3;
-}
-.user-menu-alert.warning {
-  background: rgba(243, 156, 18, 0.08);
-}
-.user-menu-alert.warning i {
-  color: #f39c12;
-}
-.user-menu-alert.info {
-  background: rgba(52, 152, 219, 0.08);
-}
-.user-menu-alert.info i {
-  color: #3498db;
+.user-action > span:first-of-type { flex: 1; }
+.user-action:hover { background: rgba(255, 255, 255, 0.06); }
+.user-action:hover > i { color: var(--accent-color); transform: scale(1.1); }
+.user-action.danger { color: #fca5a5; }
+.user-action.danger > i { color: #ef4444; }
+.user-action.danger:hover { background: rgba(239, 68, 68, 0.15); }
+
+.user-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 6px 0;
 }
 
-/* Footer del menú */
-.user-menu-footer {
+.user-panel-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 12px 20px;
   font-size: 0.7rem;
 }
-.version-badge {
+.version-tag {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  background: rgba(241, 196, 15, 0.1);
-  border: 1px solid rgba(241, 196, 15, 0.2);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
   border-radius: var(--radius-full);
   color: var(--accent-color);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-size: 0.65rem;
 }
-.connection-status {
+.status-indicator {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: rgba(255, 255, 255, 0.5);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #27ae60;
-  box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7);
+  background: #10b981;
   animation: pulse-status 2s infinite;
 }
 @keyframes pulse-status {
-  0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7); }
-  70% { box-shadow: 0 0 0 6px rgba(39, 174, 96, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
-/* Items del menú dentro del user menu */
-.user-menu .dropdown-item {
-  padding: 10px 20px;
-  border-radius: 0;
+/* ============================================================
+   TRANSICIONES
+   ============================================================ */
+.dropdown-enter-active, .dropdown-leave-active {
+  transition: all 0.2s var(--ease-out);
 }
-.user-menu .dropdown-item:hover {
-  transform: none;
-  padding-left: 24px;
-}
-.user-menu .dropdown-divider {
-  margin: 0;
-  border-color: rgba(255, 255, 255, 0.05);
+.dropdown-enter-from, .dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 /* ============================================================
    RESPONSIVE
    ============================================================ */
-
-/* Tablets y pantallas medianas */
-@media (max-width: 1300px) {
-  .search-wrapper {
-    width: 200px;
-  }
+@media (max-width: 1280px) {
+  .search-container { width: 200px; }
+  .user-details { display: none; }
+  .user-btn { padding: 4px; }
 }
 
-@media (max-width: 1200px) {
-  .nav-text { display: none; }
-  .user-info { display: none; }
-  .kbd-hint { display: none; }
-  .navbar-cacao .nav-link {
-    padding: 10px 12px !important;
-  }
-  .brand-text { font-size: 1rem; }
-  .search-wrapper { width: 180px; }
-}
-
-/* Móvil */
 @media (max-width: 992px) {
-  .navbar-cacao {
-    padding: 8px 0;
-  }
+  .burger { display: flex; }
 
-  .navbar-cacao .navbar-collapse {
-    max-height: calc(100vh - 80px);
-    overflow-y: auto;
-    background: rgba(15, 22, 38, 0.98);
+  .nav-menu {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: rgba(15, 22, 38, 0.99);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     padding: 16px;
-    border-radius: var(--radius-lg);
-    margin-top: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
   }
 
-  .nav-text { display: inline !important; }
+  .nav-menu.nav-menu-open { display: flex; }
 
-  .navbar-cacao .navbar-nav {
-    gap: 0;
+  .nav-list {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
     width: 100%;
   }
 
-  .navbar-cacao .nav-item {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  }
-  .navbar-cacao .nav-item:last-child {
-    border-bottom: none;
-  }
+  .nav-dropdown { width: 100%; }
 
-  .navbar-cacao .nav-link {
-    padding: 14px 16px !important;
-    border-radius: var(--radius-sm);
-    font-size: 0.95rem;
+  .nav-item {
     justify-content: space-between;
-    margin: 2px 0;
-  }
-  .navbar-cacao .nav-link.active {
-    box-shadow: none;
-  }
-
-  .navbar-cacao .nav-item.dropdown.show .nav-chevron,
-  .navbar-cacao .nav-item.dropdown.show .fa-chevron-down {
-    transform: rotate(180deg);
+    padding: 14px 16px;
+    font-size: 0.95rem;
+    border-radius: var(--radius-sm);
   }
 
-  /* Dropdowns colapsables como acordeón */
-  .navbar-cacao .dropdown-menu {
-    position: static !important;
+  .nav-item.active { box-shadow: none; }
+
+  .nav-caret { opacity: 1; }
+
+  .dropdown-panel {
+    position: static;
     background: rgba(0, 0, 0, 0.2) !important;
     border: none;
     box-shadow: none;
@@ -1414,103 +1279,40 @@ onBeforeUnmount(() => {
     min-width: 0;
   }
 
-  .navbar-cacao .dropdown-menu.show {
-    display: block !important;
-  }
+  .dropdown-link { padding: 10px 14px; font-size: 0.86rem; }
+  .dropdown-link:hover { transform: none; }
 
-  .navbar-cacao .dropdown-item {
-    padding: 10px 14px;
-    font-size: 0.85rem;
-    border-radius: var(--radius-sm);
-  }
-  .navbar-cacao .dropdown-item:hover {
-    transform: none;
-  }
-
-  .dropdown-header {
-    padding: 8px 14px 4px;
-    font-size: 0.65rem;
-  }
-
-  /* Controles de usuario apilados */
-  .nav-user-controls {
+  .nav-controls {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
-    margin-top: 16px;
     padding-top: 16px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    width: 100%;
   }
 
-  .search-wrapper {
-    width: 100%;
-    order: -1;
-  }
+  .search-container { width: 100%; order: -1; }
 
   .user-btn {
     width: 100%;
     justify-content: center;
-    padding: 10px 16px;
+    padding: 12px 16px;
     border-radius: var(--radius-md);
   }
+  .user-details { display: flex; }
 
-  .user-info { display: flex !important; }
-
-  .user-menu {
-    position: absolute !important;
+  .user-panel {
+    position: relative;
+    top: 12px;
     right: 0;
-    left: auto;
-    min-width: 300px !important;
+    left: 0;
+    min-width: 0;
+    width: 100%;
   }
 }
 
 @media (max-width: 576px) {
-  .brand-text { font-size: 0.9rem; }
-  .brand-version { display: none; }
-  .navbar-brand { gap: 8px; margin-right: 8px; }
-  .brand-logo {
-    width: 36px;
-    height: 36px;
-    font-size: 1.1rem;
-  }
-  .navbar-cacao .nav-link {
-    padding: 12px 14px !important;
-    font-size: 0.9rem;
-  }
-  .user-menu {
-    min-width: 280px !important;
-    right: 0;
-    left: auto;
-  }
-}
-
-/* Pantallas grandes: mejor espaciado */
-@media (min-width: 1400px) {
-  .navbar-cacao .nav-link {
-    padding: 9px 16px !important;
-  }
-  .search-wrapper {
-    width: 300px;
-  }
-}
-
-/* ============================================================
-   MODO OSCURO
-   ============================================================ */
-body.dark-mode .navbar-cacao {
-  border-bottom-color: rgba(255, 255, 255, 0.04);
-}
-body.dark-mode .navbar-cacao .navbar-collapse {
-  background: rgba(10, 14, 26, 0.98);
-}
-body.dark-mode .navbar-cacao .dropdown-menu {
-  background: rgba(20, 28, 45, 0.98);
-}
-body.dark-mode .navbar-cacao .dropdown-menu {
-  background: rgba(20, 28, 45, 0.98);
-}
-body.dark-mode .user-menu-header {
-  background: linear-gradient(135deg, rgba(52, 152, 219, 0.12), rgba(241, 196, 15, 0.06));
+  .brand-name { font-size: 0.95rem; }
+  .brand-tag { display: none; }
+  .navbar-inner { padding-top: 8px; padding-bottom: 8px; min-height: 58px; }
 }
 </style>

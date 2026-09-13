@@ -1,100 +1,146 @@
 <template>
   <div class="dashboard">
-    <!-- HEADER -->
-    <div class="dashboard-header">
-      <div>
-        <h1 class="dashboard-title">
-          <span class="title-icon"><i class="fas fa-th-large"></i></span>
-          Panel de Control
-        </h1>
-        <p class="dashboard-subtitle">Resumen en tiempo real de tu actividad contable</p>
-      </div>
-      <div class="dashboard-header-actions">
-        <div class="live-indicator">
-          <span class="pulse-dot"></span>
-          <span class="live-text">En vivo</span>
+    <!-- ===== HERO ===== -->
+    <div class="hero">
+      <div class="hero-content">
+        <div class="hero-text">
+          <div class="hero-greeting">
+            <i class="fas fa-sun"></i>
+            <span>{{ saludo }}, <strong>{{ nombreUsuario }}</strong></span>
+          </div>
+          <h1 class="hero-title">
+            {{ esListo ? 'Todo listo para facturar' : 'Panel de Control' }}
+          </h1>
+          <p class="hero-subtitle">
+            {{ esListo
+              ? 'Tu sistema está configurado. Emite comprobantes con validez legal en minutos.'
+              : 'Revisa el estado del sistema y comienza a facturar electrónicamente.' }}
+          </p>
         </div>
+        <div class="hero-actions">
+          <router-link v-if="puedeCrearVentas" to="/ventas/nuevo?tipo=factura" class="hero-btn hero-btn-primary">
+            <i class="fas fa-plus-circle"></i>
+            <span>Nueva Factura</span>
+          </router-link>
+          <router-link v-if="puedeVerVentas" to="/ventas" class="hero-btn hero-btn-ghost">
+            <i class="fas fa-list"></i>
+            <span>Ver ventas</span>
+          </router-link>
+        </div>
+      </div>
+      <div class="hero-decoration">
+        <div class="hero-circle hero-circle-1"></div>
+        <div class="hero-circle hero-circle-2"></div>
+        <div class="hero-circle hero-circle-3"></div>
       </div>
     </div>
 
-    <!-- ALERTAS DEL SISTEMA -->
-    <div v-if="alertas.length > 0" class="alertas-grid">
-      <div v-for="a in alertas" :key="a.id" class="alerta-card" :class="`alerta-${a.nivel}`">
-        <div class="alerta-icon"><i :class="a.icon"></i></div>
-        <div class="alerta-content">
-          <div class="alerta-title">{{ a.titulo }}</div>
-          <div class="alerta-text">{{ a.texto }}</div>
+    <!-- ===== ALERTAS ===== -->
+    <transition-group name="fade" tag="div" class="alerts-grid" v-if="alertas.length > 0">
+      <div
+        v-for="a in alertas"
+        :key="a.id"
+        class="alert-card"
+        :class="`alert-${a.nivel}`"
+      >
+        <div class="alert-icon">
+          <i :class="a.icon"></i>
         </div>
-        <router-link v-if="a.to" :to="a.to" class="alerta-action">
-          {{ a.actionLabel || 'Ver' }} <i class="fas fa-arrow-right"></i>
+        <div class="alert-content">
+          <div class="alert-title">{{ a.titulo }}</div>
+          <div class="alert-text">{{ a.texto }}</div>
+        </div>
+        <router-link v-if="a.to" :to="a.to" class="alert-action">
+          {{ a.actionLabel || 'Ver' }}
+          <i class="fas fa-arrow-right"></i>
         </router-link>
       </div>
-    </div>
+    </transition-group>
 
-    <!-- ACCESOS RÁPIDOS -->
-    <section class="dashboard-section">
-      <h2 class="section-heading">
-        <i class="fas fa-bolt"></i>
-        Accesos Rápidos
-      </h2>
+    <!-- ===== ACCESOS RÁPIDOS ===== -->
+    <section class="section" data-tour="quick-actions">
+      <div class="section-header">
+        <h2 class="section-title">
+          <i class="fas fa-bolt"></i>
+          <span>Accesos Rápidos</span>
+        </h2>
+        <div class="section-hint">Las acciones más usadas</div>
+      </div>
       <div class="quick-grid">
         <router-link
           v-for="acceso in accesosRapidos"
           :key="acceso.to"
           :to="acceso.to"
           class="quick-card"
-          :class="{ 'quick-card-highlight': acceso.destacado }"
         >
           <div class="quick-icon" :style="{ background: acceso.color }">
             <i :class="acceso.icon"></i>
           </div>
-          <span class="quick-label">{{ acceso.label }}</span>
+          <div class="quick-info">
+            <span class="quick-label">{{ acceso.label }}</span>
+            <span class="quick-desc">{{ acceso.desc }}</span>
+          </div>
+          <i class="fas fa-arrow-right quick-arrow"></i>
         </router-link>
       </div>
     </section>
 
-    <!-- RESUMEN DEL DÍA -->
-    <section v-if="puedeVerVentas || puedeVerCompras" class="dashboard-section">
-      <h2 class="section-heading">
-        <i class="fas fa-chart-pie"></i>
-        Resumen del Día
-      </h2>
+    <!-- ===== KPIs ===== -->
+    <section v-if="puedeVerVentas || puedeVerCompras" class="section" data-tour="kpis">
+      <div class="section-header">
+        <h2 class="section-title">
+          <i class="fas fa-chart-pie"></i>
+          <span>Resumen del Día</span>
+        </h2>
+        <div class="live-indicator">
+          <span class="live-dot"></span>
+          <span class="live-text">En vivo</span>
+        </div>
+      </div>
+
       <div class="kpi-grid">
-        <div v-if="puedeVerVentas" class="kpi-card" style="--kpi-color: #3498db;">
-          <div class="kpi-header">
+        <!-- Ventas Hoy -->
+        <div v-if="puedeVerVentas" class="kpi-card" style="--accent: #2563eb;">
+          <div class="kpi-top">
             <div class="kpi-icon"><i class="fas fa-file-invoice"></i></div>
-            <span class="kpi-badge" :class="tendenciaVentas >= 0 ? 'positive' : 'negative'">
+            <div class="kpi-trend" :class="tendenciaVentas >= 0 ? 'up' : 'down'">
               <i :class="tendenciaVentas >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
-              {{ Math.abs(tendenciaVentas).toFixed(1) }}%
-            </span>
+              <span>{{ Math.abs(tendenciaVentas).toFixed(1) }}%</span>
+            </div>
           </div>
           <div class="kpi-value">${{ ventasHoy.toFixed(2) }}</div>
           <div class="kpi-label">Ventas de Hoy</div>
           <div class="kpi-footer">
-            <span>vs. ayer</span>
-            <span class="kpi-trend-value">${{ ventasAyer.toFixed(2) }}</span>
+            <span>vs ayer</span>
+            <strong>${{ ventasAyer.toFixed(2) }}</strong>
           </div>
         </div>
 
-        <div v-if="puedeVerCompras" class="kpi-card" style="--kpi-color: #2ecc71;">
-          <div class="kpi-header">
+        <!-- Compras Hoy -->
+        <div v-if="puedeVerCompras" class="kpi-card" style="--accent: #10b981;">
+          <div class="kpi-top">
             <div class="kpi-icon"><i class="fas fa-shopping-cart"></i></div>
-            <span class="kpi-badge" :class="tendenciaCompras >= 0 ? 'positive' : 'negative'">
+            <div class="kpi-trend" :class="tendenciaCompras >= 0 ? 'up' : 'down'">
               <i :class="tendenciaCompras >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
-              {{ Math.abs(tendenciaCompras).toFixed(1) }}%
-            </span>
+              <span>{{ Math.abs(tendenciaCompras).toFixed(1) }}%</span>
+            </div>
           </div>
           <div class="kpi-value">${{ comprasHoy.toFixed(2) }}</div>
           <div class="kpi-label">Compras de Hoy</div>
           <div class="kpi-footer">
-            <span>vs. ayer</span>
-            <span class="kpi-trend-value">${{ comprasAyer.toFixed(2) }}</span>
+            <span>vs ayer</span>
+            <strong>${{ comprasAyer.toFixed(2) }}</strong>
           </div>
         </div>
 
-        <div v-if="puedeVerVentas" class="kpi-card" style="--kpi-color: #f39c12;">
-          <div class="kpi-header">
+        <!-- Ventas Mes -->
+        <div v-if="puedeVerVentas" class="kpi-card" style="--accent: #f59e0b;">
+          <div class="kpi-top">
             <div class="kpi-icon"><i class="fas fa-calendar-alt"></i></div>
+            <div class="kpi-trend" :class="varMesVentas >= 0 ? 'up' : 'down'">
+              <i :class="varMesVentas >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
+              <span>{{ Math.abs(varMesVentas).toFixed(1) }}%</span>
+            </div>
           </div>
           <div class="kpi-value">${{ ventasMes.toFixed(2) }}</div>
           <div class="kpi-label">Ventas del Mes</div>
@@ -103,9 +149,14 @@
           </div>
         </div>
 
-        <div v-if="puedeVerCompras" class="kpi-card" style="--kpi-color: #9b59b6;">
-          <div class="kpi-header">
-            <div class="kpi-icon"><i class="fas fa-calendar-check"></i></div>
+        <!-- Compras Mes -->
+        <div v-if="puedeVerCompras" class="kpi-card" style="--accent: #8b5cf6;">
+          <div class="kpi-top">
+            <div class="kpi-icon"><i class="fas fa-truck"></i></div>
+            <div class="kpi-trend" :class="varMesCompras >= 0 ? 'up' : 'down'">
+              <i :class="varMesCompras >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
+              <span>{{ Math.abs(varMesCompras).toFixed(1) }}%</span>
+            </div>
           </div>
           <div class="kpi-value">${{ comprasMes.toFixed(2) }}</div>
           <div class="kpi-label">Compras del Mes</div>
@@ -116,86 +167,100 @@
       </div>
     </section>
 
-    <!-- INDICADORES CLAVE -->
-    <section class="dashboard-section">
-      <h2 class="section-heading">
-        <i class="fas fa-chart-line"></i>
-        Indicadores Clave
-      </h2>
-      <div class="kpi-grid">
-        <div v-if="puedeVerVentas && puedeVerCompras" class="metric-card" style="--metric-color: #27ae60;">
+    <!-- ===== INDICADORES CLAVE ===== -->
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <i class="fas fa-chart-line"></i>
+          <span>Indicadores Clave</span>
+        </h2>
+      </div>
+      <div class="metrics-grid">
+        <div v-if="puedeVerVentas && puedeVerCompras" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon"><i class="fas fa-percent"></i></div>
+            <div class="metric-icon" style="background: rgba(16, 185, 129, 0.12); color: #10b981;">
+              <i class="fas fa-percent"></i>
+            </div>
             <div class="metric-info">
-              <div class="metric-value" :style="{ color: margenBruto >= 0 ? '#27ae60' : '#e74c3c' }">
+              <div class="metric-value" :style="{ color: margenBruto >= 0 ? '#10b981' : '#ef4444' }">
                 {{ margenBruto.toFixed(2) }}%
               </div>
               <div class="metric-label">Margen bruto (mes)</div>
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(Math.max(margenBruto, 0), 100)}%` }"></div>
+            <div class="metric-bar-fill" :style="{ width: `${Math.min(Math.max(margenBruto, 0), 100)}%`, background: margenBruto >= 0 ? '#10b981' : '#ef4444' }"></div>
           </div>
         </div>
 
-        <div v-if="puedeVerCompras" class="metric-card" style="--metric-color: #e74c3c;">
+        <div v-if="puedeVerCompras" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="metric-icon" style="background: rgba(239, 68, 68, 0.12); color: #ef4444;">
+              <i class="fas fa-exclamation-triangle"></i>
+            </div>
             <div class="metric-info">
               <div class="metric-value">{{ cuentasPorPagar }}</div>
               <div class="metric-label">Cuentas por Pagar</div>
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(cuentasPorPagar * 5, 100)}%` }"></div>
+            <div class="metric-bar-fill" :style="{ width: `${Math.min(cuentasPorPagar * 5, 100)}%`, background: '#ef4444' }"></div>
           </div>
         </div>
 
-        <div v-if="puedeVerInventario" class="metric-card" style="--metric-color: #f39c12;">
+        <div v-if="puedeVerInventario" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon"><i class="fas fa-boxes"></i></div>
+            <div class="metric-icon" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;">
+              <i class="fas fa-boxes"></i>
+            </div>
             <div class="metric-info">
               <div class="metric-value">{{ stockBajo }}</div>
-              <div class="metric-label">Productos con Stock Bajo</div>
+              <div class="metric-label">Productos con stock bajo</div>
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(stockBajo * 10, 100)}%` }"></div>
+            <div class="metric-bar-fill" :style="{ width: `${Math.min(stockBajo * 10, 100)}%`, background: '#f59e0b' }"></div>
           </div>
         </div>
 
-        <div v-if="puedeVerVentas" class="metric-card" style="--metric-color: #3498db;">
+        <div v-if="puedeVerVentas" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+            <div class="metric-icon" style="background: rgba(37, 99, 235, 0.12); color: #2563eb;">
+              <i class="fas fa-cloud-upload-alt"></i>
+            </div>
             <div class="metric-info">
               <div class="metric-value">{{ sri.firmados }}</div>
-              <div class="metric-label">Docs. firmados (sin enviar)</div>
+              <div class="metric-label">Docs firmados sin enviar</div>
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(sri.firmados * 10, 100)}%` }"></div>
+            <div class="metric-bar-fill" :style="{ width: `${Math.min(sri.firmados * 10, 100)}%`, background: '#2563eb' }"></div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- BANDEJAS -->
-    <section v-if="puedeVerVentas || puedeVerCompras" class="dashboard-section">
-      <h2 class="section-heading">
-        <i class="fas fa-inbox"></i>
-        Bandejas de Trabajo
-      </h2>
+    <!-- ===== BANDEJAS ===== -->
+    <section v-if="puedeVerVentas || puedeVerCompras" class="section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <i class="fas fa-inbox"></i>
+          <span>Bandejas de Trabajo</span>
+        </h2>
+      </div>
       <div class="bandejas-grid">
         <div v-if="puedeVerVentas" class="bandeja-card">
           <div class="bandeja-header">
             <div class="bandeja-title">
-              <div class="bandeja-icon" style="background: #3498db;"><i class="fas fa-hand-holding-usd"></i></div>
+              <div class="bandeja-icon" style="background: linear-gradient(135deg, #2563eb, #1d4ed8);">
+                <i class="fas fa-hand-holding-usd"></i>
+              </div>
               <div>
                 <div class="bandeja-name">Ventas Recientes</div>
                 <div class="bandeja-sub">Últimos movimientos</div>
               </div>
             </div>
-            <router-link to="/ventas" class="btn-view-all">
+            <router-link to="/ventas" class="bandeja-link">
               Ver todas <i class="fas fa-arrow-right"></i>
             </router-link>
           </div>
@@ -207,13 +272,15 @@
         <div v-if="puedeVerCompras" class="bandeja-card">
           <div class="bandeja-header">
             <div class="bandeja-title">
-              <div class="bandeja-icon" style="background: #e67e22;"><i class="fas fa-shopping-cart"></i></div>
+              <div class="bandeja-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                <i class="fas fa-shopping-cart"></i>
+              </div>
               <div>
                 <div class="bandeja-name">Compras Recientes</div>
                 <div class="bandeja-sub">Últimos movimientos</div>
               </div>
             </div>
-            <router-link to="/compras" class="btn-view-all">
+            <router-link to="/compras" class="bandeja-link">
               Ver todas <i class="fas fa-arrow-right"></i>
             </router-link>
           </div>
@@ -224,12 +291,14 @@
       </div>
     </section>
 
-    <!-- GRÁFICOS -->
-    <section v-if="puedeVerVentas || puedeVerCompras" class="dashboard-section">
-      <h2 class="section-heading">
-        <i class="fas fa-chart-area"></i>
-        Tendencia (Últimos 7 días)
-      </h2>
+    <!-- ===== GRÁFICOS ===== -->
+    <section v-if="puedeVerVentas || puedeVerCompras" class="section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <i class="fas fa-chart-area"></i>
+          <span>Tendencia (Últimos 7 días)</span>
+        </h2>
+      </div>
       <DashboardCharts
         :ventas-diarias="puedeVerVentas ? ventasDiarias : []"
         :compras-diarias="puedeVerCompras ? comprasDiarias : []"
@@ -237,15 +306,17 @@
       />
     </section>
 
-    <!-- TOP PRODUCTOS -->
-    <section v-if="puedeVerVentas && topProductos.length > 0" class="dashboard-section">
-      <h2 class="section-heading">
-        <i class="fas fa-star"></i>
-        Top 5 Productos del Mes
-      </h2>
+    <!-- ===== TOP PRODUCTOS ===== -->
+    <section v-if="puedeVerVentas && topProductos.length > 0" class="section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <i class="fas fa-star"></i>
+          <span>Top 5 Productos del Mes</span>
+        </h2>
+      </div>
       <div class="card-cacao">
         <div class="card-body p-0">
-          <table class="table-modern">
+          <table class="table-cacao">
             <thead>
               <tr>
                 <th style="width:60px;">#</th>
@@ -258,10 +329,10 @@
             <tbody>
               <tr v-for="(p, idx) in topProductos" :key="p.productoId">
                 <td>
-                  <span class="badge-ranking" :class="getRankClass(idx)">{{ idx + 1 }}</span>
+                  <span class="rank-badge" :class="getRankClass(idx)">{{ idx + 1 }}</span>
                 </td>
                 <td class="fw-bold">{{ p.nombre }}</td>
-                <td class="font-monospace small text-muted">{{ p.codigo || '—' }}</td>
+                <td class="font-mono small text-muted">{{ p.codigo || '—' }}</td>
                 <td class="text-end">{{ p.cantidad }}</td>
                 <td class="text-end fw-bold">${{ (p.total || 0).toFixed(2) }}</td>
               </tr>
@@ -286,50 +357,76 @@ const { puede } = usePermisos()
 const {
   ventasHoy, ventasAyer, ventasMes, facturasMes,
   comprasHoy, comprasAyer, comprasMes, comprasDelMes,
-  tendenciaVentas, tendenciaCompras,
+  tendenciaVentas, tendenciaCompras, ventasMesPrev, comprasMesPrev,
   ventasDiarias, comprasDiarias, dias,
   topProductos, cuentasPorPagar, stockBajo, sri,
   cargarEstadisticas
 } = useEstadisticas()
 
-// ===== PERMISOS =====
+// Permisos
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
 const puedeCrearVentas = computed(() => puede('ventas', 'crear'))
 const puedeVerCompras = computed(() => puede('compras', 'ver'))
-const puedeCrearCompras = computed(() => puede('compras', 'crear'))
 const puedeVerInventario = computed(() => puede('inventario', 'ver'))
-const puedeVerKardex = computed(() => puede('kardex', 'ver'))
-const puedeVerReportes = computed(() => puede('reportes', 'ver'))
-const puedeVerRetenciones = computed(() => puede('retenciones', 'ver'))
 
-// ===== MARGEN BRUTO =====
-const margenBruto = computed(() => {
-  if (ventasMes.value <= 0) return 0
-  const costo = comprasMes.value
-  return ((ventasMes.value - costo) / ventasMes.value) * 100
+// User info
+const user = ref(JSON.parse(localStorage.getItem('user') || '{}'))
+const nombreUsuario = computed(() => user.value?.nombre?.split(' ')[0] || 'Usuario')
+
+const saludo = computed(() => {
+  const h = new Date().getHours()
+  if (h < 12) return 'Buenos días'
+  if (h < 19) return 'Buenas tardes'
+  return 'Buenas noches'
 })
 
-// ===== INFO DEL CERTIFICADO (para alerta) =====
+// Estado del sistema
 const certInfo = ref(null)
-const cargarCertInfo = async () => {
-  if (!puede('usuarios', 'ver')) return
+const estadoGeneral = ref(null)
+const esListo = computed(() => estadoGeneral.value?.listo_para_facturar === true)
+
+const cargarEstadoSistema = async () => {
   try {
-    certInfo.value = await api.request('/certificado/info', { method: 'GET', skipLoader: true })
+    if (puede('usuarios', 'ver')) {
+      const [diag, cert] = await Promise.all([
+        api.request('/diagnostico', { method: 'GET', skipLoader: true }).catch(() => null),
+        api.request('/certificado/info', { method: 'GET', skipLoader: true }).catch(() => null)
+      ])
+      estadoGeneral.value = diag
+      certInfo.value = cert
+    }
   } catch (e) { /* silencioso */ }
 }
 
-// ===== ALERTAS =====
+// Variaciones mes vs mes
+const varMesVentas = computed(() => {
+  const prev = ventasMesPrev.value || 0
+  if (prev === 0) return ventasMes.value > 0 ? 100 : 0
+  return ((ventasMes.value - prev) / prev) * 100
+})
+const varMesCompras = computed(() => {
+  const prev = comprasMesPrev.value || 0
+  if (prev === 0) return comprasMes.value > 0 ? 100 : 0
+  return ((comprasMes.value - prev) / prev) * 100
+})
+
+// Margen bruto
+const margenBruto = computed(() => {
+  if (ventasMes.value <= 0) return 0
+  return ((ventasMes.value - comprasMes.value) / ventasMes.value) * 100
+})
+
+// Alertas
 const alertas = computed(() => {
   const arr = []
 
-  // Certificado por vencer
   if (certInfo.value?.cargado && certInfo.value.por_vencer) {
     arr.push({
-      id: 'cert',
+      id: 'cert-warning',
       nivel: 'warning',
       icon: 'fas fa-shield-alt',
       titulo: 'Certificado por vencer',
-      texto: `Vence en ${certInfo.value.dias_restantes} días`,
+      texto: `Vence en ${certInfo.value.dias_restantes} días. Renueva para no interrumpir tu facturación.`,
       to: '/certificado-firma',
       actionLabel: 'Renovar'
     })
@@ -339,85 +436,113 @@ const alertas = computed(() => {
       nivel: 'danger',
       icon: 'fas fa-exclamation-triangle',
       titulo: 'Sin certificado de firma',
-      texto: 'No podrás firmar facturas hasta cargarlo',
+      texto: 'No podrás firmar facturas hasta cargarlo.',
       to: '/certificado-firma',
       actionLabel: 'Cargar'
     })
   }
 
-  // Documentos firmados sin enviar
   if (sri.value.firmados > 0) {
     arr.push({
       id: 'firmados',
       nivel: 'info',
       icon: 'fas fa-cloud-upload-alt',
       titulo: `${sri.value.firmados} documentos firmados`,
-      texto: 'Pendientes de envío al SRI',
+      texto: 'Listos para enviar al SRI.',
       to: '/envio-sri',
       actionLabel: 'Enviar'
     })
   }
 
-  // Stock bajo
   if (puedeVerInventario.value && stockBajo.value > 0) {
     arr.push({
       id: 'stock',
       nivel: 'warning',
       icon: 'fas fa-boxes',
       titulo: `${stockBajo.value} productos con stock bajo`,
-      texto: 'Revisa el inventario para reabastecer',
+      texto: 'Revisa el inventario para reabastecer.',
       to: '/inventario/stock',
-      actionLabel: 'Ver'
+      actionLabel: 'Ver stock'
     })
   }
 
   return arr
 })
 
-// ===== ACCESOS RÁPIDOS =====
+// Accesos rápidos
 const accesosRapidos = computed(() => {
   const accesos = []
   if (puedeCrearVentas.value) {
-    accesos.push(
-      { label: 'Factura', icon: 'fas fa-file-invoice', color: 'linear-gradient(135deg, #3498db, #2980b9)', to: '/ventas/nuevo?tipo=factura' },
-      { label: 'Guía', icon: 'fas fa-truck', color: 'linear-gradient(135deg, #2ecc71, #27ae60)', to: '/ventas/nuevo?tipo=guia_remision' },
-      { label: 'Nota Crédito', icon: 'fas fa-undo-alt', color: 'linear-gradient(135deg, #e67e22, #d35400)', to: '/ventas/nuevo?tipo=nota_credito' }
-    )
-  }
-  if (puedeCrearCompras.value) {
-    accesos.push({ label: 'Nueva Compra', icon: 'fas fa-cart-plus', color: 'linear-gradient(135deg, #16a085, #138d75)', to: '/compras/nuevo' })
+    accesos.push({
+      label: 'Nueva Factura',
+      desc: 'Emite comprobante electrónico',
+      icon: 'fas fa-file-invoice',
+      color: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+      to: '/ventas/nuevo?tipo=factura'
+    })
+    accesos.push({
+      label: 'Guía de Remisión',
+      desc: 'Traslado de mercadería',
+      icon: 'fas fa-truck',
+      color: 'linear-gradient(135deg, #10b981, #059669)',
+      to: '/ventas/nuevo?tipo=guia_remision'
+    })
+    accesos.push({
+      label: 'Nota de Crédito',
+      desc: 'Anulación o devolución',
+      icon: 'fas fa-undo-alt',
+      color: 'linear-gradient(135deg, #f59e0b, #d97706)',
+      to: '/ventas/nuevo?tipo=nota_credito'
+    })
   }
   if (puedeVerVentas.value) {
-    accesos.push({ label: 'Bandeja Ventas', icon: 'fas fa-hand-holding-usd', color: 'linear-gradient(135deg, #3498db, #2980b9)', to: '/ventas' })
-  }
-  if (puedeVerCompras.value) {
-    accesos.push({ label: 'Bandeja Compras', icon: 'fas fa-inbox', color: 'linear-gradient(135deg, #e67e22, #d35400)', to: '/compras' })
+    accesos.push({
+      label: 'Bandeja de Ventas',
+      desc: 'Ver y gestionar comprobantes',
+      icon: 'fas fa-hand-holding-usd',
+      color: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+      to: '/ventas'
+    })
   }
   if (puede('clientes', 'crear')) {
-    accesos.push({ label: 'Cliente', icon: 'fas fa-user-plus', color: 'linear-gradient(135deg, #8e44ad, #6c3483)', to: '/clientes/nuevo' })
+    accesos.push({
+      label: 'Nuevo Cliente',
+      desc: 'Registrar en el sistema',
+      icon: 'fas fa-user-plus',
+      color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+      to: '/clientes/nuevo'
+    })
   }
   if (puede('productos', 'crear')) {
-    accesos.push({ label: 'Producto', icon: 'fas fa-box', color: 'linear-gradient(135deg, #f1c40f, #d68910)', to: '/productos/nuevo' })
+    accesos.push({
+      label: 'Nuevo Producto',
+      desc: 'Agregar al catálogo',
+      icon: 'fas fa-box',
+      color: 'linear-gradient(135deg, #f59e0b, #d97706)',
+      to: '/productos/nuevo'
+    })
   }
-  if (puedeVerVentas.value || puedeVerCompras.value) {
-    accesos.push({ label: 'Consultar', icon: 'fas fa-search', color: 'linear-gradient(135deg, #2980b9, #1f618d)', to: '/consultar-documentos' })
+  if (puedeVerVentas.value) {
+    accesos.push({
+      label: 'Consultar Documentos',
+      desc: 'Buscar por número o clave',
+      icon: 'fas fa-search',
+      color: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+      to: '/consultar-documentos'
+    })
   }
-  if (puedeVerKardex.value) {
-    accesos.push({ label: 'Kardex', icon: 'fas fa-clipboard-list', color: 'linear-gradient(135deg, #1abc9c, #16a085)', to: '/kardex' })
+  if (puede('reportes', 'ver')) {
+    accesos.push({
+      label: 'Reportes',
+      desc: 'Ventas, compras y más',
+      icon: 'fas fa-chart-line',
+      color: 'linear-gradient(135deg, #ef4444, #dc2626)',
+      to: '/reportes/ventas'
+    })
   }
-  if (puedeVerInventario.value) {
-    accesos.push({ label: 'Stock', icon: 'fas fa-boxes', color: 'linear-gradient(135deg, #16a085, #0e6655)', to: '/inventario/stock' })
-  }
-  if (puedeVerReportes.value) {
-    accesos.push({ label: 'Reportes', icon: 'fas fa-chart-line', color: 'linear-gradient(135deg, #e74c3c, #c0392b)', to: '/reportes/ventas' })
-  }
-  if (puedeVerRetenciones.value) {
-    accesos.push({ label: 'Retenciones', icon: 'fas fa-percent', color: 'linear-gradient(135deg, #9b59b6, #7d3c98)', to: '/retenciones' })
-  }
-  return accesos
+  return accesos.slice(0, 6)
 })
 
-// ===== HELPERS =====
 const getRankClass = (idx) => {
   if (idx === 0) return 'gold'
   if (idx === 1) return 'silver'
@@ -427,114 +552,678 @@ const getRankClass = (idx) => {
 
 onMounted(async () => {
   await cargarEstadisticas()
-  await cargarCertInfo()
+  await cargarEstadoSistema()
 })
 </script>
 
 <style scoped>
-.dashboard { display: flex; flex-direction: column; gap: 32px; }
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
 
-/* HEADER */
-.dashboard-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
-.dashboard-title { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; color: var(--text-primary); letter-spacing: -0.03em; display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
-.title-icon { width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; box-shadow: 0 8px 20px rgba(52, 152, 219, 0.3); }
-.dashboard-subtitle { color: var(--text-muted); font-size: 0.9rem; margin: 0; padding-left: 62px; }
-.live-indicator { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--success-bg); border: 1px solid rgba(39, 174, 96, 0.3); border-radius: var(--radius-full); font-size: 0.8rem; font-weight: 600; color: var(--success); }
-.pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.6); animation: pulse-live 2s infinite; }
-@keyframes pulse-live { 0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.6); } 70% { box-shadow: 0 0 0 8px rgba(39, 174, 96, 0); } 100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); } }
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero {
+  position: relative;
+  padding: 40px 40px;
+  background: linear-gradient(135deg, #0f1e35 0%, #1e3a5f 55%, #24467a 100%);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(15, 30, 53, 0.18);
+}
 
-/* ALERTAS */
-.alertas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-.alerta-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--radius-lg); border: 1px solid; transition: all var(--transition); }
-.alerta-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-.alerta-warning { background: rgba(243, 156, 18, 0.08); border-color: rgba(243, 156, 18, 0.3); }
-.alerta-danger { background: rgba(231, 76, 60, 0.08); border-color: rgba(231, 76, 60, 0.3); }
-.alerta-info { background: rgba(52, 152, 219, 0.08); border-color: rgba(52, 152, 219, 0.3); }
-.alerta-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
-.alerta-warning .alerta-icon { background: rgba(243, 156, 18, 0.15); color: #f39c12; }
-.alerta-danger .alerta-icon { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
-.alerta-info .alerta-icon { background: rgba(52, 152, 219, 0.15); color: #3498db; }
-.alerta-content { flex: 1; min-width: 0; }
-.alerta-title { font-weight: 700; font-size: 0.85rem; color: var(--text-primary); }
-.alerta-text { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
-.alerta-action { padding: 6px 12px; border-radius: var(--radius-md); background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.78rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all var(--transition-fast); flex-shrink: 0; }
-.alerta-action:hover { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+.hero-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
 
-/* SECCIONES */
-.dashboard-section { display: flex; flex-direction: column; gap: 16px; }
-.section-heading { font-size: 1rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 2px solid var(--border-light); margin: 0; }
-.section-heading i { color: var(--primary-color); font-size: 1.1rem; }
+.hero-text { flex: 1; min-width: 280px; }
 
-/* ACCESOS RÁPIDOS */
-.quick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
-.quick-card { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); text-decoration: none; transition: all var(--transition); position: relative; overflow: hidden; }
-.quick-card:hover { transform: translateY(-4px); border-color: var(--primary-color); box-shadow: var(--shadow-lg); }
-.quick-card-highlight { border-color: rgba(52, 152, 219, 0.3); }
-.quick-icon { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.3rem; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15); transition: transform var(--transition); }
-.quick-card:hover .quick-icon { transform: scale(1.08); }
-.quick-label { font-size: 0.78rem; font-weight: 600; text-align: center; color: var(--text-primary); line-height: 1.2; }
+.hero-greeting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-full);
+  font-size: 0.78rem;
+  font-weight: var(--fw-medium);
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 16px;
+  backdrop-filter: blur(8px);
+}
+.hero-greeting i { color: #fbbf24; }
+.hero-greeting strong { color: #fff; font-weight: var(--fw-bold); }
 
-/* KPI CARDS */
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-.kpi-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; position: relative; overflow: hidden; transition: all var(--transition); border-left: 4px solid var(--kpi-color); }
-.kpi-card::after { content: ''; position: absolute; top: 0; right: 0; width: 100px; height: 100px; background: var(--kpi-color); opacity: 0.05; border-radius: 50%; transform: translate(30%, -30%); transition: transform var(--transition); }
-.kpi-card:hover::after { transform: translate(20%, -20%) scale(1.2); }
-.kpi-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
-.kpi-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; position: relative; z-index: 1; }
-.kpi-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--kpi-color); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-.kpi-badge { font-size: 0.7rem; font-weight: 700; padding: 4px 10px; border-radius: var(--radius-full); display: inline-flex; align-items: center; gap: 4px; }
-.kpi-badge.positive { background: var(--success-bg); color: var(--success); }
-.kpi-badge.negative { background: var(--danger-bg); color: var(--danger); }
-.kpi-value { font-size: 1.8rem; font-weight: 800; color: var(--text-primary); line-height: 1.1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; position: relative; z-index: 1; }
-.kpi-label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-top: 4px; position: relative; z-index: 1; }
-.kpi-footer { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-light); position: relative; z-index: 1; }
-.kpi-trend-value { font-weight: 600; color: var(--text-secondary); }
+.hero-title {
+  font-size: clamp(1.6rem, 3.5vw, 2.25rem);
+  font-weight: var(--fw-extrabold);
+  color: #fff;
+  letter-spacing: var(--ls-tighter);
+  margin: 0 0 10px;
+  line-height: 1.15;
+}
 
-/* METRIC CARDS */
-.metric-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 18px; transition: all var(--transition); }
-.metric-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-.metric-top { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
-.metric-icon { width: 44px; height: 44px; border-radius: 12px; background: color-mix(in srgb, var(--metric-color) 15%, transparent); color: var(--metric-color); display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
+.hero-subtitle {
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+  max-width: 560px;
+  line-height: 1.55;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 24px;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+  transition: all var(--transition);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  height: 48px;
+}
+
+.hero-btn-primary {
+  background: #fff;
+  color: #0f1e35;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.hero-btn-primary:hover {
+  transform: translateY(-2px);
+  color: #0f1e35;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.hero-btn-ghost {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+}
+.hero-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.hero-decoration {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.hero-circle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+}
+.hero-circle-1 {
+  width: 320px; height: 320px;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.5), transparent);
+  top: -100px; right: -80px;
+  animation: float 12s ease-in-out infinite;
+}
+.hero-circle-2 {
+  width: 260px; height: 260px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.35), transparent);
+  bottom: -100px; right: 25%;
+  animation: float 16s ease-in-out infinite reverse;
+}
+.hero-circle-3 {
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.3), transparent);
+  top: 30%; left: 40%;
+  animation: float 20s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(20px, -20px) scale(1.05); }
+  66% { transform: translate(-15px, 15px) scale(0.97); }
+}
+
+/* ============================================================
+   ALERTAS
+   ============================================================ */
+.alerts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.alert-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition);
+}
+.alert-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.alert-warning { border-left-color: var(--warning); }
+.alert-danger { border-left-color: var(--danger); }
+.alert-info { border-left-color: var(--info); }
+
+.alert-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  flex-shrink: 0;
+}
+.alert-warning .alert-icon { background: var(--warning-bg); color: var(--warning); }
+.alert-danger .alert-icon { background: var(--danger-bg); color: var(--danger); }
+.alert-info .alert-icon { background: var(--info-bg); color: var(--info); }
+
+.alert-content { flex: 1; min-width: 0; }
+.alert-title {
+  font-size: 0.875rem;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+.alert-text {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.alert-action {
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-table-stripe);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.alert-action:hover {
+  background: var(--primary-color);
+  color: #fff;
+  border-color: var(--primary-color);
+  transform: translateX(2px);
+}
+
+/* ============================================================
+   SECCIONES
+   ============================================================ */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.section-title {
+  font-size: 1.0625rem;
+  font-weight: var(--fw-extrabold);
+  color: var(--text-primary);
+  letter-spacing: var(--ls-tight);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.section-title i {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  flex-shrink: 0;
+}
+
+.section-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+}
+
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: var(--fw-semibold);
+  color: var(--success);
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse-status 2s infinite;
+}
+
+/* ============================================================
+   QUICK ACTIONS
+   ============================================================ */
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.quick-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+.quick-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.03), transparent 60%);
+  opacity: 0;
+  transition: opacity var(--transition);
+  pointer-events: none;
+}
+.quick-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--primary-color);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.12);
+}
+.quick-card:hover::before { opacity: 1; }
+
+.quick-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.15rem;
+  flex-shrink: 0;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  transition: transform var(--transition);
+}
+.quick-card:hover .quick-icon { transform: scale(1.08) rotate(-4deg); }
+
+.quick-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.quick-label {
+  font-size: 0.9rem;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.quick-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.quick-arrow {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+.quick-card:hover .quick-arrow {
+  color: var(--primary-color);
+  transform: translateX(4px);
+}
+
+/* ============================================================
+   KPI CARDS
+   ============================================================ */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition);
+  border-top: 3px solid var(--accent);
+}
+.kpi-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 120px;
+  background: var(--accent);
+  opacity: 0.05;
+  border-radius: 50%;
+  transform: translate(30%, -30%);
+  transition: transform var(--transition);
+  pointer-events: none;
+}
+.kpi-card:hover::after {
+  transform: translate(20%, -20%) scale(1.2);
+}
+.kpi-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border-strong);
+}
+
+.kpi-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.kpi-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: var(--fw-bold);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+}
+.kpi-trend.up { background: var(--success-bg); color: var(--success); }
+.kpi-trend.down { background: var(--danger-bg); color: var(--danger); }
+
+.kpi-value {
+  font-size: 1.75rem;
+  font-weight: var(--fw-extrabold);
+  color: var(--text-primary);
+  line-height: 1.05;
+  letter-spacing: var(--ls-tighter);
+  font-variant-numeric: tabular-nums;
+  position: relative;
+  z-index: 1;
+}
+
+.kpi-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wider);
+  font-weight: var(--fw-bold);
+  margin-top: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.kpi-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-light);
+  position: relative;
+  z-index: 1;
+}
+.kpi-footer strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
+
+/* ============================================================
+   METRICS
+   ============================================================ */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  transition: all var(--transition);
+}
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.metric-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.metric-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
 .metric-info { flex: 1; min-width: 0; }
-.metric-value { font-size: 1.4rem; font-weight: 800; color: var(--text-primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
-.metric-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; margin-top: 2px; }
-.metric-bar { height: 4px; background: var(--border-light); border-radius: var(--radius-full); overflow: hidden; }
-.metric-bar-fill { height: 100%; background: var(--metric-color); border-radius: inherit; transition: width 0.6s var(--ease-out); }
+.metric-value {
+  font-size: 1.35rem;
+  font-weight: var(--fw-extrabold);
+  color: var(--text-primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-tight);
+}
+.metric-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  font-weight: var(--fw-semibold);
+  margin-top: 3px;
+}
 
-/* BANDEJAS */
-.bandejas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
-.bandeja-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); overflow: hidden; transition: all var(--transition); }
-.bandeja-card:hover { box-shadow: var(--shadow-md); }
-.bandeja-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border-color); background: var(--bg-table-stripe); }
+.metric-bar {
+  height: 5px;
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.metric-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.6s var(--ease-out);
+}
+
+/* ============================================================
+   BANDEJAS
+   ============================================================ */
+.bandejas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.bandeja-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: all var(--transition);
+}
+.bandeja-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.bandeja-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-table-stripe);
+}
+
 .bandeja-title { display: flex; align-items: center; gap: 12px; }
-.bandeja-icon { width: 40px; height: 40px; border-radius: 10px; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
-.bandeja-name { font-weight: 700; font-size: 0.92rem; color: var(--text-primary); }
-.bandeja-sub { font-size: 0.72rem; color: var(--text-muted); }
-.btn-view-all { font-size: 0.78rem; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 6px; text-decoration: none; transition: gap var(--transition-fast); }
-.btn-view-all:hover { gap: 10px; }
+.bandeja-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.bandeja-name {
+  font-size: 0.9rem;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+}
+.bandeja-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.bandeja-link {
+  font-size: 0.78rem;
+  font-weight: var(--fw-semibold);
+  color: var(--primary-color);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  transition: gap var(--transition-fast);
+}
+.bandeja-link:hover { gap: 10px; }
+
 .bandeja-body { padding: 12px 20px 16px; }
 
-/* TABLA TOP PRODUCTOS */
-.table-modern { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.table-modern thead { background: var(--bg-table-stripe); }
-.table-modern th { padding: 12px 14px; text-align: left; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--border-color); }
-.table-modern td { padding: 12px 14px; border-bottom: 1px solid var(--border-light); vertical-align: middle; }
-.table-modern tbody tr:hover { background: var(--bg-table-stripe); }
-.badge-ranking { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: 700; font-size: 0.8rem; }
-.badge-ranking.gold { background: #f1c40f; color: #1a2a3a; }
-.badge-ranking.silver { background: #bdc3c7; color: #1a2a3a; }
-.badge-ranking.bronze { background: #cd7f32; color: #fff; }
-.badge-ranking.default { background: #3498db; color: #fff; }
+/* ============================================================
+   TOP PRODUCTOS TABLE
+   ============================================================ */
+.text-end { text-align: right; }
+.p-0 { padding: 0 !important; }
 
-/* RESPONSIVE */
-@media (max-width: 768px) {
-  .dashboard { gap: 24px; }
-  .dashboard-subtitle { padding-left: 0; }
-  .quick-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; }
-  .quick-card { padding: 14px 8px; }
-  .quick-icon { width: 44px; height: 44px; font-size: 1.1rem; }
-  .quick-label { font-size: 0.7rem; }
+.rank-badge {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: var(--fw-extrabold);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+}
+.rank-badge.gold { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #1a2a3a; }
+.rank-badge.silver { background: linear-gradient(135deg, #d1d5db, #9ca3af); color: #1a2a3a; }
+.rank-badge.bronze { background: linear-gradient(135deg, #d97706, #92400e); color: #fff; }
+.rank-badge.default { background: var(--bg-table-stripe); color: var(--text-muted); border: 1px solid var(--border-color); }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 992px) {
+  .dashboard { gap: 28px; }
+  .hero { padding: 28px 24px; border-radius: 20px; }
   .kpi-value { font-size: 1.5rem; }
-  .metric-value { font-size: 1.2rem; }
+}
+
+@media (max-width: 640px) {
+  .dashboard { gap: 24px; }
+  .hero { padding: 24px 20px; border-radius: 16px; }
+  .hero-content { flex-direction: column; align-items: stretch; }
+  .hero-actions { width: 100%; }
+  .hero-btn { flex: 1; justify-content: center; }
+  .hero-circle { display: none; }
+  .quick-grid { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .metrics-grid { grid-template-columns: 1fr; }
+  .bandejas-grid { grid-template-columns: 1fr; }
 }
 </style>

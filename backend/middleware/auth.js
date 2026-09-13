@@ -1,10 +1,13 @@
 // backend/middleware/auth.js
-// Middleware de autenticación con validación de usuario activo en BD.
-// Cache LRU acotado para evitar crecimiento descontrolado en memoria.
+// Middleware de autenticación.
+// - Lee el access token desde cookie httpOnly `sc_at` o desde `Authorization: Bearer`.
+// - Valida contra BD (usuario activo, password_changed_at).
+// - Cache LRU acotado para evitar hits a Mongo en cada request.
 
 const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
 const crypto = require('crypto');
+const { ACCESS_COOKIE } = require('../utils/cookies');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -16,11 +19,6 @@ const CACHE_TTL_MS = 30 * 1000;
 const MAX_USUARIOS_CACHE = 500;
 const MAX_TOKENS_POR_USUARIO = 10;
 
-/**
- * cacheUsuarios: Map<userIdStr, Map<tokenHash, { user, expiresAt }>>
- * El Map de usuarios mantiene orden de inserción → usamos ese orden
- * para eviction LRU aproximado (mover al final al acceder).
- */
 const cacheUsuarios = new Map();
 
 function hashToken(token) {
@@ -34,7 +32,6 @@ function tokenEsAnteriorAlCambio(decoded, user) {
   return iat < changed;
 }
 
-// Mueve un userId al final del Map (más reciente)
 function tocarUsuario(userIdStr) {
   if (cacheUsuarios.has(userIdStr)) {
     const val = cacheUsuarios.get(userIdStr);
@@ -43,7 +40,6 @@ function tocarUsuario(userIdStr) {
   }
 }
 
-// Elimina usuarios más antiguos si excede el límite
 function evictUsuarios() {
   while (cacheUsuarios.size > MAX_USUARIOS_CACHE) {
     const primeraKey = cacheUsuarios.keys().next().value;
@@ -51,7 +47,6 @@ function evictUsuarios() {
   }
 }
 
-// Elimina tokens más antiguos de un usuario si excede el límite
 function evictTokens(tokensMap) {
   while (tokensMap.size > MAX_TOKENS_POR_USUARIO) {
     const primeraKey = tokensMap.keys().next().value;
@@ -70,28 +65,41 @@ const limpiezaInterval = setInterval(() => {
 }, 2 * 60 * 1000);
 limpiezaInterval.unref?.();
 
+/**
+ * Extrae el token de la request (cookie primero, luego header).
+ */
+function extraerToken(req) {
+  // 1. Cookie httpOnly (recomendado)
+  if (req.cookies && req.cookies[ACCESS_COOKIE]) {
+    return req.cookies[ACCESS_COOKIE];
+  }
+  // 2. Header Authorization: Bearer (compatibilidad)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+  return null;
+}
+
 module.exports = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token no proporcionado o inválido' });
+    const token = extraerToken(req);
+    if (!token) {
+      return res.status(401).json({ error: 'Token no proporcionado', codigo: 'NO_TOKEN' });
     }
-
-    const token = authHeader.slice(7).trim();
-    if (!token) return res.status(401).json({ error: 'Token vacío' });
 
     let decoded;
     try {
       decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     } catch (err) {
       if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ error: 'Token expirado', code: 'TOKEN_EXPIRED' });
+        return res.status(401).json({ error: 'Sesión expirada', codigo: 'TOKEN_EXPIRED' });
       }
-      return res.status(401).json({ error: 'Token inválido', code: 'TOKEN_INVALID' });
+      return res.status(401).json({ error: 'Token inválido', codigo: 'TOKEN_INVALID' });
     }
 
     if (!decoded.userId || !decoded.email) {
-      return res.status(401).json({ error: 'Token malformado', code: 'TOKEN_MALFORMED' });
+      return res.status(401).json({ error: 'Token malformado', codigo: 'TOKEN_MALFORMED' });
     }
 
     const userIdStr = String(decoded.userId);
@@ -106,10 +114,9 @@ module.exports = async (req, res, next) => {
           tokensDeUsuario.delete(tokenHash);
           return res.status(401).json({
             error: 'Sesión invalidada por cambio de contraseña',
-            code: 'PASSWORD_CHANGED'
+            codigo: 'PASSWORD_CHANGED'
           });
         }
-        // LRU: refrescar posición
         tokensDeUsuario.delete(tokenHash);
         tokensDeUsuario.set(tokenHash, cached);
         tocarUsuario(userIdStr);
@@ -132,10 +139,10 @@ module.exports = async (req, res, next) => {
     );
 
     if (!usuario) {
-      return res.status(401).json({ error: 'Usuario no existe', code: 'USER_NOT_FOUND' });
+      return res.status(401).json({ error: 'Usuario no existe', codigo: 'USER_NOT_FOUND' });
     }
     if (!usuario.activo) {
-      return res.status(401).json({ error: 'Usuario desactivado', code: 'USER_INACTIVE' });
+      return res.status(401).json({ error: 'Usuario desactivado', codigo: 'USER_INACTIVE' });
     }
 
     const userFinal = {
@@ -149,11 +156,10 @@ module.exports = async (req, res, next) => {
     if (tokenEsAnteriorAlCambio(decoded, userFinal)) {
       return res.status(401).json({
         error: 'Sesión invalidada por cambio de contraseña',
-        code: 'PASSWORD_CHANGED'
+        codigo: 'PASSWORD_CHANGED'
       });
     }
 
-    // Guardar en cache con límites
     if (!cacheUsuarios.has(userIdStr)) cacheUsuarios.set(userIdStr, new Map());
     const tokensMap = cacheUsuarios.get(userIdStr);
     tokensMap.set(tokenHash, {
@@ -175,9 +181,7 @@ module.exports = async (req, res, next) => {
 module.exports.invalidarCache = (token) => {
   if (!token) return;
   const h = hashToken(token);
-  for (const tokens of cacheUsuarios.values()) {
-    tokens.delete(h);
-  }
+  for (const tokens of cacheUsuarios.values()) tokens.delete(h);
 };
 
 module.exports.invalidarCachePorUsuario = (userId) => {

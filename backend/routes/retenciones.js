@@ -92,6 +92,30 @@ router.post('/', requierePermiso('retenciones', 'crear'), async (req, res) => {
       return res.status(400).json({ error: 'El valor retenido debe ser un número >= 0' });
     }
 
+    // ✅ FIX: si viene compraId, verificar que la compra exista
+    // para evitar retenciones huérfanas.
+    let compraRefId = null;
+    if (compraId) {
+      if (!ObjectId.isValid(compraId)) {
+        return res.status(400).json({ error: 'ID de compra inválido' });
+      }
+      const compraExiste = await req.db.collection('compras_v2').findOne(
+        { _id: new ObjectId(compraId) },
+        { projection: { _id: 1, proveedorId: 1 } }
+      );
+      if (!compraExiste) {
+        return res.status(400).json({ error: 'La compra referenciada no existe', codigo: 'COMPRA_NO_EXISTE' });
+      }
+      // Verificar coherencia: la compra debe ser del mismo proveedor
+      if (compraExiste.proveedorId && String(compraExiste.proveedorId) !== String(proveedorId)) {
+        return res.status(400).json({
+          error: 'El proveedorId no coincide con el proveedor de la compra',
+          codigo: 'PROVEEDOR_NO_COINCIDE'
+        });
+      }
+      compraRefId = new ObjectId(compraId);
+    }
+
     let retencionCatalogo = null;
     if (tipo_retencion) {
       retencionCatalogo = buscarRetencion(tipo_retencion, impuesto_retencion);
@@ -104,7 +128,7 @@ router.post('/', requierePermiso('retenciones', 'crear'), async (req, res) => {
     }
 
     const retencion = {
-      compraId: compraId && ObjectId.isValid(compraId) ? new ObjectId(compraId) : null,
+      compraId: compraRefId,
       proveedorId: new ObjectId(proveedorId),
       numero_factura: (numero_factura || '').trim(),
       fecha_emision: fecha,

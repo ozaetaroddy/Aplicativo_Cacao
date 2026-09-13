@@ -2,11 +2,9 @@
 const express = require('express');
 const router = express.Router();
 const { requierePermiso } = require('../utils/permisos');
-
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-];
+const { fechaSRI } = require('../utils/fechaEC');
+const { MESES } = require('../utils/periodos');
+const { TIPOS_VENTA_NO_ATS } = require('../utils/tiposDocumento');
 
 function tipoIdentificacion(ruc) {
   if (!ruc) return '07';
@@ -32,13 +30,6 @@ function esc(s) {
     .replace(/'/g, '&apos;');
 }
 function num(n) { return (parseFloat(n) || 0).toFixed(2); }
-function fechaATS(fecha) {
-  const d = new Date(fecha);
-  const dia = String(d.getDate()).padStart(2, '0');
-  const mes = String(d.getMonth() + 1).padStart(2, '0');
-  const anio = d.getFullYear();
-  return `${dia}/${mes}/${anio}`;
-}
 
 const CODIGO_INTERNO_RE = /^[A-Z]{2,4}-?\d+$/i;
 
@@ -65,9 +56,6 @@ function separarNumeroFactura(doc, config) {
   return { estab, ptoEmi, secuencial, _placeholder: placeholder };
 }
 
-// ============================================================
-// GENERAR ATS (JSON)
-// ============================================================
 router.get('/ats/:anio/:mes', requierePermiso('reportes', 'ver'), async (req, res) => {
   try {
     const { anio, mes } = req.params;
@@ -80,8 +68,15 @@ router.get('/ats/:anio/:mes', requierePermiso('reportes', 'ver'), async (req, re
     const fin = new Date(anioNum, mesNum, 0);
     fin.setHours(23, 59, 59, 999);
 
+    const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
+
     const ventas = await req.db.collection('ventas_v2').aggregate([
-      { $match: { fecha_emision: { $gte: inicio, $lte: fin }, tipo_documento: { $nin: ['guia_remision', 'proforma'] } } },
+      {
+        $match: {
+          fecha_emision: { $gte: inicio, $lte: fin },
+          tipo_documento: { $nin: [...TIPOS_VENTA_NO_ATS] }
+        }
+      },
       { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
       { $sort: { fecha_emision: 1 } }
@@ -137,7 +132,7 @@ router.get('/ats/:anio/:mes', requierePermiso('reportes', 'ver'), async (req, re
       }
       if (detalles.length === 0) { baseIVA = subtotal; base0 = 0; }
 
-      const { _placeholder } = separarNumeroFactura(c, {});
+      const { _placeholder } = separarNumeroFactura(c, config || {});
       if (_placeholder) {
         comprasSinNumeroSRI.push({
           id: c._id,
@@ -240,6 +235,8 @@ router.get('/ats/:anio/:mes', requierePermiso('reportes', 'ver'), async (req, re
     };
     totales.ivaPorPagar = totales.ventas.iva - totales.compras.iva;
 
+    const requiereConfirmacion = comprasSinNumeroSRI.length > 0;
+
     res.json({
       periodo: { anio: anioNum, mes: mesNum, nombre: `${MESES[mesNum - 1]} ${anioNum}`, desde: inicio, hasta: fin },
       ventas: ventasATS,
@@ -247,6 +244,7 @@ router.get('/ats/:anio/:mes', requierePermiso('reportes', 'ver'), async (req, re
       retenciones: retencionesATS,
       totales,
       advertencias,
+      requiere_confirmacion_ats: requiereConfirmacion,
       generado: new Date()
     });
   } catch (err) {
@@ -255,12 +253,6 @@ router.get('/ats/:anio/:mes', requierePermiso('reportes', 'ver'), async (req, re
   }
 });
 
-// ============================================================
-// GENERAR ATS EN FORMATO XML
-// ✅ FIX: bloquea la descarga si hay compras con placeholder
-//    (el usuario debe corregirlas o forzar con ?forzar=true).
-//    Si se fuerza, el archivo se marca con sufijo "_REVISAR".
-// ============================================================
 router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req, res) => {
   try {
     const { anio, mes } = req.params;
@@ -278,7 +270,12 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
 
     const [ventas, compras] = await Promise.all([
       req.db.collection('ventas_v2').aggregate([
-        { $match: { fecha_emision: { $gte: inicio, $lte: fin }, tipo_documento: { $nin: ['guia_remision', 'proforma'] } } },
+        {
+          $match: {
+            fecha_emision: { $gte: inicio, $lte: fin },
+            tipo_documento: { $nin: [...TIPOS_VENTA_NO_ATS] }
+          }
+        },
         { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
         { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
         { $sort: { fecha_emision: 1 } }
@@ -291,7 +288,6 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
       ]).toArray()
     ]);
 
-    // ── Bloqueo por placeholders ──
     const comprasConPlaceholder = compras.filter(c => separarNumeroFactura(c, config)._placeholder);
     const forzar = req.query.forzar === 'true';
 
@@ -313,7 +309,9 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
     const razonSocial = config.razon_social || '';
     const establecimiento = (config.establecimiento || '001').padStart(3, '0');
 
-    let totalVentas = 0;
+    let totalVentasGlobal = 0;
+    const porEstablecimiento = {};
+
     const ventasXml = ventas.map(v => {
       const esNC = v.tipo_documento === 'nota_credito';
       const detalles = v.detalles || [];
@@ -323,8 +321,15 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
         if (d.aplica_iva !== false) baseIVA += sub; else base0 += sub;
       }
       if (detalles.length === 0) { baseIVA = v.subtotal || 0; }
-      const total = (esNC ? -1 : 1) * (v.total || 0);
-      totalVentas += total;
+      const signo = esNC ? -1 : 1;
+      const total = signo * (v.total || 0);
+      const iva = signo * (v.iva || 0);
+      totalVentasGlobal += total;
+
+      const estabDoc = String(v.establecimiento || config.establecimiento || '001').padStart(3, '0');
+      if (!porEstablecimiento[estabDoc]) porEstablecimiento[estabDoc] = { ventas: 0, iva: 0 };
+      porEstablecimiento[estabDoc].ventas += total;
+      porEstablecimiento[estabDoc].iva += iva;
 
       return `      <detalleVentas>
         <tpIdCliente>${tipoIdentificacion(v.cliente?.ruc)}</tpIdCliente>
@@ -361,11 +366,11 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
         <idProv>${esc(c.proveedor?.ruc || '')}</idProv>
         <tipoComprobante>01</tipoComprobante>
         <parteRel>NO</parteRel>
-        <fechaRegistro>${fechaATS(c.fecha_emision)}</fechaRegistro>
+        <fechaRegistro>${fechaSRI(c.fecha_emision)}</fechaRegistro>
         <establecimiento>${estab}</establecimiento>
         <puntoEmision>${ptoEmi}</puntoEmision>
         <secuencial>${secuencial}</secuencial>
-        <fechaEmision>${fechaATS(c.fecha_emision)}</fechaEmision>
+        <fechaEmision>${fechaSRI(c.fecha_emision)}</fechaEmision>
         <autorizacion>${esc(c.numero_autorizacion || c.clave_acceso || '')}</autorizacion>
         <baseNoGraIva>0.00</baseNoGraIva>
         <baseImponible>${num(base0)}</baseImponible>
@@ -385,11 +390,20 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
       </detalleCompras>`;
     }).join('\n');
 
-    const ventasEstab = `      <ventaEst>
-        <codEstab>${establecimiento}</codEstab>
-        <ventasEstab>${num(Math.max(0, totalVentas))}</ventasEstab>
-        <ivaEstab>0.00</ivaEstab>
+    const establecimientos = Object.keys(porEstablecimiento).sort();
+    if (establecimientos.length === 0) {
+      establecimientos.push(establecimiento);
+      porEstablecimiento[establecimiento] = { ventas: 0, iva: 0 };
+    }
+
+    const ventasEstab = establecimientos.map(cod => {
+      const acum = porEstablecimiento[cod];
+      return `      <ventaEst>
+        <codEstab>${esc(cod)}</codEstab>
+        <ventasEstab>${num(Math.max(0, acum.ventas))}</ventasEstab>
+        <ivaEstab>${num(Math.max(0, acum.iva))}</ivaEstab>
       </ventaEst>`;
+    }).join('\n');
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <iva>
@@ -399,7 +413,7 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
   <Anio>${anioNum}</Anio>
   <Mes>${String(mesNum).padStart(2, '0')}</Mes>
   <numEstabRuc>${establecimiento}</numEstabRuc>
-  <totalVentas>${num(Math.max(0, totalVentas))}</totalVentas>
+  <totalVentas>${num(Math.max(0, totalVentasGlobal))}</totalVentas>
   <codigoOperativo>IVA</codigoOperativo>
   <compras>
 ${comprasXml || ''}
@@ -412,7 +426,6 @@ ${ventasEstab}
   </ventasEstablecimiento>
 </iva>`;
 
-    // Si se forzó con placeholders, marcar el archivo
     const sufijo = comprasConPlaceholder.length > 0 ? '_REVISAR' : '';
 
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');

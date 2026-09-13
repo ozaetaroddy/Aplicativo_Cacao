@@ -5,10 +5,12 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const compression = require('compression');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
+
+const log = require('./utils/logger');
 
 // ============================================================
 // VALIDACIÓN DE VARIABLES DE ENTORNO
@@ -17,16 +19,16 @@ const PLACEHOLDERS = ['cambia-esto', 'otra-clave-larga', 'tu-app-password', 'tu-
 for (const key of ['JWT_SECRET', 'CERT_ENCRYPTION_KEY']) {
   const val = process.env[key] || '';
   if (!val) {
-    console.error(`❌ FATAL: ${key} no está definido en el entorno`);
+    log.error(`❌ FATAL: ${key} no está definido en el entorno`);
     process.exit(1);
   }
   if (PLACEHOLDERS.some(p => val.toLowerCase().includes(p))) {
-    console.error(`❌ FATAL: ${key} sigue con valor de ejemplo. Cámbialo antes de arrancar.`);
+    log.error(`❌ FATAL: ${key} sigue con valor de ejemplo`);
     process.exit(1);
   }
 }
 if ((process.env.JWT_SECRET || '').length < 32) {
-  console.error('❌ FATAL: JWT_SECRET debe tener al menos 32 caracteres');
+  log.error('❌ FATAL: JWT_SECRET debe tener al menos 32 caracteres');
   process.exit(1);
 }
 
@@ -62,12 +64,15 @@ const emailRoutes = require('./routes/email');
 const diagnosticoRoutes = require('./routes/diagnostico');
 const estadisticasRoutes = require('./routes/estadisticas');
 const pagosRoutes = require('./routes/pagos');
+const cookieParser = require('cookie-parser');
+const csrfProtection = require('./middleware/csrf');
 
 const { iniciarScheduler, detenerScheduler } = require('./utils/backupScheduler');
+const { asegurarIndices } = require('./utils/indices');
+const { mountSwagger } = require('./utils/swagger');
 const authMiddleware = require('./middleware/auth');
 const errorHandler = require('./middleware/errorHandler');
 
-// ✅ FIX: versión única fuente de verdad
 const { version: VERSION } = require('./package.json');
 
 const app = express();
@@ -76,7 +81,12 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 // ===== SEGURIDAD =====
 app.disable('x-powered-by');
-app.set('trust proxy', 1);
+
+// trust proxy configurable; por defecto 1 hop en producción, 0 en dev
+const TRUST_PROXY = process.env.TRUST_PROXY_HOPS !== undefined
+  ? parseInt(process.env.TRUST_PROXY_HOPS, 10)
+  : (IS_PROD ? 1 : 0);
+app.set('trust proxy', TRUST_PROXY);
 app.set('query parser', 'simple');
 
 app.use(helmet({
@@ -98,10 +108,39 @@ app.use(cors({
 
 app.use(express.json({ limit: '20mb' }));
 
-// ===== RATE LIMIT GLOBAL =====
+app.use(cookieParser());
+// ===== REQUEST ID + LATENCIA (para logs correlacionados) =====
+app.use((req, res, next) => {
+  const start = Date.now();
+  req.reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  res.setHeader('X-Request-Id', req.reqId);
+
+  res.on('finish', () => {
+    if (res.statusCode >= 500) {
+      log.error({
+        reqId: req.reqId,
+        metodo: req.method,
+        ruta: req.originalUrl,
+        status: res.statusCode,
+        ms: Date.now() - start
+      }, 'request');
+    } else if (res.statusCode >= 400) {
+      log.warn({
+        reqId: req.reqId,
+        metodo: req.method,
+        ruta: req.originalUrl,
+        status: res.statusCode,
+        ms: Date.now() - start
+      }, 'request');
+    }
+  });
+  next();
+});
+
+// ===== RATE LIMIT GLOBAL (endurecido) =====
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Demasiadas peticiones, intente más tarde' }
@@ -115,7 +154,7 @@ let mongoClient = null;
 let schedulerActivo = false;
 
 if (!uri) {
-  console.error('❌ MONGODB_URI no está definida en .env');
+  log.error('❌ MONGODB_URI no está definida en .env');
   process.exit(1);
 }
 
@@ -126,78 +165,30 @@ mongoClient = new MongoClient(uri, {
   socketTimeoutMS: 45000
 });
 
-async function crearIndices(db) {
-  await Promise.all([
-    db.collection('clientes').createIndex({ ruc: 1 }, { unique: true }),
-    db.collection('clientes').createIndex({ nombre: 1 }),
-    db.collection('proveedores').createIndex({ ruc: 1 }, { unique: true }),
-    db.collection('proveedores').createIndex({ nombre: 1 }),
-    db.collection('productos').createIndex({ codigo: 1 }, { unique: true }),
-    db.collection('productos').createIndex({ nombre: 1 }),
-    db.collection('productos').createIndex({ categoriaId: 1 }),
-    db.collection('productos').createIndex({ codigo_barras: 1 }, { sparse: true }),
-    db.collection('usuarios').createIndex({ email: 1 }, { unique: true }),
-
-    db.collection('auditoria').createIndex({ fecha: -1 }),
-    db.collection('auditoria').createIndex({ usuarioId: 1, fecha: -1 }),
-    db.collection('auditoria').createIndex({ coleccion: 1, accion: 1, fecha: -1 }),
-
-    db.collection('ventas_v2').createIndex({ fecha_emision: -1 }),
-    db.collection('ventas_v2').createIndex({ clienteId: 1, fecha_emision: -1 }),
-    db.collection('ventas_v2').createIndex({ estado_sri: 1 }),
-    db.collection('ventas_v2').createIndex({ clave_acceso: 1 }, { sparse: true }),
-    db.collection('ventas_v2').createIndex({ tipo_documento: 1, fecha_emision: -1 }),
-
-    db.collection('compras_v2').createIndex({ fecha_emision: -1 }),
-    db.collection('compras_v2').createIndex({ proveedorId: 1, fecha_emision: -1 }),
-    db.collection('compras_v2').createIndex({ estado_pago: 1 }),
-    db.collection('compras_v2').createIndex({ tipo_compra: 1, fecha_emision: -1 }),
-
-    db.collection('periodos_cerrados').createIndex({ anio: 1, mes: 1 }, { unique: true }),
-    db.collection('backups').createIndex({ fecha: -1 }),
-    db.collection('backups').createIndex({ tipo: 1, fecha: -1 }),
-    db.collection('backup_lock').createIndex({ expira: 1 }),
-
-    db.collection('kardex').createIndex({ productoId: 1, fecha: -1 }),
-    db.collection('kardex').createIndex({ referencia_id: 1, referencia_tipo: 1 }),
-    db.collection('retenciones').createIndex({ fecha_emision: -1 }),
-    db.collection('retenciones').createIndex({ compraId: 1 }),
-
-    db.collection('pagos').createIndex({ fecha: -1 }),
-    db.collection('pagos').createIndex({ tipo: 1, fecha: -1 }),
-    db.collection('pagos').createIndex({ clienteId: 1, fecha: -1 }),
-    db.collection('pagos').createIndex({ proveedorId: 1, fecha: -1 }),
-    db.collection('pagos').createIndex({ ventaId: 1 }),
-    db.collection('pagos').createIndex({ compraId: 1 }),
-    db.collection('pagos').createIndex({ anulado: 1, fecha: -1 }),
-
-    db.collection('cache_consultas').createIndex({ expira: 1 }, { expireAfterSeconds: 0 })
-  ]);
-}
-
 async function inicializarMongo() {
   try {
     await mongoClient.connect();
     db = dbName ? mongoClient.db(dbName) : mongoClient.db();
-    console.log('✅ Conectado a MongoDB:', db.databaseName);
+    log.info({ db: db.databaseName }, '✅ Conectado a MongoDB');
 
     try {
-      await crearIndices(db);
-      console.log('✅ Índices verificados');
+      const r = await asegurarIndices(db);
+      if (r.salteado) log.info({ version: r.version }, '⏭️  Índices sin cambios');
+      else log.info({ total: r.total, fallidos: r.fallidos?.length || 0 }, '✅ Índices verificados');
     } catch (e) {
-      console.warn('⚠️  Índices:', e.message);
+      log.warn({ err: e.message }, '⚠️  Error creando índices');
     }
 
     try {
       await iniciarScheduler(db);
       schedulerActivo = true;
     } catch (e) {
-      console.error('Error iniciando scheduler de backups:', e.message);
+      log.error({ err: e.message }, 'Error iniciando scheduler');
     }
 
     return true;
   } catch (err) {
-    console.error('❌ Error conectando a MongoDB:', err);
+    log.error({ err: err.message }, '❌ Error conectando a MongoDB');
     return false;
   }
 }
@@ -211,6 +202,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// ===== SWAGGER =====
+mountSwagger(app);
+
 // ===== HTTP + SOCKET.IO =====
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -220,25 +214,76 @@ const io = socketIo(server, {
   pingInterval: 20000
 });
 
-io.use((socket, next) => {
-  const token = socket.handshake.auth?.token;
-  if (!token) return next(new Error('Autenticación requerida'));
+// Parser de cookies para handshake de Socket.IO
+function parseCookies(header) {
+  if (!header) return {};
+  return Object.fromEntries(
+    header.split(';').map(c => {
+      const [k, ...v] = c.trim().split('=');
+      return [k, decodeURIComponent(v.join('='))];
+    })
+  );
+}
+
+io.use(async (socket, next) => {
   try {
+    // 1. Preferir cookie httpOnly
+    const cookies = parseCookies(socket.handshake.headers.cookie);
+    let token = cookies['sc_at'];
+
+    // 2. Fallback a socket.handshake.auth.token (apps móviles)
+    if (!token && socket.handshake.auth?.token) {
+      token = socket.handshake.auth.token;
+    }
+
+    if (!token) return next(new Error('Autenticación requerida'));
+
     const secret = process.env.JWT_SECRET;
     if (!secret) return next(new Error('Servidor mal configurado'));
-    socket.user = jwt.verify(token, secret, { algorithms: ['HS256'] });
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, secret, { algorithms: ['HS256'] });
+    } catch (_err) {
+      return next(new Error('Token inválido'));
+    }
+
+    if (!decoded.userId || !db) return next(new Error('Token malformado o DB no disponible'));
+    if (!ObjectId.isValid(decoded.userId)) return next(new Error('ID de usuario inválido'));
+
+    const usuario = await db.collection('usuarios').findOne(
+      { _id: new ObjectId(decoded.userId) },
+      { projection: { password: 0 } }
+    );
+
+    if (!usuario) return next(new Error('Usuario no existe'));
+    if (!usuario.activo) return next(new Error('Usuario desactivado'));
+
+    if (usuario.password_changed_at) {
+      const changed = Math.floor(new Date(usuario.password_changed_at).getTime() / 1000);
+      const iat = Number(decoded.iat) || 0;
+      if (iat < changed) return next(new Error('Sesión invalidada por cambio de contraseña'));
+    }
+
+    socket.user = {
+      userId: usuario._id,
+      email: usuario.email,
+      rol: usuario.rol,
+      nombre: usuario.nombre || usuario.email
+    };
     next();
-  } catch (_err) {
-    next(new Error('Token inválido'));
+  } catch (err) {
+    log.error({ err: err.message }, 'Error en auth de socket');
+    next(new Error('Error de autenticación'));
   }
 });
 
 io.on('connection', (socket) => {
-  console.log('🟢 Cliente conectado:', socket.id, socket.user?.email || 'anónimo');
+  log.info({ socketId: socket.id, email: socket.user?.email }, '🟢 Cliente conectado');
   if (socket.user?.rol) socket.join(`rol:${socket.user.rol}`);
   if (socket.user?.userId) socket.join(`user:${socket.user.userId}`);
   socket.on('disconnect', () => {
-    console.log('🔴 Cliente desconectado:', socket.id);
+    log.info({ socketId: socket.id }, '🔴 Cliente desconectado');
   });
 });
 
@@ -251,13 +296,14 @@ app.use((req, res, next) => {
 // ===== RUTAS PÚBLICAS =====
 app.use('/api/auth', authRoutes);
 
+// Liveness: siempre 200 si el proceso responde.
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date(), version: VERSION });
 });
+// Alias para orquestadores
+app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
 
-// ===== RUTAS PROTEGIDAS =====
-app.use('/api', authMiddleware);
-
+// Readiness: chequea DB y devuelve 503 si no está lista.
 app.get('/api/health/detailed', async (req, res) => {
   const health = {
     status: 'OK',
@@ -282,6 +328,19 @@ app.get('/api/health/detailed', async (req, res) => {
     res.status(503).json(health);
   }
 });
+app.get('/readyz', async (req, res) => {
+  try {
+    if (!db) throw new Error('sin DB');
+    await db.command({ ping: 1 });
+    res.json({ status: 'ready' });
+  } catch (e) {
+    res.status(503).json({ status: 'not-ready', error: e.message });
+  }
+});
+
+// ===== RUTAS PROTEGIDAS =====
+app.use('/api', csrfProtection);
+app.use('/api', authMiddleware);
 
 app.use('/api/productos', productosRoutes);
 app.use('/api/categorias', categoriasRoutes);
@@ -328,18 +387,25 @@ app.use(errorHandler);
 (async () => {
   const mongoOk = await inicializarMongo();
   if (!mongoOk) {
-    console.error('❌ No se pudo inicializar MongoDB. Cerrando.');
+    log.error('❌ No se pudo inicializar MongoDB. Cerrando.');
     process.exit(1);
   }
 
   server.listen(port, () => {
-    console.log(`🚀 Servidor backend corriendo en http://localhost:${port}`);
-    console.log(`📡 Entorno: ${process.env.NODE_ENV || 'desarrollo'}`);
-    console.log(`🏷️  Versión: ${VERSION}`);
-    console.log(`🔒 CORS: ${corsOrigins === true ? 'todos (dev)' : (corsOrigins || []).join(', ') || 'ninguno'}`);
-    console.log(`💾 DB: ${db.databaseName}`);
-    console.log(`⏰ Scheduler: ${schedulerActivo ? 'activo' : 'inactivo'}`);
-    if (process.env.SRI_DEBUG === 'true') console.log(`🐞 SRI_DEBUG activo`);
+    log.info({
+      port, env: process.env.NODE_ENV || 'desarrollo', version: VERSION,
+      cors: corsOrigins === true ? 'todos (dev)' : corsOrigins,
+      db: db.databaseName,
+      scheduler: schedulerActivo,
+      trustProxy: TRUST_PROXY
+    }, '🚀 Servidor backend listo');
+
+    if (!process.env.SMTP_FROM) {
+      log.warn('⚠️  SMTP_FROM no definido. Se usará SMTP_USER como remitente.');
+    }
+    if (!process.env.CORS_ORIGINS && IS_PROD) {
+      log.warn('⚠️  CORS_ORIGINS no definido en producción — CORS cerrado por defecto.');
+    }
   });
 })();
 
@@ -348,7 +414,7 @@ let cerrando = false;
 const shutdown = async (signal) => {
   if (cerrando) return;
   cerrando = true;
-  console.log(`\n${signal} recibido. Cerrando servidor...`);
+  log.info({ signal }, `\n${signal} recibido. Cerrando servidor...`);
 
   try { detenerScheduler(); } catch (_) { /* noop */ }
   try { await new Promise(resolve => io.close(resolve)); } catch (_) { /* noop */ }
@@ -357,27 +423,30 @@ const shutdown = async (signal) => {
     try {
       if (mongoClient) {
         await mongoClient.close();
-        console.log('✅ MongoDB cerrado');
+        log.info('✅ MongoDB cerrado');
       }
     } catch (e) {
-      console.error('Error cerrando Mongo:', e.message);
+      log.error({ err: e.message }, 'Error cerrando Mongo');
     }
-    console.log('✅ Servidor HTTP cerrado');
+    log.info('✅ Servidor HTTP cerrado');
     process.exit(0);
   });
 
   setTimeout(() => {
-    console.error('⚠️  Forzando salida por timeout');
+    log.error('⚠️  Forzando salida por timeout');
     process.exit(1);
   }, 10000).unref();
 };
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// ✅ unhandledRejection ahora SÍ cierra el proceso (estado indefinido).
 process.on('unhandledRejection', (reason) => {
-  console.error('❌ unhandledRejection:', reason);
+  log.error({ reason: reason?.stack || reason }, '❌ unhandledRejection');
+  shutdown('unhandledRejection');
 });
 process.on('uncaughtException', (err) => {
-  console.error('❌ uncaughtException:', err);
+  log.error({ err: err.stack || err.message }, '❌ uncaughtException');
   shutdown('uncaughtException');
 });

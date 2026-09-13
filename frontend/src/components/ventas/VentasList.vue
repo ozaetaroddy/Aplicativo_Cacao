@@ -392,20 +392,16 @@ const consultarSRI = async (row) => {
 const descargarXML = async (row, firmado) => {
   cerrarMenu()
   try {
-    const token = localStorage.getItem('token')
-    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
-    const url = firmado ? `${base}/ventas/${row._id}/xml-firmado` : `${base}/ventas/${row._id}/xml`
-    const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
-    if (!resp.ok) throw new Error('Error al descargar')
-    const blob = await resp.blob()
-    const objUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = objUrl
-    a.download = `${row.clave_acceso}${firmado ? '_firmado' : ''}.xml`
-    document.body.appendChild(a); a.click(); a.remove()
-    URL.revokeObjectURL(objUrl)
+    const endpoint = firmado
+      ? `/ventas/${row._id}/xml-firmado`
+      : `/ventas/${row._id}/xml`
+    const nombreArchivo = `${row.clave_acceso}${firmado ? '_firmado' : ''}.xml`
+
+    await api.download(endpoint, nombreArchivo)
     toast.success('XML descargado')
-  } catch (e) { toast.error('Error: ' + e.message) }
+  } catch (e) {
+    toast.error('Error: ' + e.message)
+  }
 }
 
 const abrirModalEmail = (row) => {

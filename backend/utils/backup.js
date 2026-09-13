@@ -48,10 +48,6 @@ function revivirBSON(value) {
   return value;
 }
 
-/**
- * Normaliza el contenido de un backup a un Buffer, sin importar si viene
- * como Buffer nativo, Binary del driver o un objeto legacy { buffer: ... }.
- */
 function extraerBufferContenido(contenido) {
   if (!contenido) return null;
   if (Buffer.isBuffer(contenido)) return contenido;
@@ -68,7 +64,7 @@ async function generarBackup(db, { incluirAuditoria = false, coleccionesExtra = 
   if (incluirAuditoria) cols.push('auditoria');
 
   const snapshot = {
-    version: '2.4',
+    version: '2.5',
     fecha: new Date().toISOString(),
     db: db.databaseName,
     colecciones: {}
@@ -98,7 +94,34 @@ function descomprimirBackup(buffer) {
   return JSON.parse(decompressed.toString('utf-8'));
 }
 
-// ===== Restaurar (staging → swap) =====
+/**
+ * Renombra una colección (atómico a nivel de metadata de MongoDB).
+ * Devuelve true si se renombró, false si la fuente no existía.
+ */
+async function renombrarColeccion(db, desde, hasta, { dropTarget = false } = {}) {
+  try {
+    await db.renameCollection(desde, hasta, { dropTarget });
+    return true;
+  } catch (err) {
+    // NamespaceNotFound: la colección origen no existe
+    if (err.code === 26 || /ns not found/i.test(err.message || '')) return false;
+    throw err;
+  }
+}
+
+/**
+ * Restaurar (staging → swap atómico vía renameCollection).
+ *
+ * Estrategia segura:
+ *   1. Insertar TODO en colección staging `tmp_<nombre>_<ts>`.
+ *      Si esto falla, la colección original NO fue tocada.
+ *   2. Renombrar original → `old_<nombre>_<ts>` (si existía).
+ *   3. Renombrar staging → original.
+ *      Si esto falla, revertimos el paso 2.
+ *   4. Eliminar `old_<nombre>_<ts>`.
+ *
+ * Con rename no hay ventana en la que la colección quede vacía.
+ */
 async function restaurarBackup(db, snapshot, coleccionesARestaurar = null) {
   const resultados = [];
   const colecciones = coleccionesARestaurar || Object.keys(snapshot.colecciones || {});
@@ -108,41 +131,62 @@ async function restaurarBackup(db, snapshot, coleccionesARestaurar = null) {
     const docsRaw = snapshot.colecciones?.[nombre];
     if (!Array.isArray(docsRaw)) continue;
 
-    const tmp = `_restore_${nombre}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    let insertOk = false;
+    const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const staging = `staging_${nombre}_${ts}`;
+    const backupNombre = `old_${nombre}_${ts}`;
+
+    let originalRenombrada = false;
 
     try {
       const docs = docsRaw.map(revivirBSON);
 
-      // 1. Staging: insertar en colección temporal (si falla, no tocamos la original)
+      // 1. Staging — si falla, no tocamos la original
       if (docs.length > 0) {
         for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-          await db.collection(tmp).insertMany(docs.slice(i, i + BATCH_SIZE), { ordered: false });
+          await db.collection(staging).insertMany(docs.slice(i, i + BATCH_SIZE), { ordered: false });
         }
+      } else {
+        // Forzamos la creación de la colección vacía para poder renombrarla
+        await db.createCollection(staging);
       }
-      insertOk = true;
 
-      // 2. Swap: vaciar la original e insertar
-      await db.collection(nombre).deleteMany({});
-      if (docs.length > 0) {
-        for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-          await db.collection(nombre).insertMany(docs.slice(i, i + BATCH_SIZE), { ordered: false });
-        }
+      // 2. Mover original fuera del camino (si existe)
+      originalRenombrada = await renombrarColeccion(db, nombre, backupNombre);
+
+      // 3. Poner staging en su lugar
+      await renombrarColeccion(db, staging, nombre);
+
+      // 4. Eliminar el "viejo"
+      if (originalRenombrada) {
+        try { await db.collection(backupNombre).drop(); } catch (_) { /* noop */ }
       }
+
+      // Recrear índices es responsabilidad del arranque (server.js),
+      // así que no lo forzamos aquí.
 
       resultados.push({ coleccion: nombre, restaurados: docs.length, ok: true });
     } catch (err) {
+      // Intento de rollback: si ya habíamos movido la original, la devolvemos
+      if (originalRenombrada) {
+        try {
+          await renombrarColeccion(db, nombre, staging, { dropTarget: true });
+          await renombrarColeccion(db, backupNombre, nombre);
+        } catch (rollbackErr) {
+          console.error(`❌ Rollback fallido para ${nombre}:`, rollbackErr.message);
+        }
+      }
+      // Limpiamos staging residual
+      try { await db.collection(staging).drop(); } catch (_) { /* noop */ }
+
       resultados.push({
         coleccion: nombre,
         restaurados: 0,
         ok: false,
         error: err.message,
-        nota: insertOk
-          ? 'error durante el swap: la colección original puede estar parcialmente sobrescrita'
+        nota: originalRenombrada
+          ? 'error durante el swap; se intentó revertir la colección original'
           : 'error en staging: la colección original NO fue modificada'
       });
-    } finally {
-      try { await db.collection(tmp).drop(); } catch (_) { /* noop */ }
     }
   }
 

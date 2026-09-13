@@ -500,24 +500,8 @@ const guardarConfig = async () => {
 const descargarAhora = async () => {
   descargando.value = true
   try {
-    const token = localStorage.getItem('token')
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
-    const response = await fetch(`${baseUrl}/backups/download-now`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Error al generar backup')
-
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
     const fecha = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-    a.download = `backup_${fecha}.json.gz`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-
+    await api.download('/backups/download-now', `backup_${fecha}.json.gz`)
     toast.success('Backup descargado correctamente')
   } catch (e) {
     toast.error('Error: ' + e.message)
@@ -565,22 +549,8 @@ const crearBackup = async () => {
 // ===== DESCARGAR UNO =====
 const descargar = async (b) => {
   try {
-    const token = localStorage.getItem('token')
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
-    const response = await fetch(`${baseUrl}/backups/${b._id}/download`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Error al descargar')
-
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${b.nombre.replace(/[^a-z0-9]/gi, '_')}.json.gz`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    const nombreLimpio = String(b.nombre || 'backup').replace(/[^a-z0-9]/gi, '_')
+    await api.download(`/backups/${b._id}/download`, `${nombreLimpio}.json.gz`)
     toast.success('Descarga iniciada')
   } catch (e) {
     toast.error('Error: ' + e.message)

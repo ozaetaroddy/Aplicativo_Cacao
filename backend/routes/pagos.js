@@ -1,7 +1,4 @@
 // backend/routes/pagos.js
-// Registro de cobros (de clientes) y pagos (a proveedores).
-// Al crear/eliminar un pago, recalcula el estado_pago del documento asociado.
-
 const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
@@ -11,9 +8,23 @@ const { requierePermiso } = require('../utils/permisos');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
 const { conTransaccion } = require('../utils/transacciones');
 const { validar } = require('../utils/validacion');
+const { partesFechaEC } = require('../utils/fechaEC');
+const { TIPOS_NO_CXC } = require('../utils/tiposDocumento');
 
-const TIPOS = ['cobro', 'pago'];  // cobro = cliente nos paga; pago = nosotros al proveedor
+const TIPOS = ['cobro', 'pago'];
 const FORMAS_PAGO_VALIDAS = ['01', '15', '16', '17', '18', '19', '20', '21'];
+
+/**
+ * Devuelve la diferencia en días entre dos fechas, comparando SOLO el día
+ * calendario en TZ Ecuador. Evita off-by-one en servidores UTC.
+ */
+function diasEntreFechasEC(fechaMayor, fechaMenor) {
+  const pMayor = partesFechaEC(fechaMayor);
+  const pMenor = partesFechaEC(fechaMenor);
+  const msMayor = Date.UTC(parseInt(pMayor.year), parseInt(pMayor.month) - 1, parseInt(pMayor.day));
+  const msMenor = Date.UTC(parseInt(pMenor.year), parseInt(pMenor.month) - 1, parseInt(pMenor.day));
+  return Math.floor((msMayor - msMenor) / 86400000);
+}
 
 const validarPago = [
   body('tipo').isIn(TIPOS).withMessage(`tipo debe ser: ${TIPOS.join(', ')}`),
@@ -28,9 +39,6 @@ const validarPago = [
     .isMongoId().withMessage('ID de proveedor inválido')
 ];
 
-// ============================================================
-// RECALCULAR estado_pago del documento afectado
-// ============================================================
 async function recalcularEstadoVenta(db, ventaId, session) {
   if (!ventaId) return null;
   const venta = await db.collection('ventas_v2').findOne({ _id: ventaId }, { session });
@@ -45,7 +53,7 @@ async function recalcularEstadoVenta(db, ventaId, session) {
   const total = parseFloat(venta.total) || 0;
 
   let estado = 'pendiente';
-  if (pagado >= total - 0.01) estado = 'pagado';
+  if (total > 0 && pagado >= total - 0.01) estado = 'pagado';
   else if (pagado > 0.01) estado = 'parcial';
 
   await db.collection('ventas_v2').updateOne(
@@ -71,7 +79,7 @@ async function recalcularEstadoCompra(db, compraId, session) {
   const total = parseFloat(compra.total) || 0;
 
   let estado = 'pendiente';
-  if (pagado >= total - 0.01) estado = 'pagado';
+  if (total > 0 && pagado >= total - 0.01) estado = 'pagado';
   else if (pagado > 0.01) estado = 'parcial';
 
   await db.collection('compras_v2').updateOne(
@@ -83,9 +91,6 @@ async function recalcularEstadoCompra(db, compraId, session) {
   return { estado, pagado, total };
 }
 
-// ============================================================
-// LISTAR PAGOS
-// ============================================================
 router.get('/', requierePermiso('pagos', 'ver'), async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -172,9 +177,6 @@ router.get('/', requierePermiso('pagos', 'ver'), async (req, res) => {
   }
 });
 
-// ============================================================
-// OBTENER UNO
-// ============================================================
 router.get('/:id', requierePermiso('pagos', 'ver'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -200,9 +202,6 @@ router.get('/:id', requierePermiso('pagos', 'ver'), async (req, res) => {
   }
 });
 
-// ============================================================
-// CREAR PAGO
-// ============================================================
 router.post('/', requierePermiso('pagos', 'crear'), validarPago, async (req, res) => {
   if (validar(req, res)) return;
 
@@ -269,9 +268,6 @@ router.post('/', requierePermiso('pagos', 'crear'), validarPago, async (req, res
   }
 });
 
-// ============================================================
-// ANULAR PAGO (soft delete)
-// ============================================================
 router.delete('/:id', requierePermiso('pagos', 'eliminar'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -317,9 +313,6 @@ router.delete('/:id', requierePermiso('pagos', 'eliminar'), async (req, res) => 
   }
 });
 
-// ============================================================
-// PAGOS DE UN CLIENTE
-// ============================================================
 router.get('/cliente/:clienteId', requierePermiso('pagos', 'ver'), async (req, res) => {
   try {
     const { clienteId } = req.params;
@@ -342,9 +335,6 @@ router.get('/cliente/:clienteId', requierePermiso('pagos', 'ver'), async (req, r
   }
 });
 
-// ============================================================
-// PAGOS A UN PROVEEDOR
-// ============================================================
 router.get('/proveedor/:proveedorId', requierePermiso('pagos', 'ver'), async (req, res) => {
   try {
     const { proveedorId } = req.params;
@@ -367,19 +357,11 @@ router.get('/proveedor/:proveedorId', requierePermiso('pagos', 'ver'), async (re
   }
 });
 
-// ============================================================
-// RESUMEN: CUENTAS POR COBRAR Y POR PAGAR (con aging)
-// ✅ FIX: montos NETOS por cliente/proveedor, consistente con
-// /estadisticas/dashboard y /estados-financieros/balance.
-// Regla: saldo cliente = SUM(débitos) - SUM(NC) - SUM(cobros).
-// Solo se incluyen los saldos POSITIVOS en la cartera.
-// ============================================================
 router.get('/resumen/cartera', requierePermiso('pagos', 'ver'), async (req, res) => {
   try {
     // ---------- CxC ----------
-    // 1. Saldo neto por cliente
     const saldosClientes = await req.db.collection('ventas_v2').aggregate([
-      { $match: { tipo_documento: { $nin: ['guia_remision', 'proforma'] } } },
+      { $match: { tipo_documento: { $nin: [...TIPOS_NO_CXC] } } },
       {
         $group: {
           _id: '$clienteId',
@@ -420,20 +402,18 @@ router.get('/resumen/cartera', requierePermiso('pagos', 'ver'), async (req, res)
       { $match: { saldoNeto: { $gt: 0.01 } } }
     ]).toArray();
 
-    // 2. Facturas pendientes de todos esos clientes (una sola query)
     const clienteIds = saldosClientes.map(s => s._id).filter(Boolean);
     let facturasPendientes = [];
     if (clienteIds.length > 0) {
       facturasPendientes = await req.db.collection('ventas_v2').find(
         {
           clienteId: { $in: clienteIds },
-          tipo_documento: { $nin: ['guia_remision', 'proforma', 'nota_credito'] }
+          tipo_documento: { $nin: [...TIPOS_NO_CXC, 'nota_credito'] }
         },
         { projection: { clienteId: 1, numero_factura: 1, fecha_emision: 1, total: 1, estado_pago: 1 } }
       ).sort({ clienteId: 1, fecha_emision: 1 }).toArray();
     }
 
-    // 3. Clientes (para nombre/RUC)
     const clientes = clienteIds.length
       ? await req.db.collection('clientes').find(
           { _id: { $in: clienteIds } },
@@ -442,8 +422,8 @@ router.get('/resumen/cartera', requierePermiso('pagos', 'ver'), async (req, res)
       : [];
     const clienteMap = new Map(clientes.map(c => [String(c._id), c]));
 
-    // 4. Aplicar saldo FIFO por cliente y calcular aging
     const hoy = new Date();
+
     const agingCxC = { '0-30': 0, '31-60': 0, '61-90': 0, '+90': 0 };
     const documentosCxC = [];
     let totalCxC = 0;
@@ -467,7 +447,7 @@ router.get('/resumen/cartera', requierePermiso('pagos', 'ver'), async (req, res)
         if (aplicable <= 0.01) continue;
         credito -= aplicable;
 
-        const dias = Math.floor((hoy - new Date(f.fecha_emision)) / 86400000);
+        const dias = diasEntreFechasEC(hoy, f.fecha_emision);
         const r = dias <= 30 ? '0-30' : dias <= 60 ? '31-60' : dias <= 90 ? '61-90' : '+90';
         agingCxC[r] += aplicable;
         totalCxC += aplicable;
@@ -560,7 +540,7 @@ router.get('/resumen/cartera', requierePermiso('pagos', 'ver'), async (req, res)
         if (aplicable <= 0.01) continue;
         credito -= aplicable;
 
-        const dias = Math.floor((hoy - new Date(c.fecha_emision)) / 86400000);
+        const dias = diasEntreFechasEC(hoy, c.fecha_emision);
         const r = dias <= 30 ? '0-30' : dias <= 60 ? '31-60' : dias <= 90 ? '61-90' : '+90';
         agingCxP[r] += aplicable;
         totalCxP += aplicable;

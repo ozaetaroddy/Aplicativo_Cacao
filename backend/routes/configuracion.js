@@ -3,11 +3,10 @@ const express = require('express');
 const router = express.Router();
 const { requierePermiso } = require('../utils/permisos');
 const { logAudit } = require('../utils/audit');
-const { validarRUC, validarEmail } = require('../utils/validators');
+const { validarRUC, validarEmail, validarLogoUrl } = require('../utils/validators');
 
 const REGIMENES = ['RIMPE', 'RIMPE_NEGOCIO', 'GENERAL', 'ESPECIAL'];
 
-// ===== OBTENER CONFIGURACIÓN =====
 router.get('/empresa', async (req, res) => {
   try {
     let config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
@@ -41,7 +40,6 @@ router.get('/empresa', async (req, res) => {
   }
 });
 
-// ===== ACTUALIZAR CONFIGURACIÓN =====
 router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     const anteriores = await req.db.collection('configuracion').findOne({ _id: 'empresa' });
@@ -56,7 +54,6 @@ router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, r
       logo_url
     } = req.body;
 
-    // ==== Validaciones ====
     const errores = [];
 
     if (ruc) {
@@ -81,8 +78,12 @@ router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, r
     if (regimen && !REGIMENES.includes(regimen)) {
       errores.push(`Régimen inválido. Válidos: ${REGIMENES.join(', ')}`);
     }
+    // ✅ Valida logo_url
+    if (logo_url !== undefined) {
+      const check = validarLogoUrl(logo_url);
+      if (!check.valido) errores.push(check.mensaje);
+    }
 
-    // Si cambia a producción, verificar certificado cargado y vigente
     if (String(ambiente) === '2' && anteriores?.ambiente !== '2') {
       const cert = await req.db.collection('certificados').findOne({ _id: 'empresa' });
       if (!cert) {
@@ -99,7 +100,6 @@ router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, r
       return res.status(400).json({ error: errores.join('. '), errores });
     }
 
-    // Advertencia si cambia el RUC con documentos existentes
     let advertencia = null;
     if (ruc && anteriores?.ruc && ruc !== anteriores.ruc) {
       const docsCount = await req.db.collection('ventas_v2').countDocuments({});
@@ -124,7 +124,7 @@ router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, r
       tipo_emision: String(tipo_emision || '1'),
       establecimiento: establecimiento || anteriores?.establecimiento || '001',
       punto_emision: punto_emision || anteriores?.punto_emision || '001',
-      logo_url: logo_url || '',
+      logo_url: logo_url !== undefined ? (logo_url || '') : (anteriores?.logo_url || ''),
       updatedAt: new Date()
     };
 
@@ -141,8 +141,15 @@ router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, r
       coleccion: 'configuracion',
       documentoId: 'empresa',
       documentoNumero: actualizada.ruc,
-      datosAnteriores: anteriores,
-      datosNuevos: updateData,
+      datosAnteriores: anteriores ? {
+        ...anteriores,
+        // No loguear el logo entero (puede ser un data URL de 500 KB)
+        logo_url: anteriores.logo_url ? '[logo]' : ''
+      } : null,
+      datosNuevos: {
+        ...updateData,
+        logo_url: updateData.logo_url ? '[logo]' : ''
+      },
       detalle: `Configuración actualizada (${actualizada.razon_social})${advertencia ? '. ' + advertencia : ''}`
     });
 
@@ -153,7 +160,6 @@ router.put('/empresa', requierePermiso('configuracion', 'editar'), async (req, r
   }
 });
 
-// ===== VERIFICAR AMBIENTE =====
 router.get('/ambiente', async (req, res) => {
   try {
     const config = await req.db.collection('configuracion').findOne({ _id: 'empresa' });

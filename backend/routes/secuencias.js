@@ -2,10 +2,6 @@
 // ⚠️  DEPRECADO: usar /api/contadores
 // Este router mantiene la API por compatibilidad, pero internamente usa la
 // MISMA colección `contadores` que /api/contadores.
-//
-// ⚠️  FIX: antes 'exportacion_numero' apuntaba a 'exportacion_numero' en
-// contadores, mientras que /api/contadores y /api/ventas usan 'exportacion'.
-// Ahora todo apunta al mismo id.
 
 const express = require('express');
 const router = express.Router();
@@ -20,6 +16,15 @@ const SECUENCIA_A_CONTADOR = {
   'liquidacion_numero': 'liquidacion',
   'exportacion_numero': 'exportacion'
 };
+
+// ✅ Aviso a los consumidores (frontend, integraciones) de que este router
+// se retirará en una versión futura.
+router.use((req, res, next) => {
+  res.set('Deprecation', 'true');
+  res.set('Link', '</api/contadores>; rel="successor-version"');
+  res.set('Warning', '299 - "Este endpoint está deprecado. Usar /api/contadores"');
+  next();
+});
 
 async function getNextSequence(db, nombreSecuencia, prefijo = '', longitud = 4) {
   const contadorId = SECUENCIA_A_CONTADOR[nombreSecuencia] || nombreSecuencia;

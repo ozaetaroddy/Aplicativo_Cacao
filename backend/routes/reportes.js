@@ -3,35 +3,35 @@ const express = require('express');
 const router = express.Router();
 const { requierePermiso } = require('../utils/permisos');
 const { parsePagination, wantsPagination } = require('../utils/pagination');
+const { TIPOS_NO_COMERCIALES } = require('../utils/tiposDocumento');
 
 router.use(requierePermiso('reportes', 'ver'));
 
 const MAX_EXPORT = 5000;
 
+function buildRango(req) {
+  const { desde, hasta } = req.query;
+  if (!desde && !hasta) return {};
+  const r = {};
+  if (desde) { const d = new Date(desde); if (!isNaN(d)) r.$gte = d; }
+  if (hasta) { const h = new Date(hasta); if (!isNaN(h)) { h.setHours(23, 59, 59, 999); r.$lte = h; } }
+  return Object.keys(r).length ? { fecha_emision: r } : {};
+}
+
 router.get('/ventas', async (req, res) => {
   try {
-    const { desde, hasta } = req.query;
     const { page, limit, skip } = parsePagination(req.query);
     const paginar = wantsPagination(req.query);
 
-    const filter = {};
-    if (desde && hasta) {
-      const fechaDesde = new Date(desde);
-      const fechaHasta = new Date(hasta);
-      fechaHasta.setHours(23, 59, 59, 999);
-      filter.fecha_emision = { $gte: fechaDesde, $lte: fechaHasta };
-    }
+    // ✅ Excluye guía, proforma y retención (no son ventas comerciales).
+    const filter = {
+      ...buildRango(req),
+      tipo_documento: { $nin: [...TIPOS_NO_COMERCIALES] }
+    };
 
     const pipeline = [
       { $match: filter },
-      {
-        $lookup: {
-          from: 'clientes',
-          localField: 'clienteId',
-          foreignField: '_id',
-          as: 'cliente'
-        }
-      },
+      { $lookup: { from: 'clientes', localField: 'clienteId', foreignField: '_id', as: 'cliente' } },
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
       { $sort: { fecha_emision: -1 } }
     ];
@@ -46,9 +46,7 @@ router.get('/ventas', async (req, res) => {
       .aggregate([...pipeline, { $count: 'total' }]).toArray();
     const total = countRes[0]?.total || 0;
 
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limit });
-
+    pipeline.push({ $skip: skip }, { $limit: limit });
     const ventas = await req.db.collection('ventas_v2').aggregate(pipeline).toArray();
     res.json({ data: ventas, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
@@ -58,28 +56,14 @@ router.get('/ventas', async (req, res) => {
 
 router.get('/compras', async (req, res) => {
   try {
-    const { desde, hasta } = req.query;
     const { page, limit, skip } = parsePagination(req.query);
     const paginar = wantsPagination(req.query);
 
-    const filter = {};
-    if (desde && hasta) {
-      const fechaDesde = new Date(desde);
-      const fechaHasta = new Date(hasta);
-      fechaHasta.setHours(23, 59, 59, 999);
-      filter.fecha_emision = { $gte: fechaDesde, $lte: fechaHasta };
-    }
+    const filter = buildRango(req);
 
     const pipeline = [
       { $match: filter },
-      {
-        $lookup: {
-          from: 'proveedores',
-          localField: 'proveedorId',
-          foreignField: '_id',
-          as: 'proveedor'
-        }
-      },
+      { $lookup: { from: 'proveedores', localField: 'proveedorId', foreignField: '_id', as: 'proveedor' } },
       { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } },
       { $sort: { fecha_emision: -1 } }
     ];
@@ -94,9 +78,7 @@ router.get('/compras', async (req, res) => {
       .aggregate([...pipeline, { $count: 'total' }]).toArray();
     const total = countRes[0]?.total || 0;
 
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limit });
-
+    pipeline.push({ $skip: skip }, { $limit: limit });
     const compras = await req.db.collection('compras_v2').aggregate(pipeline).toArray();
     res.json({ data: compras, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {

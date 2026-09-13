@@ -433,25 +433,20 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   // Actualizar el título de la página
   const titulo = to.meta?.title
-  if (titulo) {
-    document.title = `${titulo} — Sistema Contable`
-  } else {
-    document.title = 'Sistema Contable'
-  }
+  document.title = titulo ? `${titulo} — Sistema Contable` : 'Sistema Contable'
 
-  const token = localStorage.getItem('token')
-  const publicPages = ['/login']
-  const esRutaPublica = to.meta?.public || publicPages.includes(to.path)
-  const requiereAuth = !esRutaPublica
+  // Usamos `auth_hint` (no sensible) para saber si hay sesión probable.
+  // La verdad real la tiene el backend con la cookie httpOnly.
+  const tieneHint = !!localStorage.getItem('auth_hint')
+  const esRutaPublica = to.meta?.public || to.path === '/login'
 
-  // 1. Si está en login y ya tiene token → redirigir al home
-  if (to.path === '/login' && token) {
+  // 1. Si está en login y ya tiene hint → redirigir al home
+  if (to.path === '/login' && tieneHint) {
     return next('/')
   }
 
-  // 2. Si la ruta requiere auth y no hay token → redirigir a login
-  if (requiereAuth && !token) {
-    // Guardar la ruta intentada para redirigir después del login
+  // 2. Si la ruta requiere auth y no hay hint → ir a login
+  if (!esRutaPublica && !tieneHint) {
     return next({
       path: '/login',
       query: { redirect: to.fullPath }
@@ -465,20 +460,17 @@ router.beforeEach(async (to, from, next) => {
       await cargarPermisos()
 
       if (!puede(to.meta.modulo, to.meta.accion)) {
-        console.warn(`Acceso denegado a ${to.path} (falta permiso ${to.meta.modulo}:${to.meta.accion})`)
-        // Redirigir al home silenciosamente
+        console.warn(`Acceso denegado a ${to.path} (falta ${to.meta.modulo}:${to.meta.accion})`)
         return next('/')
       }
     } catch (e) {
       console.error('Error verificando permisos:', e)
-      // Si falla, mejor redirigir al login
-      localStorage.removeItem('token')
+      localStorage.removeItem('auth_hint')
       localStorage.removeItem('user')
       return next('/login')
     }
   }
 
-  // 4. Permitir navegación
   next()
 })
 

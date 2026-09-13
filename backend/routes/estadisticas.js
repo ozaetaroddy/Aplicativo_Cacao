@@ -2,6 +2,12 @@
 const express = require('express');
 const router = express.Router();
 const { requierePermiso } = require('../utils/permisos');
+const { partesFechaEC } = require('../utils/fechaEC');
+const {
+  TIPOS_NO_COMERCIALES,
+  matchSoloVentasComerciales,
+  matchVentasNetas
+} = require('../utils/tiposDocumento');
 
 router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) => {
   try {
@@ -25,9 +31,7 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
       return r[0] || { total: 0, cantidad: 0 };
     };
 
-    const matchSoloVentas = {
-      tipo_documento: { $nin: ['guia_remision', 'proforma', 'nota_credito'] }
-    };
+    const matchSoloVentas = matchVentasNetas();
 
     const [
       ventasHoy, ventasAyer, ventasMes, ventasMesPrev,
@@ -69,7 +73,8 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
     for (let i = 6; i >= 0; i--) {
       const d = new Date(hoy);
       d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const { year, month, day } = partesFechaEC(d);
+      const iso = `${year}-${month}-${day}`;
       dias.push(d.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' }));
       ventasDiarias.push(ventas7d.find(x => x._id === iso)?.total || 0);
       comprasDiarias.push(compras7d.find(x => x._id === iso)?.total || 0);
@@ -79,7 +84,7 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
       {
         $match: {
           fecha_emision: { $gte: inicioMes },
-          tipo_documento: { $nin: ['guia_remision', 'proforma', 'nota_credito'] }
+          ...matchSoloVentas
         }
       },
       { $unwind: '$detalles' },
@@ -119,13 +124,10 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
     });
 
     // ============================================================
-    // CUENTAS POR COBRAR (neto por cliente)
-    // Regla: por cliente, saldo = SUM(débitos) - SUM(NC) - SUM(cobros).
-    // Solo contamos los saldos POSITIVOS. Un cliente con saldo a favor
-    // NO reduce la cartera de otro cliente.
+    // CUENTAS POR COBRAR
     // ============================================================
     const cxcAgg = await db.collection('ventas_v2').aggregate([
-      { $match: { tipo_documento: { $nin: ['guia_remision', 'proforma'] } } },
+      { $match: matchSoloVentasComerciales() },
       {
         $group: {
           _id: '$clienteId',
@@ -134,6 +136,9 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
           },
           creditosNC: {
             $sum: { $cond: [{ $eq: ['$tipo_documento', 'nota_credito'] }, '$total', 0] }
+          },
+          cantidadDocumentos: {
+            $sum: { $cond: [{ $ne: ['$tipo_documento', 'nota_credito'] }, 1, 0] }
           }
         }
       }
@@ -146,6 +151,7 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
     const pagosPorCliente = new Map(pagosCobrosAgg.map(p => [String(p._id), p.total || 0]));
 
     let cuentasPorCobrar = 0;
+    let clientesConSaldo = 0;
     let cuentasPorCobrarDocs = 0;
     for (const c of cxcAgg) {
       if (!c._id) continue;
@@ -153,17 +159,23 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
       const saldo = (c.debitos || 0) - (c.creditosNC || 0) - pagos;
       if (saldo > 0.01) {
         cuentasPorCobrar += saldo;
-        cuentasPorCobrarDocs += 1;
+        clientesConSaldo += 1;
+        cuentasPorCobrarDocs += (c.cantidadDocumentos || 0);
       }
     }
     cuentasPorCobrar = +cuentasPorCobrar.toFixed(2);
 
     // ============================================================
-    // CUENTAS POR PAGAR (neto por proveedor)
-    // Misma regla: solo sumamos saldos positivos por proveedor.
+    // CUENTAS POR PAGAR
     // ============================================================
     const cxpAgg = await db.collection('compras_v2').aggregate([
-      { $group: { _id: '$proveedorId', total: { $sum: '$total' } } }
+      {
+        $group: {
+          _id: '$proveedorId',
+          total: { $sum: '$total' },
+          cantidadDocumentos: { $sum: 1 }
+        }
+      }
     ]).toArray();
 
     const pagosProvAgg = await db.collection('pagos').aggregate([
@@ -173,6 +185,7 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
     const pagosPorProveedor = new Map(pagosProvAgg.map(p => [String(p._id), p.total || 0]));
 
     let cuentasPorPagar = 0;
+    let proveedoresConSaldo = 0;
     let cuentasPorPagarDocs = 0;
     for (const c of cxpAgg) {
       if (!c._id) continue;
@@ -180,7 +193,8 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
       const saldo = (c.total || 0) - pagos;
       if (saldo > 0.01) {
         cuentasPorPagar += saldo;
-        cuentasPorPagarDocs += 1;
+        proveedoresConSaldo += 1;
+        cuentasPorPagarDocs += (c.cantidadDocumentos || 0);
       }
     }
     cuentasPorPagar = +cuentasPorPagar.toFixed(2);
@@ -220,8 +234,10 @@ router.get('/dashboard', requierePermiso('reportes', 'ver'), async (req, res) =>
       topProductos,
       cuentasPorCobrar,
       cuentasPorCobrarDocs,
+      clientesConSaldo,
       cuentasPorPagar,
       cuentasPorPagarDocs,
+      proveedoresConSaldo,
       stockBajo,
       sri: {
         pendientes: pendientesSri,

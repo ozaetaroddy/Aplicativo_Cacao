@@ -2,15 +2,10 @@
 // Cliente SOAP para los web services del SRI (Ecuador)
 // - RecepcionComprobantesOffline
 // - AutorizacionComprobantesOffline
-//
-// Referencia: https://www.sri.gob.ec/facturacion-electronica
 
 const axios = require('axios');
 const { parseStringPromise } = require('xml2js');
 
-// ============================================================
-// URLs OFICIALES DEL SRI
-// ============================================================
 const URLS = {
   recepcion: {
     '1': 'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline',
@@ -25,9 +20,6 @@ const URLS = {
 const TIMEOUT_MS = parseInt(process.env.SRI_TIMEOUT_MS || '45000', 10);
 const DEBUG = process.env.SRI_DEBUG === 'true';
 
-// ============================================================
-// HELPERS INTERNOS
-// ============================================================
 function debugLog(...args) {
   if (DEBUG) console.log('[SRI]', ...args);
 }
@@ -63,14 +55,11 @@ function construirEnvioAutorizacion(claveAcceso) {
 
 /**
  * Extrae un valor del objeto parseado, sin importar el namespace.
- * Útil porque el SRI a veces devuelve `ns2:`, `ns3:`, `soap:` o `soapenv:`
  */
 function buscarConNamespace(obj, nombreLocal) {
   if (!obj || typeof obj !== 'object') return undefined;
   for (const key of Object.keys(obj)) {
-    // Coincidencia exacta
     if (key === nombreLocal) return obj[key];
-    // Con prefijo (ns:, ns2:, soapenv:, etc.)
     if (key.includes(':')) {
       const local = key.split(':')[1];
       if (local === nombreLocal) return obj[key];
@@ -98,8 +87,14 @@ function extraerMensajes(contenedor) {
 }
 
 /**
- * POST al SRI con reintentos para errores de RED (no para errores del SRI)
+ * Normaliza un estado del SRI: trim, upper, espacios → "_".
+ * El SRI devuelve "NO AUTORIZADO" (con espacio) en algunos servicios.
  */
+function normalizarEstado(estado) {
+  if (!estado || typeof estado !== 'string') return '';
+  return estado.trim().toUpperCase().replace(/\s+/g, '_');
+}
+
 async function postSOAP(url, body, { reintentos = 2, contexto = 'SRI' } = {}) {
   let ultimoError = null;
   for (let intento = 0; intento <= reintentos; intento++) {
@@ -112,7 +107,6 @@ async function postSOAP(url, body, { reintentos = 2, contexto = 'SRI' } = {}) {
           'User-Agent': 'SistemaContable/2.1'
         },
         timeout: TIMEOUT_MS,
-        // El SRI a veces devuelve 500 con XML válido dentro
         validateStatus: (s) => s >= 200 && s < 600,
         maxRedirects: 0
       });
@@ -120,7 +114,6 @@ async function postSOAP(url, body, { reintentos = 2, contexto = 'SRI' } = {}) {
       return { ok: true, response };
     } catch (err) {
       ultimoError = err;
-      // No reintentar en errores del SRI (5xx con respuesta); sí en red/timeout
       const esRedError = !err.response || ['ECONNABORTED', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'].includes(err.code);
       if (!esRedError) break;
       if (intento < reintentos) {
@@ -165,11 +158,11 @@ async function enviarRecepcion(xmlFirmado, ambiente = '1') {
       return { estado: 'RESPUESTA_INVALIDA', comprobantes: [], exito: false, error: 'Respuesta del SRI sin Body' };
     }
 
-    // Buscar la respuesta sin importar namespace
     const respuesta = buscarConNamespace(body, 'validarComprobanteResponse') || body;
     const resp = buscarConNamespace(respuesta, 'RespuestaRecepcionComprobante') || respuesta;
 
-    const estado = buscarConNamespace(resp, 'estado') || 'DESCONOCIDO';
+    const estadoRaw = buscarConNamespace(resp, 'estado') || 'DESCONOCIDO';
+    const estado = normalizarEstado(estadoRaw) || estadoRaw;
 
     const comprobantes = [];
     const comprobantesContainer = buscarConNamespace(resp, 'comprobantes');
@@ -251,7 +244,8 @@ async function consultarAutorizacion(claveAcceso, ambiente = '1') {
     }
 
     const principal = autorizaciones[0] || null;
-    const estadoFinal = principal?.estado || 'SIN_RESPUESTA';
+    const estadoRaw = principal?.estado || 'SIN_RESPUESTA';
+    const estadoFinal = normalizarEstado(estadoRaw) || estadoRaw;
     const exito = estadoFinal === 'AUTORIZADO';
 
     return {
@@ -285,14 +279,17 @@ async function enviarYAutorizar(xmlFirmado, claveAcceso, ambiente = '1', maxInte
 
   let autorizacion = null;
   for (let intento = 1; intento <= maxIntentos; intento++) {
-    // Backoff: 1.5s, 3s, 4.5s, 6s, 7.5s
     const espera = 1500 * intento;
     await new Promise(r => setTimeout(r, espera));
 
     autorizacion = await consultarAutorizacion(claveAcceso, ambiente);
 
     if (autorizacion.exito) break;
-    if (['RECHAZADA', 'NO AUTORIZADO', 'ERROR_RED', 'ERROR_PARSEO'].includes(autorizacion.estado)) break;
+
+    // ⚠️  FIX: normalizamos el estado antes de comparar. El SRI puede devolver
+    // "NO AUTORIZADO" (con espacio) o "NO_AUTORIZADO"; ambos deben cortar.
+    const estadoNorm = normalizarEstado(autorizacion.estado);
+    if (['RECHAZADA', 'NO_AUTORIZADO', 'ERROR_RED', 'ERROR_PARSEO'].includes(estadoNorm)) break;
 
     debugLog(`Intento ${intento}/${maxIntentos}: estado=${autorizacion.estado}`);
   }
@@ -312,7 +309,6 @@ async function probarConexion(ambiente = '1') {
   const url = URLS.recepcion[ambiente] || URLS.recepcion['1'];
   const inicio = Date.now();
   try {
-    // Enviamos un SOAP vacío — solo verificamos conectividad
     await axios.post(url, '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body/></soapenv:Envelope>', {
       headers: { 'Content-Type': 'text/xml; charset=utf-8' },
       timeout: 10000,
@@ -340,5 +336,6 @@ module.exports = {
   consultarAutorizacion,
   enviarYAutorizar,
   probarConexion,
-  URLS
+  URLS,
+  normalizarEstado
 };

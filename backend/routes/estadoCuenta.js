@@ -3,11 +3,13 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { requierePermiso } = require('../utils/permisos');
+const { TIPOS_NO_CXC } = require('../utils/tiposDocumento');
+
+// ✅ Alias semántico local — en estado de cuenta los "no deuda" son los mismos
+// que los "no CxC" del resto del sistema.
+const TIPOS_NO_DEUDA = TIPOS_NO_CXC;
 
 router.use(requierePermiso('reportes', 'ver'));
-
-// Documentos que NO cuentan como deuda (no son comprobantes comerciales)
-const TIPOS_NO_DEUDA = ['guia_remision', 'proforma'];
 
 function diasDesde(fecha) {
   const hoy = new Date();
@@ -38,7 +40,9 @@ function describeTipo(tipo) {
   return map[tipo] || tipo;
 }
 
-// ===== ESTADO DE CUENTA DE UN CLIENTE =====
+// ============================================================
+// ESTADO DE CUENTA POR CLIENTE
+// ============================================================
 router.get('/:clienteId', async (req, res) => {
   try {
     const { clienteId } = req.params;
@@ -56,7 +60,6 @@ router.get('/:clienteId', async (req, res) => {
     if (hasta) { const h = new Date(hasta); if (!isNaN(h)) { h.setHours(23, 59, 59, 999); filtroFecha.$lte = h; } }
     const hayFiltroFecha = Object.keys(filtroFecha).length > 0;
 
-    // --- 1. Ventas (débitos y notas de crédito) ---
     const matchVentas = { clienteId: new ObjectId(clienteId) };
     if (hayFiltroFecha) matchVentas.fecha_emision = filtroFecha;
 
@@ -85,7 +88,6 @@ router.get('/:clienteId', async (req, res) => {
       });
     }
 
-    // --- 2. Pagos registrados (créditos) ---
     const filtroPagos = { clienteId: new ObjectId(clienteId), anulado: { $ne: true } };
     if (hayFiltroFecha) filtroPagos.fecha = filtroFecha;
 
@@ -106,7 +108,6 @@ router.get('/:clienteId', async (req, res) => {
       });
     }
 
-    // --- 3. Reordenar y recalcular saldo acumulado ---
     movimientos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
     let saldo = 0;
     for (const m of movimientos) {
@@ -118,12 +119,10 @@ router.get('/:clienteId', async (req, res) => {
     const totalCreditos = +movimientos.reduce((s, m) => s + m.credito, 0).toFixed(2);
     const saldoFinal = +(totalDebitos - totalCreditos).toFixed(2);
 
-    // --- 4. Aging: sólo sobre facturas con saldo pendiente ---
     const aging = { '0-30': 0, '31-60': 0, '61-90': 0, '+90': 0 };
     const facturasPendientes = movimientos.filter(m =>
       m.tipo === 'factura' && m.estado_pago !== 'pagado'
     );
-    // Aplicar los pagos globales a las facturas más antiguas (FIFO)
     let creditoDisponible = pagos.reduce((s, p) => s + (p.monto || 0), 0);
     for (const m of facturasPendientes) {
       let montoAplicable = m.debito;
@@ -138,7 +137,6 @@ router.get('/:clienteId', async (req, res) => {
     }
     Object.keys(aging).forEach(k => { aging[k] = +aging[k].toFixed(2); });
 
-    // --- 5. Resumen por tipo ---
     const resumenPorTipo = movimientos.reduce((acc, m) => {
       if (!acc[m.tipo]) acc[m.tipo] = { cantidad: 0, total: 0 };
       acc[m.tipo].cantidad++;
@@ -177,12 +175,13 @@ router.get('/:clienteId', async (req, res) => {
   }
 });
 
-// ===== RESUMEN DE CARTERA GENERAL =====
+// ============================================================
+// RESUMEN GLOBAL DE CARTERA
+// ============================================================
 router.get('/', async (req, res) => {
   try {
-    // CxC por cliente
     const cxcPipeline = [
-      { $match: { tipo_documento: { $nin: TIPOS_NO_DEUDA } } },
+      { $match: { tipo_documento: { $nin: [...TIPOS_NO_DEUDA] } } },
       {
         $group: {
           _id: '$clienteId',
@@ -202,14 +201,12 @@ router.get('/', async (req, res) => {
 
     const cxcAgg = await req.db.collection('ventas_v2').aggregate(cxcPipeline).toArray();
 
-    // Pagos por cliente
     const pagosAgg = await req.db.collection('pagos').aggregate([
       { $match: { tipo: 'cobro', anulado: { $ne: true }, clienteId: { $ne: null } } },
       { $group: { _id: '$clienteId', totalPagos: { $sum: '$monto' } } }
     ]).toArray();
     const pagosPorCliente = new Map(pagosAgg.map(p => [String(p._id), p.totalPagos || 0]));
 
-    // Enriquecer con cliente
     const clienteIds = cxcAgg.map(c => c._id).filter(Boolean);
     const clientes = clienteIds.length
       ? await req.db.collection('clientes').find(

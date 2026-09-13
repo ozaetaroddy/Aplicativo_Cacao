@@ -178,8 +178,12 @@ async function enviarComprobantePorEmail(options) {
     });
   }
 
+  // ✅ Sanitiza razonSocial y remitente para evitar romper el header From.
+  const safeFrom = String(razonSocialEmisor).replace(/["<>\\\r\n]/g, '').slice(0, 100);
+  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
+
   const mailOptions = {
-    from: `"${razonSocialEmisor}" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+    from: `"${safeFrom}" <${fromAddress}>`,
     to: emailDestino,
     subject: asuntoFinal,
     text: mensajeFinal,

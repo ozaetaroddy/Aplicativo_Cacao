@@ -5,32 +5,31 @@ const { requierePermiso } = require('../utils/permisos');
 const { logAudit } = require('../utils/audit');
 const { cargarCertificado, cifrarSecreto } = require('../utils/firmaElectronica');
 
-const MAX_BASE64_LEN = 20 * 1024 * 1024;
+// ⚠️  express.json({ limit: '20mb' }) en server.js. Dejamos ~2MB para el resto
+// del payload (nombre_archivo, otros campos) → 18 MB base64 ≈ 13.5 MB binarios.
+const MAX_BASE64_LEN = 18 * 1024 * 1024;
 const MAX_PASSWORD_LEN = 200;
 const MAX_NOMBRE_ARCHIVO_LEN = 200;
 
-/**
- * Intenta extraer el RUC del subject/issuer del certificado.
- * Los certificados ecuatorianos lo incluyen en:
- *   - CN="APELLIDO NOMBRE" serialNumber=0992...001  (con prefijo RUC)
- *   - O="EMPRESA S.A." serialNumber=0992...001
- *   - SubjectAltName a veces
- * Probamos varios patrones y validamos que no venga pegado a otro dígito.
- */
 function extraerRucDelCertificado(certificate) {
-  const candidatos = [certificate.subject, certificate.issuer].filter(Boolean);
+  const fuentes = [certificate.subject, certificate.issuer].filter(Boolean);
 
-  for (const fuente of candidatos) {
+  for (const fuente of fuentes) {
     const s = String(fuente);
-
-    // 1. RUC explícito: "RUC: 0992...", "RUC=0992...", "serialNumber=0992..."
     let m = s.match(/(?:RUC|serialNumber|SERIALNUMBER)[^\d]*(\d{13})(?!\d)/i);
     if (m) return m[1];
-
-    // 2. Cualquier 13 dígitos que no esté rodeado de otros dígitos
     m = s.match(/(?:^|[^\d])(\d{13})(?!\d)/);
     if (m) return m[1];
   }
+
+  if (Array.isArray(certificate.subjectAltNames)) {
+    for (const alt of certificate.subjectAltNames) {
+      if (typeof alt !== 'string') continue;
+      const m = alt.match(/(?:^|[^\d])(\d{13})(?!\d)/);
+      if (m) return m[1];
+    }
+  }
+
   return null;
 }
 
@@ -54,7 +53,7 @@ router.post('/subir', requierePermiso('certificados', 'crear'), async (req, res)
     }
     if (archivo_base64.length > MAX_BASE64_LEN) {
       return res.status(413).json({
-        error: `El archivo es demasiado grande. Límite: ~15 MB binarios (${(MAX_BASE64_LEN / 1024 / 1024).toFixed(0)} MB en base64)`
+        error: `El archivo es demasiado grande. Límite: ~13 MB binarios (${(MAX_BASE64_LEN / 1024 / 1024).toFixed(0)} MB en base64)`
       });
     }
 
@@ -103,7 +102,8 @@ router.post('/subir', requierePermiso('certificados', 'crear'), async (req, res)
           codigo: 'RUC_NO_DETECTADO',
           subject: certificado.certificate.subject,
           issuer: certificado.certificate.issuer,
-          serialNumber: certificado.certificate.serialNumber
+          serialNumber: certificado.certificate.serialNumber,
+          subjectAltNames: certificado.certificate.subjectAltNames
         });
       }
       if (rucCert !== rucEmpresa) {

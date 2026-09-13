@@ -2,19 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { tienePermiso } = require('../utils/permisos');
-
-const PREFIJOS = {
-  'factura': 'FAC',
-  'compra': 'COM',
-  'guia_remision': 'GUI',
-  'exportacion': 'EXP',
-  'reembolso': 'REB',
-  'retencion': 'RET',
-  'liquidacion': 'LIQ',
-  'nota_credito': 'NCR',
-  'nota_debito': 'NDB',
-  'proforma': 'PRO'
-};
+const { PREFIJOS_CONTADOR } = require('../utils/tiposDocumento');
 
 const PERMISO_POR_TIPO = {
   factura: ['ventas', 'crear'],
@@ -33,7 +21,10 @@ function requierePermisoSegunTipo(req, res, next) {
   const tipo = req.body?.tipo || req.params?.tipo;
   const [modulo, accion] = PERMISO_POR_TIPO[tipo] || [];
   if (!modulo) {
-    return res.status(400).json({ error: `Tipo "${tipo}" no válido`, tiposValidos: Object.keys(PERMISO_POR_TIPO) });
+    return res.status(400).json({
+      error: `Tipo "${tipo}" no válido`,
+      tiposValidos: Object.keys(PERMISO_POR_TIPO)
+    });
   }
   const rol = req.user?.rol;
   if (!tienePermiso(rol, modulo, accion)) {
@@ -45,9 +36,6 @@ function requierePermisoSegunTipo(req, res, next) {
   next();
 }
 
-// ============================================================
-// POST /siguiente — RESERVA (incrementa)
-// ============================================================
 router.post('/siguiente', requierePermisoSegunTipo, async (req, res) => {
   try {
     const { tipo } = req.body;
@@ -58,43 +46,33 @@ router.post('/siguiente', requierePermisoSegunTipo, async (req, res) => {
     );
 
     const valor = result?.valor || 1;
-    const prefijo = PREFIJOS[tipo] || 'DOC';
+    const prefijo = PREFIJOS_CONTADOR[tipo] || 'DOC';
     const codigo = `${prefijo}-${String(valor).padStart(6, '0')}`;
 
     res.json({ codigo, valor, tipo });
   } catch (err) {
-    console.error('Error en contador:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ============================================================
-// GET /:tipo/peek — LECTURA (no incrementa)
-// ============================================================
 router.get('/:tipo/peek', requierePermisoSegunTipo, async (req, res) => {
   try {
     const { tipo } = req.params;
     const doc = await req.db.collection('contadores').findOne({ _id: tipo });
     const valorActual = doc?.valor || 0;
     const proximo = valorActual + 1;
-    const prefijo = PREFIJOS[tipo] || 'DOC';
+    const prefijo = PREFIJOS_CONTADOR[tipo] || 'DOC';
     const codigo = `${prefijo}-${String(proximo).padStart(6, '0')}`;
 
     res.json({
-      codigo,
-      valor: proximo,
-      tipo,
-      peek: true,
-      nota: 'Este valor NO ha sido reservado. Usa POST /siguiente para reservarlo o crea el documento para consumirlo.'
+      codigo, valor: proximo, tipo, peek: true,
+      nota: 'Este valor NO ha sido reservado. Usa POST /siguiente para reservarlo.'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ============================================================
-// GET /:tipo — valor actual (read-only)
-// ============================================================
 router.get('/:tipo', requierePermisoSegunTipo, async (req, res) => {
   try {
     const { tipo } = req.params;
@@ -105,10 +83,6 @@ router.get('/:tipo', requierePermisoSegunTipo, async (req, res) => {
   }
 });
 
-// ============================================================
-// POST /sincronizar — solo admin
-// ✅ FIX: incluidos todos los tipos que existen en PREFIJOS
-// ============================================================
 router.post('/sincronizar', (req, res, next) => {
   if (req.user?.rol !== 'admin') {
     return res.status(403).json({ error: 'Solo un administrador puede sincronizar contadores' });
@@ -138,9 +112,10 @@ router.post('/sincronizar', (req, res, next) => {
       const valorActual = actual?.valor || 0;
 
       if (max > valorActual) {
+        // ✅ $max: nunca retrocede si otro worker ya subió más.
         await req.db.collection('contadores').updateOne(
           { _id: tipo },
-          { $set: { valor: max } },
+          { $max: { valor: max } },
           { upsert: true }
         );
         resultados[tipo] = { anterior: valorActual, actualizado: max };

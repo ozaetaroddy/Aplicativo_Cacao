@@ -1,54 +1,59 @@
+// frontend/src/composables/useAuth.js
+// Autenticación basada en cookies httpOnly (sin token en localStorage).
+// El token real vive en la cookie `sc_at` inaccesible desde JS.
+
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { api } from '../services/api'
 import { usePermisos } from './usePermisos'
+
+const USER_KEY = 'user'
+const HINT_KEY = 'auth_hint'
 
 export function useAuth() {
   const router = useRouter()
-  const token = ref(localStorage.getItem('token'))
-  const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
+  const user = ref(JSON.parse(localStorage.getItem(USER_KEY) || 'null'))
 
-  const isAuthenticated = computed(() => !!token.value)
+  const isAuthenticated = computed(() => !!user.value)
   const isAdmin = computed(() => user.value?.rol === 'admin')
 
-  const logout = () => {
-    // Limpiar TODO: token, usuario, cache de permisos y de catálogos
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    token.value = null
+  const logout = async () => {
+    // 1. Invalidar refresh token en el backend
+    try {
+      await api.post('/auth/logout', {}, { skipLoader: true })
+    } catch (_) { /* seguimos con el logout local */ }
+
+    // 2. Limpiar estado local
+    localStorage.removeItem(USER_KEY)
+    localStorage.removeItem(HINT_KEY)
     user.value = null
 
-    // Limpiar cache de permisos para que no se reutilice con otro usuario
-    try {
-      const { limpiarCache } = usePermisos()
-      limpiarCache()
-    } catch (e) {
-      // Ignorar errores si Pinia aún no está listo
-    }
+    // 3. Limpiar cache de permisos
+    try { usePermisos().limpiarCache() } catch (_) { /* noop */ }
 
+    // 4. Redirigir
     router.push('/login')
   }
 
-  const setAuth = (newToken, newUser) => {
-    localStorage.setItem('token', newToken)
-    localStorage.setItem('user', JSON.stringify(newUser))
-    token.value = newToken
+  const setUser = (newUser) => {
+    localStorage.setItem(USER_KEY, JSON.stringify(newUser))
+    localStorage.setItem(HINT_KEY, '1')
     user.value = newUser
   }
 
   const updateUser = (newUserData) => {
     const updated = { ...(user.value || {}), ...newUserData }
-    localStorage.setItem('user', JSON.stringify(updated))
+    localStorage.setItem(USER_KEY, JSON.stringify(updated))
     user.value = updated
   }
 
   /**
-   * Refresca los datos del usuario desde el backend (sincroniza el rol)
+   * Refresca los datos del usuario desde el backend (sincroniza rol, nombre, etc).
+   * Si el backend devuelve 401, cierra la sesión automáticamente.
    */
   const refreshUser = async () => {
-    if (!token.value) return
     try {
-      const { api } = await import('../services/api')
-      const data = await api.request('/auth/perfil', { method: 'GET' })
+      const data = await api.get('/auth/perfil', { skipLoader: true })
       const userData = {
         id: data._id,
         nombre: data.nombre,
@@ -56,20 +61,26 @@ export function useAuth() {
         rol: data.rol,
         telefono: data.telefono || ''
       }
-      localStorage.setItem('user', JSON.stringify(userData))
+      localStorage.setItem(USER_KEY, JSON.stringify(userData))
       user.value = userData
+      return userData
     } catch (e) {
       console.warn('No se pudo refrescar el usuario:', e.message)
+      if (/sesión|expirada|401/i.test(e.message)) {
+        localStorage.removeItem(USER_KEY)
+        localStorage.removeItem(HINT_KEY)
+        user.value = null
+      }
+      return null
     }
   }
 
   return {
-    token,
     user,
     isAuthenticated,
     isAdmin,
     logout,
-    setAuth,
+    setUser,
     updateUser,
     refreshUser
   }

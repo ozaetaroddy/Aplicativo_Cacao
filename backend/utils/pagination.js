@@ -32,39 +32,22 @@ function buildDateRange(query, field = 'fecha_emision') {
   return Object.keys(range).length ? { [field]: range } : null;
 }
 
-function buildMatch(query, options = {}) {
-  const { dateField = 'fecha_emision', exactFields = {} } = options;
-  const match = {};
-  const dateFilter = buildDateRange(query, dateField);
-  if (dateFilter) Object.assign(match, dateFilter);
-  Object.keys(exactFields).forEach((paramKey) => {
-    const val = query[paramKey];
-    if (val !== undefined && val !== null && val !== '') {
-      match[exactFields[paramKey]] = val;
-    }
-  });
-  return match;
-}
-
 // Whitelist de campos ordenables. Se aplica en TODOS los módulos.
+// Si `sortBy` no está aquí, se ignora silenciosamente y se usa el default.
 const CAMPOS_ORDENABLES = new Set([
-  // Fechas
   'fecha', 'fecha_emision', 'fecha_pago', 'fecha_firma', 'fecha_autorizacion',
+  'ultimo_envio_sri', 'ultima_consulta_sri',
   'createdAt', 'updatedAt',
-  // Documentos
-  'numero_factura', 'numero_recibo', 'clave_acceso', 'numero_autorizacion',
-  // Montos
+  'numero_factura', 'numero_recibo', 'numero_guia', 'numero_retencion',
+  'clave_acceso', 'numero_autorizacion', 'referencia',
   'total', 'subtotal', 'iva', 'monto', 'monto_pagado',
-  // Entidades
-  'nombre', 'ruc', 'codigo', 'codigo_barras', 'email',
-  // Producto / inventario
-  'stock', 'stock_minimo', 'precio_venta', 'precio_compra',
-  // Estados
-  'estado_sri', 'estado_pago', 'tipo_documento', 'tipo_compra', 'tipo',
-  // Auditoría
-  'accion', 'coleccion',
-  // Otros
-  'rol', 'activo'
+  'precio_unitario', 'precio_venta', 'precio_compra',
+  'cantidad', 'saldo', 'saldoPendiente', 'retencion_valor',
+  'nombre', 'razon_social', 'nombre_comercial', 'ruc', 'codigo', 'codigo_barras', 'email',
+  'stock', 'stock_minimo',
+  'estado_sri', 'estado_pago', 'tipo_documento', 'tipo_compra', 'tipo', 'anulado',
+  'accion', 'coleccion', 'usuarioEmail', 'documentoNumero',
+  'rol', 'activo', 'dias'
 ]);
 
 function parseSort(query, defaultSort = { fecha_emision: -1 }) {
@@ -79,20 +62,11 @@ function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function paginarPipeline(pipeline, query) {
-  const { skip, limit, page } = parsePagination(query);
-  pipeline.push({ $skip: skip });
-  pipeline.push({ $limit: limit });
-  return { page, limit };
-}
-
 module.exports = {
   parsePagination,
   wantsPagination,
   buildDateRange,
-  buildMatch,
   parseSort,
   escapeRegex,
-  paginarPipeline,
   CAMPOS_ORDENABLES
 };

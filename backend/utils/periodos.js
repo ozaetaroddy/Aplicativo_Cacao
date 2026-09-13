@@ -1,5 +1,6 @@
 // backend/utils/periodos.js
 const { ObjectId } = require('mongodb');
+const { anioMesEC } = require('./fechaEC');
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -11,8 +12,10 @@ async function obtenerPeriodoCerrado(db, fecha) {
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return null;
 
-  const anio = d.getFullYear();
-  const mes = d.getMonth() + 1;
+  // ⚠️  FIX: usamos la TZ de Ecuador, no la del servidor. Sin esto, un
+  // documento emitido a las 21:00 EC del 31 de marzo (02:00 UTC del 1 de
+  // abril) se verifica contra Abril y permite editar un Marzo cerrado.
+  const { anio, mes } = anioMesEC(fecha);
 
   return await db.collection('periodos_cerrados').findOne({ anio, mes });
 }
@@ -44,7 +47,6 @@ function verificarPeriodoAbierto() {
                         : req.baseUrl.includes('compras') ? 'compras_v2'
                         : null;
         if (coleccion) {
-          // ⚠️  SIN proyección: el handler necesita todos los campos (detalles, total, etc.)
           docOriginal = await req.db.collection(coleccion).findOne({ _id: new ObjectId(id) });
           fechaOriginal = docOriginal?.fecha_emision;
         }
@@ -77,7 +79,6 @@ function verificarPeriodoAbierto() {
       }
 
       if (docOriginal) req._documentoOriginal = docOriginal;
-
       next();
     } catch (err) {
       console.error('Error verificando período:', err);
@@ -86,4 +87,34 @@ function verificarPeriodoAbierto() {
   };
 }
 
-module.exports = { obtenerPeriodoCerrado, verificarPeriodoAbierto, MESES };
+/**
+ * Devuelve el set de periodos cerrados que intersectan las fechas dadas.
+ * Evita N queries cuando se importan lotes.
+ * Retorna un array de { anio, mes, nombre, fecha_cierre, ... }.
+ */
+async function obtenerPeriodosCerradosEnFechas(db, fechas) {
+  if (!Array.isArray(fechas) || fechas.length === 0) return [];
+
+  const pares = new Set();
+  for (const f of fechas) {
+    if (!f) continue;
+    const d = new Date(f);
+    if (isNaN(d.getTime())) continue;
+    const { anio, mes } = anioMesEC(d);
+    pares.add(`${anio}-${mes}`);
+  }
+  if (pares.size === 0) return [];
+
+  const orQuery = [...pares].map(k => {
+    const [anio, mes] = k.split('-').map(Number);
+    return { anio, mes };
+  });
+
+  const docs = await db.collection('periodos_cerrados').find({ $or: orQuery }).toArray();
+  return docs.map(p => ({
+    ...p,
+    nombre: `${MESES[p.mes - 1]} ${p.anio}`
+  }));
+}
+
+module.exports = { obtenerPeriodoCerrado, verificarPeriodoAbierto, MESES, obtenerPeriodosCerradosEnFechas };

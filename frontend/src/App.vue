@@ -1,77 +1,148 @@
 <template>
   <div id="app">
+    <!-- LOGIN: sin navbar -->
     <div v-if="isLoginPage">
       <router-view />
     </div>
-    <div v-else>
+
+    <!-- APP PRINCIPAL -->
+    <div v-else class="app-layout">
       <Navbar />
 
-      <div class="container main-container">
-        <!-- Banner de bienvenida -->
-        <transition name="banner">
-          <div v-if="isAuthenticated && mostrarBienvenida" class="welcome-banner">
-            <div class="welcome-icon">
-              <i class="fas fa-hand-wave"></i>
-            </div>
-            <div class="welcome-content">
-              <div class="welcome-title">
-                ¡Hola, <strong>{{ user?.nombre || 'Usuario' }}</strong>!
-              </div>
-              <div class="welcome-text">
-                Bienvenido al Sistema de Gestión Empresarial
-              </div>
-            </div>
-            <button class="welcome-close" @click="mostrarBienvenida = false" title="Cerrar">
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-        </transition>
-
-        <transition name="fade" mode="out-in">
-          <router-view />
-        </transition>
-      </div>
+      <main class="main-container">
+        <div class="container">
+          <transition name="fade" mode="out-in">
+            <router-view :key="$route.fullPath" />
+          </transition>
+        </div>
+      </main>
 
       <Footer />
+
+      <!-- Floating stock alert -->
       <NotificationStock />
+
+      <!-- Tour de bienvenida -->
+      <OnboardingTour />
     </div>
 
+    <!-- Overlays globales -->
     <LoaderOverlay />
     <PwaInstallPrompt />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, inject } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref, inject, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
 import Navbar from './components/Navbar.vue'
 import Footer from './components/Footer.vue'
 import NotificationStock from './components/NotificationStock.vue'
 import LoaderOverlay from './components/LoaderOverlay.vue'
 import PwaInstallPrompt from './components/PwaInstallPrompt.vue'
+import OnboardingTour from './components/OnboardingTour.vue'
 import { useInactivityTimeout } from './composables/useInactivityTimeout'
 import { usePermisos } from './composables/usePermisos'
+import { useOnboarding } from './composables/useOnboarding'
 
 const route = useRoute()
+const router = useRouter()
 const toast = useToast()
 const { cargarPermisos } = usePermisos()
+const onboarding = useOnboarding()
 
 const isLoginPage = computed(() => route.path === '/login')
 const isAuthenticated = computed(() => !!localStorage.getItem('token'))
-const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
-const mostrarBienvenida = ref(true)
-
-const socket = inject('socket')
+const socket = inject('socket', null)
+const onboardingProgramado = ref(false)
 
 useInactivityTimeout(30)
 
-onMounted(async () => {
-  // Ocultar banner automáticamente después de 6 segundos
-  setTimeout(() => {
-    mostrarBienvenida.value = false
-  }, 6000)
+/**
+ * Pasos del tour de bienvenida.
+ * Se disparan después de que el dashboard esté montado.
+ */
+const PASOS_TOUR = [
+  {
+    target: '[data-tour="brand"]',
+    title: '¡Bienvenido a tu Sistema Contable!',
+    description: 'Un recorrido rápido por las funciones clave. Puedes cancelarlo cuando quieras con la tecla ESC.',
+    position: 'bottom',
+    icon: 'fas fa-hand-sparkles',
+    bullets: [
+      'Funciona en cualquier dispositivo (celular, tablet, PC)',
+      'Instálalo como app desde el navegador',
+      'Todo se guarda automáticamente'
+    ]
+  },
+  {
+    target: '[data-tour="quick-actions"]',
+    title: 'Accesos rápidos',
+    description: 'Aquí tienes las acciones más usadas. Haz clic en cualquier tarjeta para ir directo a la función.',
+    position: 'bottom',
+    icon: 'fas fa-bolt',
+    bullets: [
+      'Nueva factura, guía, nota de crédito',
+      'Cliente y producto rápido',
+      'Consola del SRI en un clic'
+    ]
+  },
+  {
+    target: '[data-tour="kpis"]',
+    title: 'Resumen del día',
+    description: 'Consulta en tiempo real tus ventas, compras y documentos pendientes. Todo se actualiza automáticamente.',
+    position: 'bottom',
+    icon: 'fas fa-chart-pie',
+    bullets: [
+      'Comparativa vs ayer y vs mes anterior',
+      'Verde = subida · Rojo = bajada',
+      'Totales del mes en un vistazo'
+    ]
+  },
+  {
+    target: '[data-tour="documentos"]',
+    title: 'Menú de Documentos',
+    description: 'Desde aquí accedes a las bandejas de ventas y compras, y creas nuevos documentos.',
+    position: 'bottom',
+    icon: 'fas fa-file-invoice'
+  },
+  {
+    target: '[data-tour="search"]',
+    title: 'Buscador global',
+    description: 'Busca cualquier cosa: clientes, productos, facturas. Atajo rápido: Ctrl + K',
+    position: 'bottom',
+    icon: 'fas fa-search'
+  },
+  {
+    target: '[data-tour="user-menu"]',
+    title: 'Tu cuenta',
+    description: 'Desde aquí gestionas tu perfil, cierras sesión y accedes a la configuración avanzada.',
+    position: 'bottom',
+    icon: 'fas fa-user-circle'
+  },
+  {
+    target: null, // Paso final sin target → centrado
+    title: '¡Todo listo!',
+    description: 'Empieza facturando de forma electrónica. Si necesitas repasar el tour, lo encuentras en Mi Perfil → Ayuda.',
+    position: 'center',
+    icon: 'fas fa-rocket',
+    bullets: [
+      'Configura tu RUC primero (Administración → Configuración)',
+      'Carga tu certificado .p12',
+      'Emite tu primera factura'
+    ]
+  }
+]
 
+onMounted(async () => {
+
+  const loading = document.getElementById('app-loading')
+  if (loading) {
+    loading.classList.add('hide')
+    setTimeout(() => loading.remove(), 500)
+  }
+  
   if (isAuthenticated.value) {
     try {
       await cargarPermisos()
@@ -80,6 +151,7 @@ onMounted(async () => {
     }
   }
 
+  // WebSocket eventos
   if (socket) {
     socket.on('nueva-compra', (data) => {
       toast.info(`📥 Nueva compra: ${data.data?.numero_factura || 'Factura'}`)
@@ -89,135 +161,59 @@ onMounted(async () => {
     })
   }
 })
+
+// Disparar tour automáticamente si es primer login y está en dashboard
+watch(
+  () => [route.path, isAuthenticated.value],
+  ([path, auth]) => {
+    if (!auth || path !== '/') return
+    if (onboardingProgramado.value) return
+    if (!onboarding.verificarPrimeraVez()) return
+
+    onboardingProgramado.value = true
+    setTimeout(() => {
+      onboarding.iniciar(PASOS_TOUR)
+    }, 900)
+  },
+  { immediate: true }
+)
+
+// Exponer método para reiniciar tour desde otras vistas (ej. PerfilUsuario)
+window.__reiniciarTour__ = () => {
+  onboarding.reiniciar()
+  onboarding.iniciar(PASOS_TOUR, { force: true })
+}
 </script>
 
 <style scoped>
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
 .main-container {
-  padding: 30px 0 40px;
-  min-height: calc(100vh - 400px);
-}
-
-/* ===== BANNER DE BIENVENIDA ===== */
-.welcome-banner {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, rgba(52, 152, 219, 0.08), rgba(241, 196, 15, 0.06));
-  border: 1px solid rgba(52, 152, 219, 0.2);
-  border-left: 4px solid var(--primary-color);
-  border-radius: 14px;
-  margin-bottom: 24px;
-  position: relative;
-  overflow: hidden;
-}
-
-.welcome-banner::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 200px;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(52, 152, 219, 0.05));
-  pointer-events: none;
-}
-
-.welcome-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 1.2rem;
-  flex-shrink: 0;
-  box-shadow: 0 6px 16px rgba(52, 152, 219, 0.3);
-}
-
-.welcome-content {
   flex: 1;
-  min-width: 0;
-}
-
-.welcome-title {
-  font-size: 1rem;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-}
-.welcome-title strong {
-  font-weight: 700;
-  color: var(--primary-color);
-}
-
-.welcome-text {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-
-.welcome-close {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
-}
-.welcome-close:hover {
-  background: var(--bg-table-stripe);
-  color: var(--text-primary);
-}
-
-/* ===== TRANSICIONES ===== */
-.banner-enter-active,
-.banner-leave-active {
-  transition: all 0.4s var(--ease-out);
-}
-.banner-enter-from {
-  opacity: 0;
-  transform: translateY(-12px);
-}
-.banner-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
+  padding: 32px 0 48px;
+  min-height: calc(100vh - var(--navbar-height) - 320px);
 }
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.25s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
-.fade-enter-from,
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
 .fade-leave-to {
   opacity: 0;
+  transform: translateY(-6px);
 }
 
-/* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .main-container {
-    padding: 20px 0 30px;
-  }
-  .welcome-banner {
-    padding: 14px 16px;
-    gap: 12px;
-  }
-  .welcome-icon {
-    width: 38px;
-    height: 38px;
-    font-size: 1rem;
-  }
-  .welcome-title {
-    font-size: 0.92rem;
-  }
-  .welcome-text {
-    font-size: 0.75rem;
+    padding: 20px 0 32px;
   }
 }
 </style>

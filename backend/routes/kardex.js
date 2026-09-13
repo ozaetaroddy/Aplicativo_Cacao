@@ -5,25 +5,154 @@ const { ObjectId } = require('mongodb');
 const { requierePermiso } = require('../utils/permisos');
 const { parsePagination, wantsPagination } = require('../utils/pagination');
 
+function buildFechaFilter(query) {
+  const { desde, hasta } = query;
+  if (!desde && !hasta) return null;
+  const r = {};
+  if (desde) r.$gte = new Date(desde);
+  if (hasta) { const h = new Date(hasta); h.setHours(23, 59, 59, 999); r.$lte = h; }
+  return Object.keys(r).length ? r : null;
+}
+
+// ✅ FIX: paginación opcional. Si viene ?page o ?limit, devuelve { data, total, page, limit, totalPages }.
+// Sin paginación, respeta el comportamiento legacy (array plano) pero limitado a MAX_SIN_PAGINAR.
+const MAX_SIN_PAGINAR = 5000;
+
+router.get('/cliente/:clienteId', requierePermiso('kardex', 'ver'), async (req, res) => {
+  try {
+    const { clienteId } = req.params;
+    if (!ObjectId.isValid(clienteId)) return res.status(400).json({ error: 'ID inválido' });
+
+    const { page, limit, skip } = parsePagination(req.query);
+    const paginar = wantsPagination(req.query);
+
+    const matchKardex = { referencia_tipo: 'venta' };
+    const fechaFilter = buildFechaFilter(req.query);
+    if (fechaFilter) matchKardex.fecha = fechaFilter;
+
+    const basePipeline = [
+      { $match: matchKardex },
+      {
+        $lookup: {
+          from: 'ventas_v2',
+          let: { rid: '$referencia_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$_id', '$$rid'] },
+                clienteId: new ObjectId(clienteId)
+              }
+            },
+            { $project: { _id: 1 } }
+          ],
+          as: 'venta'
+        }
+      },
+      { $match: { 'venta.0': { $exists: true } } },
+      { $project: { venta: 0 } }
+    ];
+
+    if (!paginar) {
+      const movimientos = await req.db.collection('kardex').aggregate([
+        ...basePipeline,
+        { $sort: { fecha: 1, _id: 1 } },
+        { $limit: MAX_SIN_PAGINAR }
+      ]).toArray();
+      return res.json(movimientos);
+    }
+
+    const countResult = await req.db.collection('kardex').aggregate([
+      ...basePipeline,
+      { $count: 'total' }
+    ]).toArray();
+    const total = countResult[0]?.total || 0;
+
+    const data = await req.db.collection('kardex').aggregate([
+      ...basePipeline,
+      { $sort: { fecha: 1, _id: 1 } },
+      { $skip: skip },
+      { $limit: limit }
+    ]).toArray();
+
+    res.json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/proveedor/:proveedorId', requierePermiso('kardex', 'ver'), async (req, res) => {
+  try {
+    const { proveedorId } = req.params;
+    if (!ObjectId.isValid(proveedorId)) return res.status(400).json({ error: 'ID inválido' });
+
+    const { page, limit, skip } = parsePagination(req.query);
+    const paginar = wantsPagination(req.query);
+
+    const matchKardex = { referencia_tipo: 'compra' };
+    const fechaFilter = buildFechaFilter(req.query);
+    if (fechaFilter) matchKardex.fecha = fechaFilter;
+
+    const basePipeline = [
+      { $match: matchKardex },
+      {
+        $lookup: {
+          from: 'compras_v2',
+          let: { rid: '$referencia_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$_id', '$$rid'] },
+                proveedorId: new ObjectId(proveedorId)
+              }
+            },
+            { $project: { _id: 1 } }
+          ],
+          as: 'compra'
+        }
+      },
+      { $match: { 'compra.0': { $exists: true } } },
+      { $project: { compra: 0 } }
+    ];
+
+    if (!paginar) {
+      const movimientos = await req.db.collection('kardex').aggregate([
+        ...basePipeline,
+        { $sort: { fecha: 1, _id: 1 } },
+        { $limit: MAX_SIN_PAGINAR }
+      ]).toArray();
+      return res.json(movimientos);
+    }
+
+    const countResult = await req.db.collection('kardex').aggregate([
+      ...basePipeline,
+      { $count: 'total' }
+    ]).toArray();
+    const total = countResult[0]?.total || 0;
+
+    const data = await req.db.collection('kardex').aggregate([
+      ...basePipeline,
+      { $sort: { fecha: 1, _id: 1 } },
+      { $skip: skip },
+      { $limit: limit }
+    ]).toArray();
+
+    res.json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/producto/:productoId', requierePermiso('kardex', 'ver'), async (req, res) => {
   try {
     const { productoId } = req.params;
     if (!ObjectId.isValid(productoId)) return res.status(400).json({ error: 'ID inválido' });
 
-    const { desde, hasta } = req.query;
     const { page, limit, skip } = parsePagination(req.query);
     const paginar = wantsPagination(req.query);
 
     const filter = { productoId: new ObjectId(productoId) };
-    if (desde || hasta) {
-      filter.fecha = {};
-      if (desde) filter.fecha.$gte = new Date(desde);
-      if (hasta) {
-        const h = new Date(hasta);
-        h.setHours(23, 59, 59, 999);
-        filter.fecha.$lte = h;
-      }
-    }
+    const fechaFilter = buildFechaFilter(req.query);
+    if (fechaFilter) filter.fecha = fechaFilter;
 
     const col = req.db.collection('kardex');
     if (!paginar) {
@@ -40,83 +169,16 @@ router.get('/producto/:productoId', requierePermiso('kardex', 'ver'), async (req
   }
 });
 
-router.get('/cliente/:clienteId', requierePermiso('kardex', 'ver'), async (req, res) => {
-  try {
-    const { clienteId } = req.params;
-    if (!ObjectId.isValid(clienteId)) return res.status(400).json({ error: 'ID inválido' });
-
-    const { desde, hasta } = req.query;
-    const ventas = await req.db.collection('ventas_v2')
-      .find({ clienteId: new ObjectId(clienteId) }, { projection: { _id: 1 } })
-      .toArray();
-    const ventaIds = ventas.map(v => v._id);
-    if (ventaIds.length === 0) return res.json([]);
-
-    const filter = { referencia_id: { $in: ventaIds }, referencia_tipo: 'venta' };
-    if (desde || hasta) {
-      filter.fecha = {};
-      if (desde) filter.fecha.$gte = new Date(desde);
-      if (hasta) {
-        const h = new Date(hasta);
-        h.setHours(23, 59, 59, 999);
-        filter.fecha.$lte = h;
-      }
-    }
-
-    const movimientos = await req.db.collection('kardex').find(filter).sort({ fecha: 1 }).toArray();
-    res.json(movimientos);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/proveedor/:proveedorId', requierePermiso('kardex', 'ver'), async (req, res) => {
-  try {
-    const { proveedorId } = req.params;
-    if (!ObjectId.isValid(proveedorId)) return res.status(400).json({ error: 'ID inválido' });
-
-    const { desde, hasta } = req.query;
-    const compras = await req.db.collection('compras_v2')
-      .find({ proveedorId: new ObjectId(proveedorId) }, { projection: { _id: 1 } })
-      .toArray();
-    const compraIds = compras.map(c => c._id);
-    if (compraIds.length === 0) return res.json([]);
-
-    const filter = { referencia_id: { $in: compraIds }, referencia_tipo: 'compra' };
-    if (desde || hasta) {
-      filter.fecha = {};
-      if (desde) filter.fecha.$gte = new Date(desde);
-      if (hasta) {
-        const h = new Date(hasta);
-        h.setHours(23, 59, 59, 999);
-        filter.fecha.$lte = h;
-      }
-    }
-
-    const movimientos = await req.db.collection('kardex').find(filter).sort({ fecha: 1 }).toArray();
-    res.json(movimientos);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 router.get('/', requierePermiso('kardex', 'ver'), async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
-    const { productoId, tipo_movimiento, desde, hasta } = req.query;
+    const { productoId, tipo_movimiento } = req.query;
 
     const filter = {};
     if (productoId && ObjectId.isValid(productoId)) filter.productoId = new ObjectId(productoId);
     if (tipo_movimiento) filter.tipo_movimiento = tipo_movimiento;
-    if (desde || hasta) {
-      filter.fecha = {};
-      if (desde) filter.fecha.$gte = new Date(desde);
-      if (hasta) {
-        const h = new Date(hasta);
-        h.setHours(23, 59, 59, 999);
-        filter.fecha.$lte = h;
-      }
-    }
+    const fechaFilter = buildFechaFilter(req.query);
+    if (fechaFilter) filter.fecha = fechaFilter;
 
     const col = req.db.collection('kardex');
     const total = await col.countDocuments(filter);

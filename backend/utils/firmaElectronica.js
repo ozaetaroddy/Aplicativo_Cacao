@@ -4,10 +4,10 @@
 // - Firma con C14N real (xml-crypto) + RSA-SHA1 (requerido por el SRI).
 // - Verificación criptográfica de la firma.
 //
-// ⚠️  FIX 2024-XX: el bloque de firma se inserta SIN `\n` extra entre el
-// nodo y la etiqueta de cierre. El SRI aplica enveloped-signature eliminando
-// el nodo <ds:Signature>; si hubiera whitespace agregado por nosotros, el
-// digest calculado por el SRI no coincidiría con el que guardamos al firmar.
+// ⚠️  El bloque de firma se inserta SIN `\n` extra entre el nodo y la
+// etiqueta de cierre. El SRI aplica enveloped-signature eliminando el nodo
+// <ds:Signature>; si hubiera whitespace agregado por nosotros, el digest
+// calculado por el SRI no coincidiría con el que guardamos al firmar.
 
 const forge = require('node-forge');
 const crypto = require('crypto');
@@ -38,7 +38,17 @@ function cifrarSecreto(texto) {
 
 function descifrarSecreto(cifradoStr) {
   if (!cifradoStr) return '';
-  if (!cifradoStr.includes(':')) return cifradoStr;
+
+  // Compatibilidad con datos previos sin cifrar. En producción debe ser raro.
+  if (!cifradoStr.includes(':')) {
+    const log = require('./logger');
+    log.warn(
+      '⚠️  Secreto sin cifrar detectado en BD. Re-súbelo por /api/certificado ' +
+      'para que se guarde con AES-256-GCM.'
+    );
+    return cifradoStr;
+  }
+
   try {
     const [ivB64, tagB64, dataB64] = cifradoStr.split(':');
     const iv = Buffer.from(ivB64, 'base64');
@@ -85,6 +95,21 @@ function cargarCertificado(p12Buffer, password) {
 
     const privateKeyPem = forge.pki.privateKeyToPem(privateKey);
 
+    const subjectAltNames = [];
+    try {
+      const ext = cert.getExtension('subjectAltName');
+      if (ext && Array.isArray(ext.altNames)) {
+        for (const alt of ext.altNames) {
+          if (!alt) continue;
+          if (typeof alt.value === 'string') {
+            subjectAltNames.push(alt.value);
+          } else if (alt.value && typeof alt.value === 'object') {
+            try { subjectAltNames.push(JSON.stringify(alt.value)); } catch (_) { /* noop */ }
+          }
+        }
+      }
+    } catch (_) { /* noop: algunos P12 no traen SAN */ }
+
     const ahora = new Date();
     const notBefore = cert.validity.notBefore;
     const notAfter = cert.validity.notAfter;
@@ -102,6 +127,7 @@ function cargarCertificado(p12Buffer, password) {
         validityNotAfter: notAfter,
         vencido,
         noVigenteAun,
+        subjectAltNames,
         diasRestantes: Math.ceil((notAfter - ahora) / 86400000)
       }
     };
@@ -168,6 +194,28 @@ function firmarXML(xmlSinFirma, privateKeyPem, certificatePem) {
   if (!privateKeyPem) throw new Error('Falta la clave privada para firmar');
   if (!certificatePem) throw new Error('Falta el certificado para firmar');
 
+  // ⚠️  FIX: verificar expiración ANTES de firmar. El certificado puede
+  // haberse vencido entre que se subió y este momento. Un XML firmado con
+  // un cert vencido es rechazado por el SRI sin posibilidad de recuperación.
+  let certForge;
+  try {
+    certForge = forge.pki.certificateFromPem(certificatePem);
+  } catch (e) {
+    throw new Error('No se pudo parsear el certificado: ' + e.message);
+  }
+
+  const ahora = new Date();
+  if (ahora > certForge.validity.notAfter) {
+    throw new Error(
+      `El certificado está vencido (expiró el ${certForge.validity.notAfter.toISOString().slice(0, 10)})`
+    );
+  }
+  if (ahora < certForge.validity.notBefore) {
+    throw new Error(
+      `El certificado aún no es válido (vigente desde ${certForge.validity.notBefore.toISOString().slice(0, 10)})`
+    );
+  }
+
   if (xmlSinFirma.includes('<ds:Signature')) return xmlSinFirma;
 
   if (!/id="comprobante"/i.test(xmlSinFirma)) {
@@ -179,7 +227,6 @@ function firmarXML(xmlSinFirma, privateKeyPem, certificatePem) {
     .replace(/-----END CERTIFICATE-----/g, '')
     .replace(/\s/g, '');
 
-  const certForge = forge.pki.certificateFromPem(certificatePem);
   const issuerName = certForge.issuer.attributes
     .map(a => `${a.shortName || a.name}=${a.value}`)
     .join(', ');
@@ -273,10 +320,6 @@ function firmarXML(xmlSinFirma, privateKeyPem, certificatePem) {
 
   const closingTag = closingTagMatch[0];
 
-  // ⚠️  CRÍTICO: NO insertar '\n' entre signatureBlock y closingTag.
-  // El SRI aplica enveloped-signature eliminando el nodo <ds:Signature>;
-  // si agregamos whitespace, el digest calculado por el SRI diferirá del
-  // que guardamos al firmar y rechazará el comprobante.
   const xmlFirmado = xmlSinFirma.replace(
     new RegExp(closingTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$'),
     signatureBlock + closingTag

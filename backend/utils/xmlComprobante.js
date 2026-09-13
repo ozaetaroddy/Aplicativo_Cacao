@@ -1,6 +1,9 @@
 // backend/utils/xmlComprobante.js
 // Generador de XML de comprobantes electrónicos del SRI (sin firma)
 
+const { buscarRetencion } = require('../data/catalogosSRI');
+const { fechaSRI, periodoFiscal } = require('./fechaEC');
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -19,21 +22,6 @@ function num(n) {
 function num6(n) {
   const v = parseFloat(n) || 0;
   return v.toFixed(6);
-}
-
-function fechaSRI(fecha) {
-  const d = new Date(fecha);
-  const dia = String(d.getDate()).padStart(2, '0');
-  const mes = String(d.getMonth() + 1).padStart(2, '0');
-  const anio = d.getFullYear();
-  return `${dia}/${mes}/${anio}`;
-}
-
-function periodoFiscal(fecha) {
-  const d = new Date(fecha);
-  const mes = String(d.getMonth() + 1).padStart(2, '0');
-  const anio = d.getFullYear();
-  return `${mes}/${anio}`;
 }
 
 function codigoTipoIdentificacion(ruc) {
@@ -79,6 +67,78 @@ function infoIVA(aplicaIVA, tarifaIva) {
   if (pct === 0 || isNaN(pct)) return { ...CODIGOS_IVA[0], porcentaje: 0 };
 
   return { ...CODIGOS_IVA[15], porcentaje: 15 };
+}
+
+function tipoImpuestoDesdeCodigo(cod) {
+  if (cod === '1') return 'RENTA';
+  if (cod === '2') return 'IVA';
+  return null;
+}
+
+/**
+ * Normaliza una fecha que puede venir:
+ *   - Date
+ *   - ISO string (2026-09-01T00:00:00Z o 2026-09-01)
+ *   - DD/MM/YYYY ya formateada
+ * Siempre devuelve DD/MM/YYYY.
+ */
+function normalizarFechaSRI(fecha) {
+  if (!fecha) return '';
+  const s = String(fecha);
+
+  // Ya está en formato DD/MM/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+
+  // ISO o parseable
+  try {
+    return fechaSRI(fecha);
+  } catch (_e) {
+    return s;
+  }
+}
+
+function normalizarImpuestoRetencion(imp, defaults) {
+  const codigo = imp.codigo || '1';
+  const impuestoDeclarado = imp.impuesto
+    || (imp.impuesto_retencion ? String(imp.impuesto_retencion).toUpperCase() : null)
+    || tipoImpuestoDesdeCodigo(codigo);
+
+  let codigoRetencion = imp.codigoRetencion || imp.tipo_retencion || '';
+  let porcentaje = imp.porcentajeRetener ?? imp.porcentaje ?? 0;
+  let valorRetenido = imp.valorRetenido ?? imp.valor_retenido ?? 0;
+  let baseImponible = imp.baseImponible ?? imp.base_imponible ?? 0;
+
+  if (codigoRetencion) {
+    const cat = buscarRetencion(codigoRetencion, impuestoDeclarado);
+    if (cat) {
+      codigoRetencion = cat.codigo;
+      if (porcentaje === 0 && cat.porcentaje != null) porcentaje = cat.porcentaje;
+    } else {
+      console.warn(
+        `⚠️  Retención ${codigoRetencion} no existe en el catálogo` +
+        (impuestoDeclarado ? ` para ${impuestoDeclarado}` : '') +
+        ' — se emite tal cual'
+      );
+    }
+  } else {
+    codigoRetencion = '312';
+  }
+
+  // ✅ FIX: normaliza fecha del doc sustento a DD/MM/YYYY sin importar el formato.
+  const fechaEmisionDocSustento = normalizarFechaSRI(
+    imp.fechaEmisionDocSustento || defaults.fechaEmisionDocSustento
+  );
+
+  return {
+    codigo,
+    codigoRetencion,
+    baseImponible,
+    porcentajeRetener: porcentaje,
+    valorRetenido,
+    codDocSustento: imp.codDocSustento || defaults.codDocSustento,
+    numDocSustento: imp.numDocSustento || defaults.numDocSustento,
+    fechaEmisionDocSustento
+  };
 }
 
 function generarXMLComprobante(venta, cliente, config) {
@@ -182,9 +242,6 @@ function generarXMLComprobante(venta, cliente, config) {
   }
   return xml;
 
-  // ============================================================
-  // FACTURA
-  // ============================================================
   function generarFactura() {
     let x = '';
     x += '<factura id="comprobante" version="1.1.0">\n';
@@ -217,17 +274,16 @@ function generarXMLComprobante(venta, cliente, config) {
     x += `    <totalDescuento>${num(totalDescuento)}</totalDescuento>\n`;
 
     x += '    <totalConImpuestos>\n';
-    const gruposOrdenados = Object.values(gruposIVA).sort((a, b) =>
-      a.codigoPorcentaje.localeCompare(b.codigoPorcentaje)
-    );
-    gruposOrdenados.forEach(g => {
-      x += '      <totalImpuesto>\n';
-      x += `        <codigo>${esc(g.codigo)}</codigo>\n`;
-      x += `        <codigoPorcentaje>${esc(g.codigoPorcentaje)}</codigoPorcentaje>\n`;
-      x += `        <baseImponible>${num(g.baseImponible)}</baseImponible>\n`;
-      x += `        <valor>${num(g.valor)}</valor>\n`;
-      x += '      </totalImpuesto>\n';
-    });
+    Object.values(gruposIVA)
+      .sort((a, b) => a.codigoPorcentaje.localeCompare(b.codigoPorcentaje))
+      .forEach(g => {
+        x += '      <totalImpuesto>\n';
+        x += `        <codigo>${esc(g.codigo)}</codigo>\n`;
+        x += `        <codigoPorcentaje>${esc(g.codigoPorcentaje)}</codigoPorcentaje>\n`;
+        x += `        <baseImponible>${num(g.baseImponible)}</baseImponible>\n`;
+        x += `        <valor>${num(g.valor)}</valor>\n`;
+        x += '      </totalImpuesto>\n';
+      });
     x += '    </totalConImpuestos>\n';
 
     x += `    <propina>0.00</propina>\n`;
@@ -290,9 +346,6 @@ function generarXMLComprobante(venta, cliente, config) {
     return x;
   }
 
-  // ============================================================
-  // NOTA DE CRÉDITO
-  // ============================================================
   function generarNotaCredito() {
     let x = '';
     x += '<notaCredito id="comprobante" version="1.1.0">\n';
@@ -322,7 +375,7 @@ function generarXMLComprobante(venta, cliente, config) {
     x += `    <obligadoContabilidad>${esc(obligadoContabilidad)}</obligadoContabilidad>\n`;
     x += `    <codDocModificado>01</codDocModificado>\n`;
     x += `    <numDocModificado>${esc(venta.numero_factura_modificada || venta.numero_factura || '')}</numDocModificado>\n`;
-    x += `    <fechaEmisionDocSustento>${esc(fechaEmision)}</fechaEmisionDocSustento>\n`;
+    x += `    <fechaEmisionDocSustento>${esc(normalizarFechaSRI(venta.comprobante_fecha_emision) || fechaEmision)}</fechaEmisionDocSustento>\n`;
     x += `    <totalSinImpuestos>${num(totalSinImpuestos)}</totalSinImpuestos>\n`;
     x += `    <valorModificacion>${num(importeTotal)}</valorModificacion>\n`;
     x += `    <moneda>${esc(moneda)}</moneda>\n`;
@@ -377,9 +430,6 @@ function generarXMLComprobante(venta, cliente, config) {
     return x;
   }
 
-  // ============================================================
-  // GUÍA DE REMISIÓN
-  // ============================================================
   function generarGuiaRemision() {
     let x = '';
     x += '<guiaRemision id="comprobante" version="1.1.0">\n';
@@ -453,18 +503,21 @@ function generarXMLComprobante(venta, cliente, config) {
     return x;
   }
 
-  // ============================================================
-  // COMPROBANTE DE RETENCIÓN
-  // ============================================================
   function generarRetencion() {
-    // El SRI exige codDocSustento/numDocSustento/fechaEmisionDocSustento
-    // en CADA <impuesto>. Si el caller no los trae, usamos los del comprobante
-    // modificado (comprobante_documento / comprobante_numero / fecha_emision).
     const codDocSustentoDefault = venta.comprobante_documento || '01';
     const numDocSustentoDefault = venta.comprobante_numero || venta.numero_factura_modificada || '';
-    const fechaDocSustentoDefault = venta.comprobante_fecha_emision || fechaEmision;
+    // ✅ FIX: normaliza a DD/MM/YYYY sin importar el formato de entrada.
+    const fechaDocSustentoDefault = venta.comprobante_fecha_emision
+      ? normalizarFechaSRI(venta.comprobante_fecha_emision)
+      : fechaEmision;
 
-    const impuestosRetencionRaw = Array.isArray(venta.impuestos_retencion)
+    const defaults = {
+      codDocSustento: codDocSustentoDefault,
+      numDocSustento: numDocSustentoDefault,
+      fechaEmisionDocSustento: fechaDocSustentoDefault
+    };
+
+    const impuestosRetencionRaw = Array.isArray(venta.impuestos_retencion) && venta.impuestos_retencion.length > 0
       ? venta.impuestos_retencion
       : [{
           codigo: venta.tipo_impuesto || '1',
@@ -474,16 +527,9 @@ function generarXMLComprobante(venta, cliente, config) {
           valorRetenido: venta.retencion_valor || 0
         }];
 
-    const impuestosRetencion = impuestosRetencionRaw.map(imp => ({
-      codigo: imp.codigo || '1',
-      codigoRetencion: imp.codigoRetencion || imp.tipo_retencion || '312',
-      baseImponible: imp.baseImponible || 0,
-      porcentajeRetener: imp.porcentajeRetener ?? imp.porcentaje ?? 0,
-      valorRetenido: imp.valorRetenido ?? imp.valor_retenido ?? 0,
-      codDocSustento: imp.codDocSustento || codDocSustentoDefault,
-      numDocSustento: imp.numDocSustento || numDocSustentoDefault,
-      fechaEmisionDocSustento: imp.fechaEmisionDocSustento || fechaDocSustentoDefault
-    }));
+    const impuestosRetencion = impuestosRetencionRaw.map(imp =>
+      normalizarImpuestoRetencion(imp, defaults)
+    );
 
     let x = '';
     x += '<comprobanteRetencion id="comprobante" version="1.0.0">\n';

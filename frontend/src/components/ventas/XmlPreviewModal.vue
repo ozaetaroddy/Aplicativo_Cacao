@@ -77,22 +77,12 @@ const copiar = async () => {
 const descargar = async () => {
   if (!props.venta?._id) return
   try {
-    const token = localStorage.getItem('token')
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
-    const response = await fetch(`${baseUrl}/ventas/${props.venta._id}/xml`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Error al descargar')
+    const endpoint = props.venta.xml_firmado
+      ? `/ventas/${props.venta._id}/xml-firmado`
+      : `/ventas/${props.venta._id}/xml`
+    const nombreArchivo = `${props.venta.clave_acceso || 'comprobante'}${props.venta.xml_firmado ? '_firmado' : ''}.xml`
 
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${props.venta.clave_acceso || 'comprobante'}.xml`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    await api.download(endpoint, nombreArchivo)
     toast.success('XML descargado')
   } catch (e) {
     toast.error('Error: ' + e.message)

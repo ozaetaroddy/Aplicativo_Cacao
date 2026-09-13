@@ -29,11 +29,19 @@ router.get('/', async (req, res) => {
     const soloErrores = soloString(req.query.soloErrores);
 
     const match = {};
-    if (accion) match.accion = accion;
     if (coleccion) match.coleccion = coleccion;
     if (usuarioEmail) match.usuarioEmail = usuarioEmail;
     if (ip) match.ip = ip;
-    if (soloErrores === 'true') match.accion = { $regex: 'error|fallido|rechaz', $options: 'i' };
+
+    // Filtro de acción:
+    //   - `soloErrores=true` → tiene prioridad y busca acciones de error/fallo/rechazo
+    //   - `accion=xxx`       → filtro exacto
+    //   - ambos              → `soloErrores` gana (documentado así al frontend)
+    if (soloErrores === 'true') {
+      match.accion = { $regex: 'error|fallido|rechaz', $options: 'i' };
+    } else if (accion) {
+      match.accion = accion;
+    }
 
     if (desde || hasta) {
       match.fecha = {};

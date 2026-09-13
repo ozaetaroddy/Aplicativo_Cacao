@@ -728,25 +728,12 @@ const descargarXmlActual = async () => {
   const doc = documentoActual.value
   if (!doc?.clave_acceso) return
   try {
-    const token = localStorage.getItem('token')
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
-    const url = doc.xml_firmado
-      ? `${baseUrl}/ventas/${doc._id}/xml-firmado`
-      : `${baseUrl}/ventas/${doc._id}/xml`
+    const endpoint = doc.xml_firmado
+      ? `/ventas/${doc._id}/xml-firmado`
+      : `/ventas/${doc._id}/xml`
+    const nombreArchivo = `${doc.clave_acceso}${doc.xml_firmado ? '_firmado' : ''}.xml`
 
-    const response = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Error al descargar')
-    const blob = await response.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = objectUrl
-    a.download = `${doc.clave_acceso}${doc.xml_firmado ? '_firmado' : ''}.xml`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(objectUrl)
+    await api.download(endpoint, nombreArchivo)
     toast.success('XML descargado')
   } catch (e) {
     toast.error('Error: ' + e.message)

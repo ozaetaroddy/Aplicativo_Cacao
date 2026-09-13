@@ -4,11 +4,8 @@ const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { requierePermiso } = require('../utils/permisos');
 const { logAudit } = require('../utils/audit');
-
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-];
+// ✅ FIX: una sola fuente de MESES (antes estaba duplicado)
+const { MESES } = require('../utils/periodos');
 
 router.get('/', requierePermiso('periodos', 'ver'), async (req, res) => {
   try {
@@ -28,7 +25,6 @@ router.get('/', requierePermiso('periodos', 'ver'), async (req, res) => {
   }
 });
 
-// ✅ Requiere permiso de períodos
 router.get('/verificar/:anio/:mes', requierePermiso('periodos', 'ver'), async (req, res) => {
   try {
     const { anio, mes } = req.params;
@@ -67,7 +63,6 @@ router.post('/', requierePermiso('periodos', 'cerrar'), async (req, res) => {
       return res.status(400).json({ error: 'Año fuera de rango' });
     }
 
-    // No cerrar períodos futuros
     const hoy = new Date();
     const primerDiaDelMes = new Date(anioNum, mesNum - 1, 1);
     if (primerDiaDelMes > hoy) {
@@ -81,7 +76,6 @@ router.post('/', requierePermiso('periodos', 'cerrar'), async (req, res) => {
       return res.status(400).json({ error: `${MESES[mesNum - 1]} ${anioNum} ya está cerrado` });
     }
 
-    // Verificar que no haya documentos sin clave de acceso en ese período
     const inicio = new Date(anioNum, mesNum - 1, 1);
     const fin = new Date(anioNum, mesNum, 0);
     fin.setHours(23, 59, 59, 999);
@@ -127,7 +121,6 @@ router.post('/', requierePermiso('periodos', 'cerrar'), async (req, res) => {
   }
 });
 
-// Reapertura: SOLO admin
 router.delete('/:id', requierePermiso('periodos', 'reabrir'), async (req, res) => {
   try {
     const { id } = req.params;

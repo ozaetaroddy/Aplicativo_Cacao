@@ -1,7 +1,8 @@
 // backend/middleware/errorHandler.js
-// Middleware global de manejo de errores.
-// Formato unificado: { error, codigo, detalles?, stack? }
-// - No expone stack traces en producción.
+// Manejo unificado de errores: { error, codigo, detalles?, stack? }
+// No expone stack traces en producción.
+
+const log = require('../utils/logger');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -13,11 +14,7 @@ const MONGO_NETWORK_ERRORS = new Set([
   'MongoNotConnectedError',
   'MongoExpiredSessionError'
 ]);
-
-const MONGO_TIMEOUT_ERRORS = new Set([
-  'MongoTimeoutError',
-  'MongoServerSelectionError'
-]);
+const MONGO_TIMEOUT_ERRORS = new Set(['MongoTimeoutError']);
 
 module.exports = (err, req, res, next) => {
   if (res.headersSent) return next(err);
@@ -28,27 +25,29 @@ module.exports = (err, req, res, next) => {
   let detalles = err.detalles || null;
 
   // ==== Mongo: duplicados y validación ====
-  if (err.name === 'MongoServerError' || err.name === 'MongoBulkWriteError') {
-    if (err.code === 11000) {
-      status = 400;
-      codigo = 'DUPLICADO';
-      const campo = Object.keys(err.keyPattern || err.keyValue || {})[0] || 'campo';
-      mensaje = `El valor del campo "${campo}" ya está registrado`;
-      detalles = { campo };
-    } else if (err.code === 121) {
-      status = 400;
-      codigo = 'VALIDACION_MONGO';
-      mensaje = 'Error de validación en la base de datos';
-    }
+  // Reemplazar el bloque de "Mongo: duplicados y validación":
+if (err.name === 'MongoServerError' || err.name === 'MongoBulkWriteError') {
+  const errBase = (err.writeErrors && err.writeErrors[0]?.err) || err;
+
+  if (errBase.code === 11000) {
+    status = 400;
+    codigo = 'DUPLICADO';
+    const keyPattern = errBase.keyPattern || errBase.keyValue || {};
+    const campo = Object.keys(keyPattern)[0] || 'campo';
+    mensaje = `El valor del campo "${campo}" ya está registrado`;
+    detalles = { campo, keyValue: errBase.keyValue };
+  } else if (errBase.code === 121) {
+    status = 400;
+    codigo = 'VALIDACION_MONGO';
+    mensaje = 'Error de validación en la base de datos';
   }
+}
 
   if (MONGO_NETWORK_ERRORS.has(err.name)) {
     status = 503;
     codigo = 'DB_NO_DISPONIBLE';
     mensaje = 'Base de datos no disponible. Reintente en unos segundos.';
-  }
-
-  if (MONGO_TIMEOUT_ERRORS.has(err.name)) {
+  } else if (MONGO_TIMEOUT_ERRORS.has(err.name)) {
     status = 504;
     codigo = 'DB_TIMEOUT';
     mensaje = 'La base de datos tardó demasiado en responder.';
@@ -68,7 +67,7 @@ module.exports = (err, req, res, next) => {
     status = 401; codigo = 'TOKEN_EXPIRADO'; mensaje = 'Sesión expirada';
   }
 
-  // ==== Errores de express-validator ====
+  // ==== express-validator ====
   if (Array.isArray(err.errors) && err.errors.length > 0 && err.errors[0].msg) {
     status = 400;
     codigo = 'VALIDACION';
@@ -85,8 +84,16 @@ module.exports = (err, req, res, next) => {
       : 'Error al conectar con servicio externo';
   }
 
-  // ==== Log ====
+  // ==== Circuit breaker ====
+  if (err.codigo === 'CIRCUIT_OPEN') {
+    status = 503;
+    detalles = { retryAfter: err.retryAfter };
+    res.setHeader('Retry-After', String(err.retryAfter || 60));
+  }
+
+  // ==== Log estructurado ====
   const logCtx = {
+    reqId: req.reqId,
     status, codigo, mensaje,
     metodo: req.method,
     ruta: req.originalUrl,
@@ -95,10 +102,9 @@ module.exports = (err, req, res, next) => {
   };
 
   if (status >= 500) {
-    console.error('❌ Error servidor:', logCtx);
-    if (!IS_PROD) console.error(err.stack);
+    log.error({ ...logCtx, stack: IS_PROD ? undefined : err.stack }, '❌ Error servidor');
   } else if (status >= 400) {
-    console.warn('⚠️  Error cliente:', logCtx);
+    log.warn(logCtx, '⚠️  Error cliente');
   }
 
   // ==== Respuesta ====

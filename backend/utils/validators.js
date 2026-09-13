@@ -1,9 +1,6 @@
 // backend/utils/validators.js
 // Validadores de documentos ecuatorianos según normativa del SRI
 
-// ============================================================
-// CÉDULA (10 dígitos, módulo 10)
-// ============================================================
 function validarCedula(cedula) {
   if (!cedula || typeof cedula !== 'string') return false;
   if (!/^\d{10}$/.test(cedula)) return false;
@@ -27,9 +24,6 @@ function validarCedula(cedula) {
   return (decenaSuperior - suma) === dv;
 }
 
-// ============================================================
-// RUC (13 dígitos)
-// ============================================================
 function validarModulo11(ruc, coeficientes) {
   let suma = 0;
   for (let i = 0; i < 9; i++) {
@@ -52,15 +46,11 @@ function validarRUC(ruc) {
 
   const tercerDigito = parseInt(ruc.charAt(2), 10);
 
-  // Persona natural: RUC = cédula + 001
   if (tercerDigito < 6) return validarCedula(ruc.substring(0, 10));
 
-  // Sociedad privada
   if (tercerDigito === 9) {
     return validarModulo11(ruc, [4, 3, 2, 7, 6, 5, 4, 3, 2]);
   }
-
-  // Sociedad pública
   if (tercerDigito === 6) {
     return validarModulo11(ruc, [3, 2, 7, 6, 5, 4, 3, 2, 9]);
   }
@@ -68,9 +58,6 @@ function validarRUC(ruc) {
   return false;
 }
 
-// ============================================================
-// IDENTIFICACIÓN COMPLETA (auto-detecta tipo)
-// ============================================================
 function validarIdentificacion(identificacion) {
   const limpio = String(identificacion || '').trim().replace(/\D/g, '');
   if (!limpio) {
@@ -99,9 +86,6 @@ function validarIdentificacion(identificacion) {
   return { valido: false, tipo: null, mensaje: 'Debe tener 10 (cédula) o 13 (RUC) dígitos' };
 }
 
-// ============================================================
-// PLACAS ECUATORIANAS
-// ============================================================
 function validarPlaca(placa) {
   const limpio = String(placa || '').trim().toUpperCase().replace(/[-\s]/g, '');
   if (!limpio) {
@@ -112,9 +96,6 @@ function validarPlaca(placa) {
   return { valido: false, mensaje: 'Placa inválida (ej: ABC-1234 o AB-1234)' };
 }
 
-// ============================================================
-// TELÉFONO ECUATORIANO
-// ============================================================
 function validarTelefono(telefono) {
   const limpio = String(telefono || '').trim().replace(/\D/g, '');
   if (!limpio) return { valido: false, mensaje: 'El teléfono es obligatorio' };
@@ -124,9 +105,6 @@ function validarTelefono(telefono) {
   return { valido: false, mensaje: 'Teléfono inválido (09XXXXXXXX para celular o 0X XXXXXXX para fijo)' };
 }
 
-// ============================================================
-// EMAIL
-// ============================================================
 function validarEmail(email) {
   const limpio = String(email || '').trim().toLowerCase();
   if (!limpio) return { valido: false, mensaje: 'El email es obligatorio' };
@@ -137,9 +115,6 @@ function validarEmail(email) {
   return { valido: true, mensaje: '' };
 }
 
-// ============================================================
-// CÓDIGO POSTAL ECUATORIANO (6 dígitos)
-// ============================================================
 function validarCodigoPostal(cp) {
   const limpio = String(cp || '').trim();
   if (!limpio) return { valido: false, mensaje: 'El código postal es obligatorio' };
@@ -147,14 +122,48 @@ function validarCodigoPostal(cp) {
   return { valido: true, mensaje: '' };
 }
 
-// ============================================================
-// NÚMERO DE FACTURA (secuencial 9 dígitos)
-// ============================================================
 function validarSecuencial(sec) {
   const limpio = String(sec || '').replace(/\D/g, '');
   if (!limpio) return { valido: false, mensaje: 'El secuencial es obligatorio' };
   if (limpio.length > 9) return { valido: false, mensaje: 'Máximo 9 dígitos' };
   return { valido: true, mensaje: '' };
+}
+
+/**
+ * Valida una URL de logo.
+ * Acepta:
+ *   - http(s)://... (URL remota)
+ *   - data:image/(png|jpeg|jpg|gif|webp|svg+xml);base64,... (imagen embebida)
+ * Rechaza:
+ *   - otros esquemas (javascript:, data:text/html, file:, etc.)
+ *   - longitudes > MAX_LOGO_LEN caracteres
+ */
+const MAX_LOGO_LEN = 500000; // ~500KB
+function validarLogoUrl(url) {
+  if (url === undefined || url === null || url === '') {
+    return { valido: true, mensaje: '' };
+  }
+  if (typeof url !== 'string') {
+    return { valido: false, mensaje: 'logo_url debe ser string' };
+  }
+  if (url.length > MAX_LOGO_LEN) {
+    return { valido: false, mensaje: `logo_url demasiado largo (máx ${Math.round(MAX_LOGO_LEN / 1024)} KB)` };
+  }
+  if (/[\r\n\t]/.test(url)) {
+    return { valido: false, mensaje: 'logo_url contiene caracteres de control' };
+  }
+
+  if (/^https?:\/\/[^\s]+$/i.test(url)) {
+    return { valido: true, mensaje: '' };
+  }
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/i.test(url)) {
+    return { valido: true, mensaje: '' };
+  }
+
+  return {
+    valido: false,
+    mensaje: 'logo_url debe ser http(s)://... o data:image/(png|jpeg|gif|webp|svg+xml);base64,...'
+  };
 }
 
 module.exports = {
@@ -165,5 +174,6 @@ module.exports = {
   validarTelefono,
   validarEmail,
   validarCodigoPostal,
-  validarSecuencial
+  validarSecuencial,
+  validarLogoUrl
 };

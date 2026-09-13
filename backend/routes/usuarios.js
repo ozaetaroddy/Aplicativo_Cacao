@@ -20,9 +20,26 @@ function esStringValido(v, max = 200) {
 }
 
 /**
- * Verifica que un cambio (rol o activo) no deje al sistema sin admins activos.
- * Devuelve un string con el error, o null si está OK.
+ * Fuerza la desconexión de TODOS los WebSockets abiertos por un userId.
+ * Se usa cuando el usuario es desactivado o eliminado, para que no siga
+ * recibiendo eventos en tiempo real hasta refrescar.
  */
+function desconectarSocketsDeUsuario(io, userId) {
+  if (!io || !userId) return 0;
+  let cerrados = 0;
+  const target = String(userId);
+  for (const [, socket] of io.sockets.sockets) {
+    if (socket.user && String(socket.user.userId) === target) {
+      try {
+        socket.emit('sesion-invalidada', { motivo: 'usuario-desactivado' });
+        socket.disconnect(true);
+        cerrados++;
+      } catch (_) { /* noop */ }
+    }
+  }
+  return cerrados;
+}
+
 async function validarUltimoAdmin(db, userId, cambios) {
   const user = await db.collection('usuarios').findOne({ _id: new ObjectId(userId) });
   if (!user) return null;
@@ -47,7 +64,7 @@ async function validarUltimoAdmin(db, userId, cambios) {
   return null;
 }
 
-// ===== LISTAR USUARIOS =====
+// ===== LISTAR =====
 router.get('/', requierePermiso('usuarios', 'ver'), async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -206,7 +223,6 @@ router.put('/:id', requierePermiso('usuarios', 'editar'), async (req, res) => {
       return res.status(403).json({ error: 'Solo un administrador puede gestionar administradores' });
     }
 
-    // 🔒 No dejar al sistema sin admins activos
     const errorUltimoAdmin = await validarUltimoAdmin(req.db, id, {
       rol: rol !== undefined ? rol : undefined,
       activo: activo !== undefined ? !!activo : undefined
@@ -249,7 +265,17 @@ router.put('/:id', requierePermiso('usuarios', 'editar'), async (req, res) => {
       { $set: updateData }
     );
 
+    // Invalidar cache HTTP (token viejo)
     invalidarCachePorUsuario(id);
+
+    // Si el usuario fue desactivado, forzar cierre de WebSockets
+    const quedoInactivo = updateData.activo === false;
+    if (quedoInactivo && req.io) {
+      desconectarSocketsDeUsuario(req.io, id);
+    } else if (passwordCambiada && req.io) {
+      // Cambio de contraseña admin → también cerramos sockets para forzar re-login
+      desconectarSocketsDeUsuario(req.io, id);
+    }
 
     await logAudit(req.db, req, {
       accion: 'actualizar',
@@ -284,7 +310,6 @@ router.delete('/:id', requierePermiso('usuarios', 'eliminar'), async (req, res) 
       return res.status(403).json({ error: 'Solo un administrador puede eliminar a otro administrador' });
     }
 
-    // 🔒 No eliminar al último admin activo
     if (anterior.rol === 'admin' && anterior.activo) {
       const otrosAdmins = await req.db.collection('usuarios').countDocuments({
         _id: { $ne: new ObjectId(id) },
@@ -300,6 +325,7 @@ router.delete('/:id', requierePermiso('usuarios', 'eliminar'), async (req, res) 
     if (result.deletedCount === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
 
     invalidarCachePorUsuario(id);
+    if (req.io) desconectarSocketsDeUsuario(req.io, id);
 
     await logAudit(req.db, req, {
       accion: 'eliminar',
@@ -345,6 +371,9 @@ router.patch('/:id/toggle-activo', requierePermiso('usuarios', 'editar'), async 
     );
 
     invalidarCachePorUsuario(id);
+    if (nuevoEstado === false && req.io) {
+      desconectarSocketsDeUsuario(req.io, id);
+    }
 
     await logAudit(req.db, req, {
       accion: 'actualizar',
