@@ -34,7 +34,7 @@ import { useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import DataTablePaged from '../shared/DataTablePaged.vue'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import { useToast } from 'vue-toastification'
 import { api } from '../../services/api'
 
@@ -90,7 +90,7 @@ const imprimirLista = async () => {
     pdf.setFontSize(10)
     pdf.text(`Generado: ${new Date().toLocaleString()}`, 14, 28)
 
-    pdf.autoTable({
+    autoTable(pdf, {
       startY: 35,
       head: [['Nombre', 'RUC/Cédula', 'Teléfono', 'Email', 'Dirección']],
       body: datos.map(p => [

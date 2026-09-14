@@ -262,7 +262,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import { api } from '../../services/api'
 import { useMongoDB } from '../../composables/useMongoDB'
@@ -414,7 +414,7 @@ const exportarPDF = () => {
     m.dias_vencidos
   ])
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['Fecha', 'Documento', 'Descripción', 'Débito', 'Crédito', 'Saldo', 'Días']],
     body: tableData,
@@ -449,7 +449,7 @@ const exportarPDF = () => {
   doc.text('EDADES DE CARTERA', 14, y)
   y += 6
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['0-30 días', '31-60 días', '61-90 días', '+ 90 días']],
     body: [[

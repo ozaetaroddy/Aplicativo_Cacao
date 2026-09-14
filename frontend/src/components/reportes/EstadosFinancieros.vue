@@ -393,7 +393,7 @@ import { api } from '../../services/api'
 import { formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 
 const toast = useToast()
@@ -556,7 +556,7 @@ const exportarResultadosPDF = () => {
     [`Margen neto: ${resultados.value.utilidad.margenNeto.toFixed(2)}%`, '']
   ]
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['CONCEPTO', 'VALOR ($)']],
     body: rows,
@@ -624,7 +624,7 @@ const exportarBalancePDF = () => {
 
   // Renderizar lado a lado con autoTable
   const startY = y
-  doc.autoTable({
+  autoTable(doc, {
     startY,
     head: [['Activo', 'Valor']],
     body: [
@@ -644,7 +644,7 @@ const exportarBalancePDF = () => {
     }
   })
 
-  doc.autoTable({
+  autoTable(doc, {
     startY,
     head: [['Pasivo / Patrimonio', 'Valor']],
     body: [

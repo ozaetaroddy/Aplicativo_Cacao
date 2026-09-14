@@ -390,7 +390,7 @@ import { useToast } from 'vue-toastification'
 import { printService } from '../services/printService'
 import { api } from '../services/api'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import { useRoute } from 'vue-router'
 import EnviarEmailModal from './ventas/EnviarEmailModal.vue'
 
@@ -594,7 +594,7 @@ const guardarPDF = () => {
         item.aplica_iva !== false ? '15%' : '0%',
         `$${((item.cantidad || 0) * (item.precio_unitario || item.costo_unitario || 0)).toFixed(2)}`
       ])
-      pdf.autoTable({
+      autoTable(pdf, {
         startY: y,
         head: [['#', 'Producto', 'Cant.', 'P. Unit.', 'IVA', 'Subtotal']],
         body: tableData,

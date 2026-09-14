@@ -332,7 +332,7 @@ import { api } from '../../services/api'
 import { formatCurrency } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 
 const toast = useToast()
@@ -421,7 +421,7 @@ const exportarPDF = () => {
   doc.text(`SECCIÓN 1 — VENTAS (${data.value.ventas.length})`, 10, y)
   y += 4
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['Tipo ID', 'Identificación', 'Razón Social', 'Comp.', 'Nº Comp.', 'Fecha', 'Base 0%', 'Base IVA', 'IVA', 'Total']],
     body: data.value.ventas.map(v => [
@@ -451,7 +451,7 @@ const exportarPDF = () => {
   doc.text(`SECCIÓN 2 — COMPRAS (${data.value.compras.length})`, 10, y)
   y += 4
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['Tipo ID', 'Identificación', 'Razón Social', 'Nº Comp.', 'Fecha', 'Base 0%', 'Base IVA', 'IVA', 'Total', 'Retención']],
     body: data.value.compras.map(c => [
@@ -484,7 +484,7 @@ const exportarPDF = () => {
     doc.text(`SECCIÓN 3 — RETENCIONES (${data.value.retenciones.length})`, 10, y)
     y += 4
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       head: [['Tipo ID', 'Identificación', 'Razón Social', 'Nº Factura', 'Nº Retención', 'Fecha', 'Tipo', 'Base', '%', 'Valor']],
       body: data.value.retenciones.map(r => [

@@ -115,7 +115,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import { api } from '../../services/api'
 import { formatCurrency } from '../../utils/formatters'
@@ -165,7 +165,7 @@ const exportarPDF = () => {
   doc.setFont('helvetica', 'normal')
   doc.text(`Generado: ${new Date().toLocaleString('es-EC')}`, pageWidth / 2, 22, { align: 'center' })
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: 28,
     head: [['#', 'Cliente', 'RUC/Cédula', 'Teléfono', 'Facturas', 'Débitos', 'Créditos', 'Saldo', 'Última factura']],
     body: data.value.clientes.map((c, i) => [

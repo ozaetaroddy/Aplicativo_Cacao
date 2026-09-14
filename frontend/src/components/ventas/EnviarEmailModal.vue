@@ -231,7 +231,7 @@ const cargarHistorial = async () => {
 
 const generarPDFBase64 = async () => {
   const jsPDF = (await import('jspdf')).default
-  await import('jspdf-autotable')
+  const { default: autoTable } = await import('jspdf-autotable')  // ✅ FIX
 
   const doc = new jsPDF('p', 'mm', 'a4')
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -299,7 +299,7 @@ const generarPDFBase64 = async () => {
       item.aplica_iva !== false ? '15%' : '0%',
       `$${((item.cantidad || 0) * (item.precio_unitario || 0)).toFixed(2)}`
     ])
-    doc.autoTable({
+    autoTable(doc, {                                  // ✅ FIX: función, no método
       startY: y,
       head: [['#', 'Producto', 'Cant.', 'P. Unit.', 'IVA', 'Subtotal']],
       body: tableData,
