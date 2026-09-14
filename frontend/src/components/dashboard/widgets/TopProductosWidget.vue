@@ -9,14 +9,14 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(item, idx) in topProductos" :key="idx">
+        <tr v-for="(item, idx) in topProductos" :key="item.productoId || idx">
           <td>
             <span class="badge-ranking" :class="getRankClass(idx)">
               {{ idx + 1 }}
             </span>
           </td>
-          <td>{{ obtenerNombreProducto(item[0]) }}</td>
-          <td class="text-end fw-bold">{{ item[1] }}</td>
+          <td>{{ item.nombre || 'Producto eliminado' }}</td>
+          <td class="text-end fw-bold">{{ item.cantidad }}</td>
         </tr>
         <tr v-if="topProductos.length === 0">
           <td colspan="3" class="text-muted text-center">Sin datos de ventas</td>
@@ -27,19 +27,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { useEstadisticas } from '../../../composables/useEstadisticas'
-import { useMongoDB } from '../../../composables/useMongoDB'
 
 const { topProductos, cargarEstadisticas } = useEstadisticas()
-const { find } = useMongoDB()
-const productos = ref([])
-
-const obtenerNombreProducto = (id) => {
-  if (!id) return 'Producto eliminado'
-  const prod = productos.value.find(p => p._id === id)
-  return prod ? prod.nombre : 'Producto eliminado'
-}
 
 const getRankClass = (idx) => {
   if (idx === 0) return 'gold'
@@ -48,12 +39,7 @@ const getRankClass = (idx) => {
   return 'default'
 }
 
-onMounted(async () => {
-  try {
-    productos.value = await find('productos')
-  } catch (e) { console.error(e) }
-  await cargarEstadisticas()
-})
+onMounted(cargarEstadisticas)
 </script>
 
 <style scoped>

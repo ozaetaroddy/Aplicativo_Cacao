@@ -14,13 +14,12 @@ const { conTransaccion } = require('../utils/transacciones');
 const { validar } = require('../utils/validacion');
 const { fechaSRI } = require('../utils/fechaEC');
 
-
 const {
   TIPOS_SIN_MOVIMIENTO_STOCK,
   DOCS_CON_CLAVE,
   TIPO_COMPROBANTE_SRI,
   PREFIJOS_CONTADOR,
-  TIPOS_DOCUMENTO_VALIDOS  // ← nuevo
+  TIPOS_DOCUMENTO_VALIDOS
 } = require('../utils/tiposDocumento');
 
 const MAX_DETALLES_POR_DOCUMENTO = 500;
@@ -28,7 +27,9 @@ const MAX_DETALLES_POR_DOCUMENTO = 500;
 const ESTADOS_SRI_BLOQUEADOS_PARA_DELETE = new Set(['FIRMADO', 'AUTORIZADO', 'RECHAZADA', 'DEVUELTA']);
 
 const validarVenta = [
-  body('clienteId').isMongoId().withMessage('ID de cliente inválido'),
+  body('clienteId')
+    .if(body('tipo_documento').not().equals('guia_remision'))
+    .isMongoId().withMessage('ID de cliente inválido'),
   body('fecha_emision').isISO8601().withMessage('Fecha inválida'),
   body('detalles').isArray({ min: 1 }).withMessage('Debe incluir al menos un detalle'),
   body('subtotal').isNumeric().withMessage('Subtotal debe ser número'),
@@ -173,7 +174,10 @@ async function asegurarClaveYXml(db, venta) {
   let xml = venta.xml_generado;
   if (!xml) {
     try {
-      const cliente = await db.collection('clientes').findOne({ _id: venta.clienteId });
+      // ✅ FIX: clienteId puede ser null en guías de remisión
+      const cliente = venta.clienteId
+        ? await db.collection('clientes').findOne({ _id: venta.clienteId })
+        : null;
       const ventaParaXml = {
         ...venta,
         clave_acceso: claveAcceso,
@@ -367,7 +371,9 @@ router.get('/buscar-clave/:clave', requierePermiso('ventas', 'ver'), async (req,
     );
     if (!venta) return res.status(404).json({ error: 'No se encontró documento con esa clave' });
 
-    const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
+    const cliente = venta.clienteId
+      ? await req.db.collection('clientes').findOne({ _id: venta.clienteId })
+      : null;
     res.json({ ...venta, cliente });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -437,7 +443,10 @@ router.post('/migrar-claves', (req, res, next) => {
           tipoEmision: config.tipo_emision || '1'
         });
 
-        const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
+        // ✅ FIX: cliente puede ser null
+        const cliente = venta.clienteId
+          ? await req.db.collection('clientes').findOne({ _id: venta.clienteId })
+          : null;
         const ventaParaXml = {
           ...venta,
           clave_acceso: claveAcceso,
@@ -705,7 +714,10 @@ router.post('/:id/generar-clave', requierePermiso('ventas', 'editar'), async (re
     });
 
     const secuencialFormateado = String(sec).padStart(9, '0');
-    const cliente = await req.db.collection('clientes').findOne({ _id: venta.clienteId });
+    // ✅ FIX: cliente puede ser null
+    const cliente = venta.clienteId
+      ? await req.db.collection('clientes').findOne({ _id: venta.clienteId })
+      : null;
     const ventaParaXml = {
       ...venta,
       clave_acceso: claveAcceso,
@@ -846,8 +858,6 @@ router.post('/',
       }
 
       // ✅ FIX: validación temprana de unicidad de numero_factura.
-      // El índice único `uniq_tipo_numero_ruc` también protege, pero este
-      // chequeo devuelve un mensaje claro en vez de un 400 genérico de Mongo.
       const uniqCheck = await verificarNumeroUnico(req.db, {
         tipoDoc,
         numeroFactura: numero_factura,
@@ -864,14 +874,18 @@ router.post('/',
       const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && config?.ruc && config.ruc.length === 13;
       const prefijo = PREFIJOS_CONTADOR[tipoDoc] || 'DOC';
 
-      // ✅ FIX: verifica que el cliente exista (evita facturas con cliente fantasma)
-      const cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) });
-      if (!cliente) {
-        return res.status(400).json({
-          error: 'El cliente no existe',
-          codigo: 'CLIENTE_NO_EXISTE',
-          clienteId
-        });
+      // ✅ FIX: el cliente solo es obligatorio si NO es guía de remisión.
+      // Las guías pueden no tener clienteId (transportan mercadería sin venta directa).
+      let cliente = null;
+      if (tipoDoc !== 'guia_remision') {
+        cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) });
+        if (!cliente) {
+          return res.status(400).json({
+            error: 'El cliente no existe',
+            codigo: 'CLIENTE_NO_EXISTE',
+            clienteId
+          });
+        }
       }
 
       const pems = await cargarCertificadoSeguro(req.db);
@@ -879,6 +893,11 @@ router.post('/',
       const resultado = await conTransaccion(req.db, async (session) => {
         const contadorValor = await reservarContador(req.db, tipoDoc, session);
         const codigo = `${prefijo}-${String(contadorValor).padStart(6, '0')}`;
+
+        // ✅ FIX: clienteId puede ser null para guías de remisión
+        const clienteIdObj = clienteId && ObjectId.isValid(clienteId)
+          ? new ObjectId(clienteId)
+          : null;
 
         let claveAcceso = null;
         let partesClave = null;
@@ -917,7 +936,8 @@ router.post('/',
 
         if (claveAcceso && config) {
           const ventaParaXml = {
-            clienteId: new ObjectId(clienteId),
+            // ✅ FIX: usar clienteIdObj (nullable) en lugar de new ObjectId(clienteId)
+            clienteId: clienteIdObj,
             numero_factura: numero_factura || codigo,
             fecha_emision: new Date(fecha_emision),
             tipo_documento: tipoDoc,
@@ -952,7 +972,7 @@ router.post('/',
         }
 
         const venta = {
-          clienteId: new ObjectId(clienteId),
+          clienteId: clienteIdObj,
           numero_factura: numero_factura || codigo,
           fecha_emision: new Date(fecha_emision),
           tipo_documento: tipoDoc,
@@ -1201,17 +1221,23 @@ router.put('/:id',
         }
       }
 
-      const cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) });
-      if (!cliente) {
-        return res.status(400).json({
-          error: 'El cliente no existe',
-          codigo: 'CLIENTE_NO_EXISTE',
-          clienteId
-        });
+      // ✅ FIX: el cliente solo es obligatorio si NO es guía de remisión
+      let cliente = null;
+      if (tipoDoc !== 'guia_remision') {
+        cliente = await req.db.collection('clientes').findOne({ _id: new ObjectId(clienteId) });
+        if (!cliente) {
+          return res.status(400).json({
+            error: 'El cliente no existe',
+            codigo: 'CLIENTE_NO_EXISTE',
+            clienteId
+          });
+        }
       }
 
       const updateData = {
-        clienteId: new ObjectId(clienteId),
+        clienteId: clienteId && ObjectId.isValid(clienteId)
+          ? new ObjectId(clienteId)
+          : null,
         numero_factura,
         fecha_emision: new Date(fecha_emision),
         tipo_documento: tipoDoc,

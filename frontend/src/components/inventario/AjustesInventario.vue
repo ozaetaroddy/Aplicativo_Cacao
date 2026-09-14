@@ -113,7 +113,24 @@ const guardarAjuste = async () => {
   }
 
   try {
-    await updateOne('productos', producto._id, { stock: nuevaCantidad })
+    // ✅ FIX: enviar el producto completo porque el backend valida nombre + codigo
+    await updateOne('productos', producto._id, {
+      nombre: producto.nombre,
+      codigo: producto.codigo,
+      categoriaId: producto.categoriaId || null,
+      descripcion: producto.descripcion || '',
+      precio_compra: producto.precio_compra || 0,
+      precio_venta: producto.precio_venta || 0,
+      stock_minimo: producto.stock_minimo || 0,
+      unidad_medida: producto.unidad_medida || 'unidad',
+      codigo_barras: producto.codigo_barras || '',
+      foto: producto.foto || '',
+      observaciones: producto.observaciones || '',
+      aplica_iva: producto.aplica_iva !== false,
+      tipo_medida: producto.tipo_medida || 'unidad',
+      stock: nuevaCantidad
+    })
+
     historial.value.unshift({
       fecha: new Date().toLocaleString(),
       productoNombre: producto.nombre,

@@ -3,16 +3,17 @@ import { ref } from 'vue'
 import { api } from '../services/api'
 
 /**
- * Estadísticas del dashboard. Ahora hace UN solo request
- * que el backend agrega, en lugar de descargar toda la BD.
+ * Estadísticas del dashboard. Hace UN solo request que el backend agrega.
  */
 export function useEstadisticas() {
   const ventasHoy = ref(0)
   const ventasAyer = ref(0)
   const ventasMes = ref(0)
+  const ventasMesPrev = ref(0)
   const comprasHoy = ref(0)
   const comprasAyer = ref(0)
   const comprasMes = ref(0)
+  const comprasMesPrev = ref(0)
   const facturasMes = ref(0)
   const comprasDelMes = ref(0)
   const tendenciaVentas = ref(0)
@@ -28,22 +29,23 @@ export function useEstadisticas() {
   const loadedOnce = ref(false)
 
   const cargarEstadisticas = async (forzar = false) => {
-    // Evitar recargas innecesarias si ya se cargó hace poco
     if (loadedOnce.value && !forzar) return
 
     loading.value = true
     try {
       const data = await api.request('/estadisticas/dashboard', {
         method: 'GET',
-        skipLoader: true // silencioso: no molestar con overlay
+        skipLoader: true
       })
       ventasHoy.value = data.ventasHoy || 0
       ventasAyer.value = data.ventasAyer || 0
       ventasMes.value = data.ventasMes || 0
+      ventasMesPrev.value = data.ventasMesPrev || 0
       facturasMes.value = data.facturasMes || 0
       comprasHoy.value = data.comprasHoy || 0
       comprasAyer.value = data.comprasAyer || 0
       comprasMes.value = data.comprasMes || 0
+      comprasMesPrev.value = data.comprasMesPrev || 0
       comprasDelMes.value = data.comprasDelMes || 0
       tendenciaVentas.value = data.tendenciaVentas || 0
       tendenciaCompras.value = data.tendenciaCompras || 0
@@ -63,8 +65,8 @@ export function useEstadisticas() {
   }
 
   return {
-    ventasHoy, ventasAyer, ventasMes, facturasMes,
-    comprasHoy, comprasAyer, comprasMes, comprasDelMes,
+    ventasHoy, ventasAyer, ventasMes, ventasMesPrev, facturasMes,
+    comprasHoy, comprasAyer, comprasMes, comprasMesPrev, comprasDelMes,
     tendenciaVentas, tendenciaCompras,
     ventasDiarias, comprasDiarias, dias,
     topProductos, cuentasPorPagar, stockBajo, sri,

@@ -32,13 +32,14 @@ async function intentarRefresh() {
   return refreshPromise
 }
 
+/**
+ * Limpia la sesión local y redirige a login.
+ * El cache de permisos se limpia al recargar la página o al hacer login,
+ * así que no hace falta importar usePermisos aquí (evita require en ESM).
+ */
 function limpiarSesionYRedirigir() {
   localStorage.removeItem('user')
   localStorage.removeItem('auth_hint')
-  try {
-    const { usePermisos } = require('../composables/usePermisos')
-    usePermisos().limpiarCache()
-  } catch (_) { /* noop */ }
 
   const currentPath = router.currentRoute.value.fullPath
   if (!currentPath.startsWith('/login')) {
@@ -174,7 +175,6 @@ export const api = {
 
   /**
    * Descarga un archivo binario (PDF, XML, backup, gzip).
-   * Maneja refresh automático, CSRF y error de sesión.
    */
   async download(endpoint, filename, options = {}) {
     const doFetch = () => fetch(`${API_BASE_URL}${endpoint}`, {

@@ -536,7 +536,11 @@ const abrirModalEliminar = () => {
 const eliminarCertificado = async () => {
   eliminando.value = true
   try {
-    await api.request('/certificado', { method: 'DELETE', loaderMessage: 'Eliminando...' })
+    await api.request('/certificado', {
+      method: 'DELETE',
+      body: JSON.stringify({ confirmacion: 'ELIMINAR CERTIFICADO' }),
+      loaderMessage: 'Eliminando...'
+    })
     toast.success('Certificado eliminado')
     modalEliminar.hide()
     await cargarInfo()
