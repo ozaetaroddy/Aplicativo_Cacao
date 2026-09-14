@@ -110,6 +110,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMongoDB } from '../../composables/useMongoDB'
 import { useToast } from 'vue-toastification'
 import { validarIdentificacion } from '../../utils/validators'
+// ✅ FIX CSRF: usar el cliente HTTP central en vez de fetch() crudo
+import { api } from '../../services/api'
 
 const toast = useToast()
 const route = useRoute()
@@ -213,6 +215,9 @@ onMounted(async () => {
 })
 
 // ===== BUSCAR POR IDENTIFICACIÓN =====
+// ✅ FIX: usar api.request en vez de fetch() directo.
+// Motivo: el CSRF middleware del backend exige `X-Requested-With`.
+// Un fetch() crudo NO envía ese header → 403 en producción.
 const buscarPorIdentificacion = async () => {
   if (!validarRuc()) {
     toast.warning('Corrija el RUC/Cédula antes de buscar')
@@ -220,9 +225,10 @@ const buscarPorIdentificacion = async () => {
   }
   buscando.value = true
   try {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/consultas/cedula/${form.value.ruc.trim()}`)
-    if (!response.ok) throw new Error('No se encontraron datos')
-    const data = await response.json()
+    const data = await api.request(`/consultas/cedula/${form.value.ruc.trim()}`, {
+      method: 'GET',
+      skipLoader: true
+    })
     if (data.nombre) {
       form.value.nombre = data.nombre
       validarNombre()
@@ -231,7 +237,13 @@ const buscarPorIdentificacion = async () => {
       toast.info('No se encontró nombre para esta cédula, ingréselo manualmente')
     }
   } catch (e) {
-    toast.error('Error al consultar: ' + e.message)
+    if (/circuito|circuit/i.test(e.message)) {
+      toast.warning('Servicio de consultas temporalmente no disponible')
+    } else if (/no se encontró/i.test(e.message)) {
+      toast.info('No se encontró información para esta cédula')
+    } else {
+      toast.error('Error al consultar: ' + e.message)
+    }
   } finally {
     buscando.value = false
   }

@@ -25,24 +25,24 @@ module.exports = (err, req, res, next) => {
   let detalles = err.detalles || null;
 
   // ==== Mongo: duplicados y validación ====
-  // Reemplazar el bloque de "Mongo: duplicados y validación":
-if (err.name === 'MongoServerError' || err.name === 'MongoBulkWriteError') {
-  const errBase = (err.writeErrors && err.writeErrors[0]?.err) || err;
+  if (err.name === 'MongoServerError' || err.name === 'MongoBulkWriteError') {
+    const errBase = (err.writeErrors && err.writeErrors[0]?.err) || err;
 
-  if (errBase.code === 11000) {
-    status = 400;
-    codigo = 'DUPLICADO';
-    const keyPattern = errBase.keyPattern || errBase.keyValue || {};
-    const campo = Object.keys(keyPattern)[0] || 'campo';
-    mensaje = `El valor del campo "${campo}" ya está registrado`;
-    detalles = { campo, keyValue: errBase.keyValue };
-  } else if (errBase.code === 121) {
-    status = 400;
-    codigo = 'VALIDACION_MONGO';
-    mensaje = 'Error de validación en la base de datos';
+    if (errBase.code === 11000) {
+      status = 400;
+      codigo = 'DUPLICADO';
+      const keyPattern = errBase.keyPattern || errBase.keyValue || {};
+      const campo = Object.keys(keyPattern)[0] || 'campo';
+      mensaje = `El valor del campo "${campo}" ya está registrado`;
+      detalles = { campo, keyValue: errBase.keyValue };
+    } else if (errBase.code === 121) {
+      status = 400;
+      codigo = 'VALIDACION_MONGO';
+      mensaje = 'Error de validación en la base de datos';
+    }
   }
-}
 
+  // ==== Mongo: red ====
   if (MONGO_NETWORK_ERRORS.has(err.name)) {
     status = 503;
     codigo = 'DB_NO_DISPONIBLE';
@@ -53,6 +53,7 @@ if (err.name === 'MongoServerError' || err.name === 'MongoBulkWriteError') {
     mensaje = 'La base de datos tardó demasiado en responder.';
   }
 
+  // ==== BSON inválido ====
   if (err.name === 'BSONTypeError' || err.name === 'BSONError' || err.name === 'BSONOffsetError') {
     status = 400;
     codigo = 'BSON_INVALIDO';

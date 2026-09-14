@@ -100,6 +100,10 @@ const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
   : (IS_PROD ? false : true);
 
+const socketCorsOrigins = process.env.SOCKET_CORS_ORIGINS
+  ? process.env.SOCKET_CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
+  : corsOrigins;
+
 app.use(cors({
   origin: corsOrigins === true ? true : corsOrigins,
   credentials: true,
@@ -107,8 +111,8 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '20mb' }));
-
 app.use(cookieParser());
+
 // ===== REQUEST ID + LATENCIA (para logs correlacionados) =====
 app.use((req, res, next) => {
   const start = Date.now();
@@ -202,13 +206,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// ===== SWAGGER =====
+// ===== SWAGGER (solo si explícitamente habilitado) =====
 mountSwagger(app);
 
 // ===== HTTP + SOCKET.IO =====
 const server = http.createServer(app);
 const io = socketIo(server, {
-  cors: { origin: corsOrigins === true ? true : corsOrigins, credentials: true },
+  cors: {
+    origin: socketCorsOrigins === true ? true : socketCorsOrigins,
+    credentials: true
+  },
   transports: ['websocket', 'polling'],
   pingTimeout: 25000,
   pingInterval: 20000
@@ -441,12 +448,28 @@ const shutdown = async (signal) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-// ✅ unhandledRejection ahora SÍ cierra el proceso (estado indefinido).
+// ✅ FIX: unhandledRejection SOLO loggea. No mata el proceso.
+// En producción, matar por cada promesa rechazada genera restart loops en Render.
+let rechazosConsecutivos = 0;
 process.on('unhandledRejection', (reason) => {
-  log.error({ reason: reason?.stack || reason }, '❌ unhandledRejection');
-  shutdown('unhandledRejection');
+  rechazosConsecutivos++;
+  log.error({
+    reason: reason?.stack || reason,
+    count: rechazosConsecutivos
+  }, '❌ unhandledRejection');
+
+  // Solo cerrar si son MUCHOS seguidos (indica problema sistémico)
+  if (rechazosConsecutivos >= 20) {
+    log.error('❌ Demasiados unhandledRejection consecutivos. Cerrando...');
+    shutdown('unhandledRejection');
+  }
 });
+
+// ✅ uncaughtException sí cierra: el estado del proceso es indefinido
 process.on('uncaughtException', (err) => {
   log.error({ err: err.stack || err.message }, '❌ uncaughtException');
   shutdown('uncaughtException');
 });
+
+// Resetear contador cada 5 min
+setInterval(() => { rechazosConsecutivos = 0; }, 5 * 60 * 1000).unref();

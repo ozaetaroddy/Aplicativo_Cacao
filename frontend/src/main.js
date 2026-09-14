@@ -43,13 +43,38 @@ app.use(Toast, {
 // ============================================================
 // SOCKET.IO con cookies httpOnly
 // ============================================================
-const socketUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api')
-  .replace(/\/api\/?$/, '')
+// ✅ FIX: si VITE_SOCKET_URL está definido, usarlo. Si no, derivarlo
+// del API_BASE_URL quitando el sufijo /api. NUNCA usar string vacío.
+function calcularSocketUrl() {
+  const explicit = (import.meta.env.VITE_SOCKET_URL || '').trim()
+  if (explicit) return explicit
+
+  const api = (import.meta.env.VITE_API_BASE_URL || '').trim()
+  if (!api) {
+    // Fallback dev
+    return `${window.location.protocol}//${window.location.hostname}:5000`
+  }
+
+  // Si es relativo (/api), no podemos derivar un host absoluto del backend.
+  // En ese caso usar el mismo origen del navegador (funciona si el rewrite
+  // de Vercel también proxea WebSocket, que NO es el caso típico).
+  if (api.startsWith('/')) {
+    return window.location.origin
+  }
+
+  // URL absoluta: quitar /api al final
+  return api.replace(/\/api\/?$/, '')
+}
+
+const socketUrl = calcularSocketUrl()
 
 const socket = io(socketUrl, {
   transports: ['websocket', 'polling'],
-  withCredentials: true, // ← envía las cookies en el handshake
-  autoConnect: false
+  withCredentials: true,
+  autoConnect: false,
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 2000
 })
 
 // Conectar solo si hay hint de sesión

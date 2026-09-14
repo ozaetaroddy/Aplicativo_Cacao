@@ -345,13 +345,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, inject } from 'vue'
 import { usePermisos } from '../composables/usePermisos'
 import { useEstadisticas } from '../composables/useEstadisticas'
 import { api } from '../services/api'
+import { useToast } from 'vue-toastification'
 import DashboardCharts from './dashboard/DashboardCharts.vue'
 import BandejaVentasWidget from './dashboard/widgets/BandejaVentasWidget.vue'
 import BandejaComprasWidget from './dashboard/widgets/BandejaComprasWidget.vue'
+
+const toast = useToast()
+const socket = inject('socket', null)
 
 const { puede } = usePermisos()
 const {
@@ -550,9 +554,32 @@ const getRankClass = (idx) => {
   return 'default'
 }
 
+// ✅ FIX WebSocket: los eventos del backend emiten el documento DIRECTO,
+// no envuelto en { data: ... }. Además, refrescamos los KPIs al recibirlos.
+const handlerVenta = (venta) => {
+  toast.info(`📤 Nueva venta: ${venta?.numero_factura || 'documento'}`)
+  setTimeout(() => cargarEstadisticas(true), 500)
+}
+const handlerCompra = (compra) => {
+  toast.info(`📥 Nueva compra: ${compra?.numero_factura || 'documento'}`)
+  setTimeout(() => cargarEstadisticas(true), 500)
+}
+
 onMounted(async () => {
   await cargarEstadisticas()
   await cargarEstadoSistema()
+
+  if (socket) {
+    socket.on('nueva-venta', handlerVenta)
+    socket.on('nueva-compra', handlerCompra)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (socket) {
+    socket.off('nueva-venta', handlerVenta)
+    socket.off('nueva-compra', handlerCompra)
+  }
 })
 </script>
 

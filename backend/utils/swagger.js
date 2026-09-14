@@ -5,6 +5,8 @@
 const path = require('path');
 const swaggerJsdoc = require('swagger-jsdoc');
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
 function buildSpec() {
   const options = {
     definition: {
@@ -41,7 +43,13 @@ function buildSpec() {
 }
 
 function mountSwagger(app) {
-  if (String(process.env.SWAGGER_ENABLED || 'true') === 'false') return;
+  // ✅ FIX: default false en producción, true en desarrollo.
+  const defaultEnabled = IS_PROD ? 'false' : 'true';
+  const enabled = String(process.env.SWAGGER_ENABLED ?? defaultEnabled) === 'true';
+
+  if (!enabled) {
+    return;
+  }
 
   let swaggerUi;
   try {
@@ -56,6 +64,8 @@ function mountSwagger(app) {
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(spec, {
     customSiteTitle: 'API — Cacao Backend'
   }));
+
+  console.log('📚 Swagger disponible en /api/docs');
 }
 
 module.exports = { buildSpec, mountSwagger };

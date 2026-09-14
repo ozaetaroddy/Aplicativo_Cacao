@@ -1,3 +1,4 @@
+// frontend/vite.config.js
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -7,12 +8,7 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: [
-        'favicon.ico',
-        'favicon.svg',
-        'apple-touch-icon.png',
-        'robots.txt'
-      ],
+      includeAssets: ['favicon.ico', 'favicon.svg', 'apple-touch-icon.png', 'robots.txt'],
       manifest: {
         name: 'Sistema Contable — System Ozaet\'s Electronics',
         short_name: 'Sistema Contable',
@@ -27,29 +23,10 @@ export default defineConfig({
         dir: 'ltr',
         categories: ['business', 'finance', 'productivity'],
         icons: [
-          {
-            src: '/pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: '/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: '/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable'
-          },
-          {
-            src: '/apple-touch-icon.png',
-            sizes: '180x180',
-            type: 'image/png'
-          }
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }
         ],
         shortcuts: [
           {
@@ -77,55 +54,45 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        // No cachear las llamadas a la API (siempre van a la red)
+        // No interceptar /api
         navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
-            // Cachear catálogos del SRI (raramente cambian)
             urlPattern: /\/api\/catalogos.*/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'catalogos-sri',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 7 // 7 días
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheableResponse: { statuses: [0, 200] }
             }
           },
           {
-            // Cachear catálogos base
             urlPattern: /\/api\/(categorias|productos)\b/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'maestros',
               networkTimeoutSeconds: 5,
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24 // 1 día
-              }
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 }
             }
           }
         ]
       },
-      devOptions: {
-        // Habilitar PWA en desarrollo (opcional)
-        enabled: false
-      }
+      devOptions: { enabled: false }
     })
   ],
   server: {
+    port: 5173,
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '/api')
+        changeOrigin: true
+        // No rewrite: el backend espera /api/*
       }
     }
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    sourcemap: false,
+    chunkSizeWarningLimit: 1200
   }
 })
