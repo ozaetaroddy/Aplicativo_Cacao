@@ -11,7 +11,7 @@
 // ============================================================
 'use strict'
 
-import router from '../router'
+
 import { useLoaderStore } from '../stores/loaderStore'
 
 // ===== CONFIGURACIÓN =====
@@ -61,14 +61,16 @@ async function intentarRefresh() {
 }
 
 // ===== LIMPIAR SESIÓN =====
-function limpiarSesionYRedirigir() {
+// ===== LIMPIAR SESIÓN =====
+async function limpiarSesionYRedirigir() {
   try {
     localStorage.removeItem('user')
     localStorage.removeItem('auth_hint')
   } catch { /* noop */ }
 
-  // Router puede no estar listo (SSR, primer boot)
   try {
+    // Carga dinámica del router para romper el ciclo
+    const { default: router } = await import('../router')
     const current = router?.currentRoute?.value
     const currentPath = current?.fullPath || '/'
     if (!currentPath.startsWith('/login')) {

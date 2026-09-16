@@ -6,9 +6,6 @@
 // - Dev server: proxy /api → backend local.
 // - Build: code-splitting agresivo, sin sourcemaps, sin console.
 // - PWA: autoUpdate, runtimeCaching para catálogos SRI.
-//
-// ⚠️  Este archivo es .mjs (módulo ESM nativo). El comentario
-//     original decía "vite.config.js" pero el archivo es .mjs.
 // ============================================================
 
 import { defineConfig, loadEnv } from 'vite'
@@ -16,23 +13,16 @@ import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig(({ mode }) => {
-  // Carga .env, .env.local, .env.[mode], .env.[mode].local
   const env = loadEnv(mode, process.cwd(), '')
   const isProd = mode === 'production'
-
-  // Proxy del backend en dev (configurable vía VITE_DEV_BACKEND).
   const devBackend = env.VITE_DEV_BACKEND || 'http://localhost:5000'
 
   return {
-    // Si despliegas en un subpath, cámbialo aquí (ej. '/app/').
     base: '/',
 
     plugins: [
       vue(),
 
-      // ======================================================
-      // PWA
-      // ======================================================
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',
@@ -88,15 +78,12 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-          // No interceptar /api (deja pasar al network y al rewrite de Vercel).
           navigateFallbackDenylist: [/^\/api/],
-          // Limpia caches antiguos al activar la nueva versión.
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
           runtimeCaching: [
             {
-              // Catálogos SRI: inmutables → CacheFirst con TTL largo.
               urlPattern: /\/api\/catalogos.*/i,
               handler: 'CacheFirst',
               options: {
@@ -106,7 +93,6 @@ export default defineConfig(({ mode }) => {
               }
             },
             {
-              // Maestros (categorías/productos): NetworkFirst con fallback.
               urlPattern: /\/api\/(categorias|productos)\b/i,
               handler: 'NetworkFirst',
               options: {
@@ -122,33 +108,26 @@ export default defineConfig(({ mode }) => {
       })
     ],
 
-    // ======================================================
-    // DEV SERVER
-    // ======================================================
     server: {
       port: 5173,
       strictPort: false,
-      host: true, // permite acceso desde móvil en la misma red
+      host: true,
       proxy: {
         '/api': {
           target: devBackend,
           changeOrigin: true,
-          // WebSocket también por el proxy (socket.io en dev).
           ws: true
-          // No rewrite: el backend espera /api/*
         }
       }
     },
 
-    // ======================================================
-    // OPTIMIZACIÓN DE DEPENDENCIAS
-    // ======================================================
     optimizeDeps: {
       include: [
         'vue',
         'vue-router',
         'pinia',
-        'axios',
+        // ⚠️ 'axios' eliminado: NO está en package.json
+        //    (usás fetch nativo en services/api.js)
         'socket.io-client',
         'chart.js',
         'chart.js/auto',
@@ -160,28 +139,18 @@ export default defineConfig(({ mode }) => {
       ]
     },
 
-    // ======================================================
-    // BUILD
-    // ======================================================
     build: {
       outDir: 'dist',
       sourcemap: false,
-      // Avisar a partir de 800 KB (en vez de 1200) para detectar chunks
-      // que crezcan sin control — el manualChunks de abajo debería
-      // mantenernos por debajo.
       chunkSizeWarningLimit: 800,
       target: 'es2020',
       cssCodeSplit: true,
-      reportCompressedSize: false, // build más rápido
+      reportCompressedSize: false,
       rollupOptions: {
         output: {
-          // ================================================
-          // MANUAL CHUNKS — separa vendors grandes
-          // ================================================
           manualChunks(id) {
             if (!id.includes('node_modules')) return
 
-            // Vue core + router + estado
             if (
               id.includes('/vue/') ||
               id.includes('/@vue/') ||
@@ -191,12 +160,10 @@ export default defineConfig(({ mode }) => {
               return 'vue-core'
             }
 
-            // Gráficas (Chart.js es pesado)
             if (id.includes('/chart.js/') || id.includes('/chartjs-')) {
               return 'charts'
             }
 
-            // PDFs (jsPDF + html2canvas son MUY pesados ~500 KB)
             if (
               id.includes('/jspdf') ||
               id.includes('/html2canvas/') ||
@@ -205,34 +172,13 @@ export default defineConfig(({ mode }) => {
               return 'pdf'
             }
 
-            // Excel (xlsx ~400 KB)
-            if (id.includes('/xlsx/')) {
-              return 'xlsx'
-            }
-
-            // Iconos FontAwesome
-            if (id.includes('/@fortawesome/')) {
-              return 'fontawesome'
-            }
-
-            // Bootstrap + Popper
-            if (
-              id.includes('/bootstrap/') ||
-              id.includes('/@popperjs/')
-            ) {
-              return 'bootstrap'
-            }
-
-            // Validación
-            if (id.includes('/vee-validate/') || id.includes('/yup/')) {
-              return 'validation'
-            }
-
-            // Búsqueda y drag&drop
+            if (id.includes('/xlsx/')) return 'xlsx'
+            if (id.includes('/@fortawesome/')) return 'fontawesome'
+            if (id.includes('/bootstrap/') || id.includes('/@popperjs/')) return 'bootstrap'
+            if (id.includes('/vee-validate/') || id.includes('/yup/')) return 'validation'
             if (id.includes('/fuse.js/')) return 'search'
             if (id.includes('/vue-draggable-next/')) return 'dnd'
 
-            // Resto de vendors → chunk compartido
             return 'vendor'
           },
           chunkFileNames: 'assets/[name]-[hash].js',
@@ -240,7 +186,6 @@ export default defineConfig(({ mode }) => {
           assetFileNames: 'assets/[name]-[hash].[ext]'
         }
       },
-      // Elimina console/debugger en prod (Vite usa esbuild)
       minify: 'esbuild'
     },
 
@@ -251,22 +196,15 @@ export default defineConfig(({ mode }) => {
         }
       : undefined,
 
-    // ======================================================
-    // CSS
-    // ======================================================
     css: {
       devSourcemap: true,
       preprocessorOptions: {
         scss: {
-          // Silencia deprecaciones de Sass que rompen la consola.
           silenceDeprecations: ['legacy-js-api', 'import']
         }
       }
     },
 
-    // ======================================================
-    // DEFINES GLOBALES
-    // ======================================================
     define: {
       __VUE_OPTIONS_API__: 'true',
       __VUE_PROD_DEVTOOLS__: 'false',
