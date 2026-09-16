@@ -67,7 +67,8 @@
             <button
               type="button"
               class="nav-item"
-              @click.stop="toggleDropdown('documentos')"
+              :class="{ active: rutaActiva(['/ventas', '/compras', '/consultar-documentos']) }"
+              @click.stop="toggleDropdown('documentos', $event)"
               :aria-expanded="dropdowns.documentos ? 'true' : 'false'"
               aria-haspopup="true"
             >
@@ -168,7 +169,8 @@
             <button
               type="button"
               class="nav-item"
-              @click.stop="toggleDropdown('maestros')"
+              :class="{ active: rutaActiva(['/productos', '/categorias', '/clientes', '/proveedores']) }"
+              @click.stop="toggleDropdown('maestros', $event)"
               :aria-expanded="dropdowns.maestros ? 'true' : 'false'"
               aria-haspopup="true"
             >
@@ -215,7 +217,8 @@
             <button
               type="button"
               class="nav-item"
-              @click.stop="toggleDropdown('inventarios')"
+              :class="{ active: rutaActiva(['/kardex', '/inventario']) }"
+              @click.stop="toggleDropdown('inventarios', $event)"
               :aria-expanded="dropdowns.inventarios ? 'true' : 'false'"
               aria-haspopup="true"
             >
@@ -284,7 +287,8 @@
             <button
               type="button"
               class="nav-item"
-              @click.stop="toggleDropdown('reportes')"
+              :class="{ active: rutaActiva(['/reportes', '/periodos-cerrados']) }"
+              @click.stop="toggleDropdown('reportes', $event)"
               :aria-expanded="dropdowns.reportes ? 'true' : 'false'"
               aria-haspopup="true"
             >
@@ -372,7 +376,8 @@
             <button
               type="button"
               class="nav-item"
-              @click.stop="toggleDropdown('retenciones')"
+              :class="{ active: rutaActiva(['/retenciones']) }"
+              @click.stop="toggleDropdown('retenciones', $event)"
               :aria-expanded="dropdowns.retenciones ? 'true' : 'false'"
               aria-haspopup="true"
             >
@@ -411,7 +416,8 @@
             <button
               type="button"
               class="nav-item"
-              @click.stop="toggleDropdown('admin')"
+              :class="{ active: rutaActiva(['/diagnostico', '/configuracion-empresa', '/certificado-firma', '/envio-sri', '/usuarios', '/auditoria', '/backups']) }"
+              @click.stop="toggleDropdown('admin', $event)"
               :aria-expanded="dropdowns.admin ? 'true' : 'false'"
               aria-haspopup="true"
             >
@@ -649,8 +655,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import { useAuth } from '../composables/useAuth'
@@ -658,6 +664,7 @@ import { usePermisos } from '../composables/usePermisos'
 import { api } from '../services/api'
 
 const router = useRouter()
+const route = useRoute()                                   // 🔧 para active-class
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
 
@@ -687,6 +694,7 @@ let unmounted = false
 let infoAbort = null
 let infoRefreshTimer = null
 let scrollRafId = null
+let visibilityHandler = null                            // 🔧
 
 // ===== PERMISOS =====
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
@@ -705,6 +713,13 @@ const puedeCrearRetenciones = computed(() => puede('retenciones', 'crear'))
 const puedeVerAuditoria = computed(() => puede('auditoria', 'ver'))
 const puedeVerUsuarios = computed(() => puede('usuarios', 'ver'))
 
+// ===== RUTA ACTIVA =====  🔧
+const rutaActiva = (prefijos) => {
+  const lista = Array.isArray(prefijos) ? prefijos : [prefijos]
+  const path = route.path || ''
+  return lista.some((p) => path === p || path.startsWith(p + '/'))
+}
+
 // ===== CERTIFICADO =====
 const certificadoPorVencer = computed(
   () => certificadoInfo.value?.cargado && certificadoInfo.value?.por_vencer
@@ -719,6 +734,7 @@ const documentosFirmados = computed(
 // ===== INFO DEL SISTEMA =====
 const cargarInfoSistema = async () => {
   if (!puedeVerUsuarios.value) return
+  if (unmounted) return
 
   if (infoAbort) {
     try { infoAbort.abort() } catch { /* noop */ }
@@ -743,7 +759,7 @@ const cargarInfoSistema = async () => {
 
     if (cert.status === 'fulfilled') certificadoInfo.value = cert.value
     if (sri.status === 'fulfilled') estadoSri.value = sri.value
-  } catch (e) {
+  } catch {
     /* silencioso */
   }
 }
@@ -756,15 +772,27 @@ const toggleNavbar = () => {
   }
 }
 
-const toggleDropdown = (nombre) => {
+// 🔧 toggleDropdown ahora mueve el foco al primer item del panel
+const toggleDropdown = async (nombre, event) => {
+  const abriendo = !dropdowns.value[nombre]
+
   if (navbarAbierto.value) {
     dropdowns.value[nombre] = !dropdowns.value[nombre]
-    return
+  } else {
+    for (const k of Object.keys(dropdowns.value)) {
+      dropdowns.value[k] = k === nombre ? !dropdowns.value[nombre] : false
+    }
+    if (userMenuOpen.value) userMenuOpen.value = false
   }
-  for (const k of Object.keys(dropdowns.value)) {
-    dropdowns.value[k] = k === nombre ? !dropdowns.value[nombre] : false
+
+  if (abriendo && !navbarAbierto.value) {
+    await nextTick()
+    const panel = event?.currentTarget
+      ?.closest('.nav-dropdown')
+      ?.querySelector('.dropdown-panel')
+    const first = panel?.querySelector('a, button')
+    first?.focus?.()
   }
-  if (userMenuOpen.value) userMenuOpen.value = false
 }
 
 const toggleUserMenu = () => {
@@ -786,7 +814,7 @@ const handleClickOutside = (e) => {
   cerrarTodo()
 }
 
-// ===== SCROLL (con rAF para no saturar) =====
+// ===== SCROLL (con rAF) =====
 const handleScroll = () => {
   if (scrollRafId) return
   scrollRafId = requestAnimationFrame(() => {
@@ -798,9 +826,13 @@ const handleScroll = () => {
   })
 }
 
-// ===== ATAJOS =====
+// ===== ATAJOS =====  🔧 (filtrado en Mac + isTrusted)
+const esMac = typeof navigator !== 'undefined'
+  && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '')
+
 const handleKeyboard = (e) => {
-  // Ignorar si el usuario está escribiendo en un campo
+  if (!e.isTrusted) return
+
   const tag = String(e.target?.tagName || '').toLowerCase()
   const esInput =
     tag === 'input' ||
@@ -811,9 +843,13 @@ const handleKeyboard = (e) => {
   // Ctrl/Cmd + K → buscador
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
-    if (searchBar.value?.$el) {
+    // 🔧 Preferimos el método expuesto del SearchBar
+    if (typeof searchBar.value?.focus === 'function') {
+      searchBar.value.focus()
+    } else if (searchBar.value?.$el) {
       const input = searchBar.value.$el.querySelector('input')
-      if (input) input.focus()
+      input?.focus?.()
+      input?.select?.()
     }
     return
   }
@@ -829,8 +865,15 @@ const handleKeyboard = (e) => {
     return
   }
 
-  // Alt + [1-9] → navegación rápida (solo si no está en un input)
-  if (e.altKey && !esInput && /^[1-9]$/.test(e.key)) {
+  // Alt + [1-9] → navegación rápida (deshabilitado en Mac)  🔧
+  if (
+    e.altKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !esMac &&
+    !esInput &&
+    /^[1-9]$/.test(e.key)
+  ) {
     e.preventDefault()
     const shortcuts = {
       '1': '/',
@@ -852,22 +895,10 @@ const handleKeyboard = (e) => {
 }
 
 // ===== NAVEGACIÓN =====
-const irPerfil = () => {
-  cerrarTodo()
-  router.push('/mi-perfil')
-}
-const irConfigEmpresa = () => {
-  cerrarTodo()
-  router.push('/configuracion-empresa')
-}
-const irCertificado = () => {
-  cerrarTodo()
-  router.push('/certificado-firma')
-}
-const irEnvioSri = () => {
-  cerrarTodo()
-  router.push('/envio-sri')
-}
+const irPerfil = () => { cerrarTodo(); router.push('/mi-perfil') }
+const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
+const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
+const irEnvioSri = () => { cerrarTodo(); router.push('/envio-sri') }
 
 const cerrarSesion = () => {
   cerrarTodo()
@@ -895,6 +926,22 @@ const getInitials = (nombre) => {
   )
 }
 
+// 🔧 Helper para (re)iniciar el polling
+const iniciarPolling = () => {
+  if (infoRefreshTimer || unmounted) return
+  infoRefreshTimer = setInterval(() => {
+    if (unmounted) return
+    cargarInfoSistema()
+  }, 5 * 60 * 1000)
+}
+
+const detenerPolling = () => {
+  if (infoRefreshTimer) {
+    clearInterval(infoRefreshTimer)
+    infoRefreshTimer = null
+  }
+}
+
 // ===== LIFECYCLE =====
 onMounted(async () => {
   try {
@@ -902,14 +949,21 @@ onMounted(async () => {
   } catch { /* noop */ }
 
   await cargarInfoSistema()
+  iniciarPolling()
 
-  // Refrescar info cada 5 minutos
-  infoRefreshTimer = setInterval(() => {
-    if (unmounted) return
-    cargarInfoSistema()
-  }, 5 * 60 * 1000)
+  // 🔧 Pausar polling cuando la pestaña está oculta
+  visibilityHandler = () => {
+    if (document.hidden) {
+      detenerPolling()
+    } else {
+      cargarInfoSistema()
+      iniciarPolling()
+    }
+  }
+  document.addEventListener('visibilitychange', visibilityHandler)
 
-  document.addEventListener('click', handleClickOutside)
+  // 🔧 mousedown en vez de click para cerrar dropdowns más ágil
+  document.addEventListener('mousedown', handleClickOutside)
   document.addEventListener('keydown', handleKeyboard)
   window.addEventListener('scroll', handleScroll, { passive: true })
 
@@ -919,8 +973,12 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unmounted = true
 
-  document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('mousedown', handleClickOutside)
   document.removeEventListener('keydown', handleKeyboard)
+  if (visibilityHandler) {
+    document.removeEventListener('visibilitychange', visibilityHandler)
+    visibilityHandler = null
+  }
   window.removeEventListener('scroll', handleScroll)
 
   if (scrollRafId) {
@@ -931,10 +989,7 @@ onBeforeUnmount(() => {
     try { infoAbort.abort() } catch { /* noop */ }
     infoAbort = null
   }
-  if (infoRefreshTimer) {
-    clearInterval(infoRefreshTimer)
-    infoRefreshTimer = null
-  }
+  detenerPolling()
 })
 </script>
 
@@ -964,6 +1019,7 @@ onBeforeUnmount(() => {
   padding-top: 10px;
   padding-bottom: 10px;
   min-height: 64px;
+  min-width: 0;                                            /* 🔧 */
 }
 
 /* ============================================================
@@ -1060,6 +1116,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   flex: 1;
+  min-width: 0;                                            /* 🔧 */
   justify-content: space-between;
 }
 
@@ -1070,6 +1127,8 @@ onBeforeUnmount(() => {
   list-style: none;
   margin: 0;
   padding: 0;
+  min-width: 0;                                            /* 🔧 */
+  flex-shrink: 1;                                          /* 🔧 */
 }
 
 .nav-item {
@@ -1139,6 +1198,7 @@ onBeforeUnmount(() => {
   top: calc(100% + 8px);
   left: 0;
   min-width: 260px;
+  max-width: min(360px, 92vw);                             /* 🔧 */
   background: rgba(20, 30, 48, 0.98);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -1150,6 +1210,14 @@ onBeforeUnmount(() => {
   margin: 0;
   z-index: 100;
   animation: dropdown-in 0.2s ease-out;
+  max-height: calc(100vh - 100px);                         /* 🔧 */
+  overflow-y: auto;                                        /* 🔧 */
+}
+
+/* 🔧 Últimos dropdowns se alinean a la derecha para no salirse */
+.nav-list > .nav-dropdown:nth-last-child(-n+2) .dropdown-panel {
+  left: auto;
+  right: 0;
 }
 
 @keyframes dropdown-in {
@@ -1239,17 +1307,20 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;                                          /* 🔧 */
+  min-width: 0;                                            /* 🔧 */
 }
 
 .search-container {
-  width: 260px;
-  flex-shrink: 0;
+  width: clamp(160px, 18vw, 260px);                        /* 🔧 adaptativo */
+  min-width: 0;
+  flex-shrink: 1;                                          /* 🔧 puede encogerse */
 }
 
 /* ============================================================
    USER
    ============================================================ */
-.user-wrapper { position: relative; }
+.user-wrapper { position: relative; flex-shrink: 0; }      /* 🔧 */
 
 .user-btn {
   display: flex;
@@ -1271,6 +1342,22 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
+/* 🔧 Sistema de color por rol con CSS variables (elimina duplicación) */
+.user-avatar,
+.user-avatar-lg {
+  background: linear-gradient(
+    135deg,
+    var(--rol-c1, #f59e0b),
+    var(--rol-c2, #d97706)
+  );
+  color: #fff;
+}
+[data-rol="admin"]    { --rol-c1: #ef4444; --rol-c2: #dc2626; }
+[data-rol="contador"] { --rol-c1: #3b82f6; --rol-c2: #2563eb; }
+[data-rol="vendedor"] { --rol-c1: #10b981; --rol-c2: #059669; }
+[data-rol="bodeguero"]{ --rol-c1: #f59e0b; --rol-c2: #d97706; }
+[data-rol="auditor"]  { --rol-c1: #8b5cf6; --rol-c2: #7c3aed; }
+
 .user-avatar {
   width: 32px;
   height: 32px;
@@ -1280,17 +1367,10 @@ onBeforeUnmount(() => {
   justify-content: center;
   font-weight: 800;
   font-size: 0.72rem;
-  color: #1a2a3a;
   flex-shrink: 0;
   letter-spacing: 0.3px;
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
-.user-avatar[data-rol="admin"] { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
-.user-avatar[data-rol="contador"] { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; }
-.user-avatar[data-rol="vendedor"] { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
-.user-avatar[data-rol="bodeguero"] { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; }
-.user-avatar[data-rol="auditor"] { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; }
 
 .user-details {
   display: flex;
@@ -1333,13 +1413,16 @@ onBeforeUnmount(() => {
   top: calc(100% + 12px);
   right: 0;
   min-width: 320px;
+  max-width: min(360px, 92vw);                             /* 🔧 */
+  max-height: calc(100vh - 100px);                         /* 🔧 */
+  overflow-y: auto;                                        /* 🔧 */
   background: rgba(20, 30, 48, 0.99);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
-  overflow: hidden;
+  overflow-x: hidden;
   z-index: 100;
   animation: dropdown-in 0.2s ease-out;
 }
@@ -1362,17 +1445,10 @@ onBeforeUnmount(() => {
   justify-content: center;
   font-weight: 800;
   font-size: 1.05rem;
-  color: #1a2a3a;
   flex-shrink: 0;
   letter-spacing: 0.5px;
-  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.35);
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
-.user-avatar-lg[data-rol="admin"] { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
-.user-avatar-lg[data-rol="contador"] { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; }
-.user-avatar-lg[data-rol="vendedor"] { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
-.user-avatar-lg[data-rol="bodeguero"] { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; }
-.user-avatar-lg[data-rol="auditor"] { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; }
 
 .user-panel-info { flex: 1; min-width: 0; }
 .user-panel-name {
@@ -1455,7 +1531,7 @@ onBeforeUnmount(() => {
 }
 .user-action > span:first-of-type { flex: 1; }
 .user-action:hover { background: rgba(255, 255, 255, 0.06); }
-.user-action:hover > i { color: var(--accent-color, #f59e0b); transform: scale(1.1); }
+.user-action:hover > i { transform: scale(1.1); }
 .user-action.danger { color: #fca5a5; }
 .user-action.danger > i { color: #ef4444; }
 .user-action.danger:hover { background: rgba(239, 68, 68, 0.15); }
@@ -1519,12 +1595,42 @@ onBeforeUnmount(() => {
 }
 
 /* ============================================================
+   ACCESIBILIDAD — FOCUS VISIBLE  🔧
+   ============================================================ */
+.nav-item:focus-visible,
+.user-btn:focus-visible,
+.dropdown-link:focus-visible,
+.user-action:focus-visible,
+.burger:focus-visible {
+  outline: 2px solid var(--accent-color, #f59e0b);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
-@media (max-width: 1280px) {
-  .search-container { width: 200px; }
+
+/* Pantallas grandes pero no XL: comprimimos paddings antes de ocultar */
+@media (max-width: 1400px) {
+  .nav-list { gap: 0; }
+  .nav-item { padding: 8px 11px; font-size: 0.83rem; }
+  .nav-item > i:first-child { font-size: 0.85rem; }
+}
+
+/* Portátiles pequeñas: iconos primero, texto colapsado */
+@media (max-width: 1200px) {
+  .navbar-inner { gap: 10px; }
+  .nav-item { padding: 8px 9px; }
+  .nav-item > span:not(.shortcut):not(.badge-mini) { display: none; }
+  .nav-item.active > span:not(.shortcut):not(.badge-mini) { display: inline; }
+  .nav-caret { display: none; }
+  .nav-alert-dot { margin-left: 0; }
+
+  .search-container { width: 160px; }
   .user-details { display: none; }
-  .user-btn { padding: 4px; }
+  .user-btn { padding: 4px; max-width: 44px; }
+  .user-caret { display: none; }
 }
 
 @media (max-width: 992px) {
@@ -1566,10 +1672,10 @@ onBeforeUnmount(() => {
     font-size: 0.95rem;
     border-radius: var(--radius-sm);
   }
-
+  /* Restaurar textos ocultos en móvil */
+  .nav-item > span:not(.shortcut):not(.badge-mini) { display: inline; }
+  .nav-caret { display: inline; opacity: 1; }
   .nav-item.active { box-shadow: none; }
-
-  .nav-caret { opacity: 1; }
 
   .dropdown-panel {
     position: static;
@@ -1584,6 +1690,15 @@ onBeforeUnmount(() => {
     margin-bottom: 8px;
     animation: none;
     min-width: 0;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* Reset del offset derecho para móvil */
+  .nav-list > .nav-dropdown:nth-last-child(-n+2) .dropdown-panel {
+    left: auto;
+    right: auto;
   }
 
   .dropdown-link { padding: 10px 14px; font-size: 0.86rem; }
@@ -1601,11 +1716,13 @@ onBeforeUnmount(() => {
 
   .user-btn {
     width: 100%;
+    max-width: none;
     justify-content: center;
     padding: 12px 16px;
     border-radius: var(--radius-md);
   }
   .user-details { display: flex; }
+  .user-caret { display: inline; }
 
   .user-panel {
     position: relative;
@@ -1613,7 +1730,9 @@ onBeforeUnmount(() => {
     right: 0;
     left: 0;
     min-width: 0;
+    max-width: none;
     width: 100%;
+    max-height: none;
   }
 }
 
@@ -1624,16 +1743,13 @@ onBeforeUnmount(() => {
 }
 
 /* ============================================================
-   ACCESIBILIDAD
+   ACCESIBILIDAD — REDUCED MOTION
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   .nav-alert-dot,
-  .status-dot {
-    animation: none;
-  }
+  .status-dot { animation: none; }
   .dropdown-panel,
-  .user-panel {
-    animation: none;
-  }
+  .user-panel { animation: none; }
+  .brand:hover .brand-logo { transform: none; }
 }
 </style>
