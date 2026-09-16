@@ -31,7 +31,7 @@ function _leerUsuario() {
   }
 }
 
-function _escribirUsuario(u) {
+export function _escribirUsuario(u) {
   try {
     if (u === null) {
       localStorage.removeItem(USER_KEY)
@@ -220,4 +220,3 @@ export function useAuth() {
 
 // ---- Solo para tests ----
 export const _leerUsuario = _leerUsuario
-export const _escribirUsuario = _escribirUsuario
