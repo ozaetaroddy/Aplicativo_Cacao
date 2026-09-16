@@ -19,7 +19,7 @@ const BROADCAST_CHANNEL = 'auth'
 const user = ref(_leerUsuario())
 
 // ===== HELPERS DE STORAGE =====
-function _leerUsuario() {
+export function _leerUsuario() {
   try {
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
@@ -217,6 +217,3 @@ export function useAuth() {
     refreshUser
   }
 }
-
-// ---- Solo para tests ----
-export const _leerUsuario = _leerUsuario
