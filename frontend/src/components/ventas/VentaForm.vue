@@ -3,22 +3,38 @@
     <!-- ===== HEADER ===== -->
     <div class="form-header">
       <div class="header-left">
-        <button type="button" class="btn-back" @click="$router.push('/ventas')">
-          <i class="fas fa-arrow-left"></i>
+        <button
+          type="button"
+          class="btn-back"
+          @click="cancelar"
+          title="Volver"
+          aria-label="Volver al listado"
+        >
+          <i class="fas fa-arrow-left" aria-hidden="true"></i>
         </button>
         <div>
           <h1 class="form-title">
-            <span class="title-icon"><i class="fas fa-file-invoice"></i></span>
+            <span class="title-icon"><i class="fas fa-file-invoice" aria-hidden="true"></i></span>
             {{ tituloDocumento }}
           </h1>
           <p class="form-subtitle">
-            {{ id ? 'Editando documento existente' : 'Complete los datos para crear un nuevo documento' }}
+            {{
+              esEdicion
+                ? 'Editando documento existente'
+                : 'Complete los datos para crear un nuevo documento'
+            }}
           </p>
         </div>
       </div>
       <div class="header-actions">
-        <button type="button" class="btn-ghost" @click="mostrarAyuda = !mostrarAyuda">
-          <i class="fas fa-keyboard"></i>
+        <button
+          type="button"
+          class="btn-ghost"
+          @click="mostrarAyuda = !mostrarAyuda"
+          :aria-expanded="mostrarAyuda ? 'true' : 'false'"
+          aria-label="Mostrar atajos de teclado"
+        >
+          <i class="fas fa-keyboard" aria-hidden="true"></i>
           <span>Atajos</span>
         </button>
       </div>
@@ -28,7 +44,7 @@
     <transition name="fade">
       <div v-if="mostrarAyuda" class="shortcuts-panel">
         <div class="shortcuts-title">
-          <i class="fas fa-bolt"></i>
+          <i class="fas fa-bolt" aria-hidden="true"></i>
           Atajos de teclado
         </div>
         <div class="shortcuts-grid">
@@ -45,7 +61,7 @@
 
     <!-- Alerta configuración -->
     <div v-if="puedeGenerarClave && !configEmpresaOk" class="alert-box alert-danger">
-      <div class="alert-icon"><i class="fas fa-exclamation-triangle"></i></div>
+      <div class="alert-icon"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i></div>
       <div class="alert-body">
         <div class="alert-title">Configuración incompleta</div>
         <div class="alert-text">
@@ -53,17 +69,18 @@
         </div>
       </div>
       <router-link to="/configuracion-empresa" class="alert-action">
-        Configurar <i class="fas fa-arrow-right"></i>
+        Configurar <i class="fas fa-arrow-right" aria-hidden="true"></i>
       </router-link>
     </div>
 
     <div v-else-if="puedeGenerarClave && configEmpresaOk" class="alert-box alert-success">
-      <div class="alert-icon"><i class="fas fa-check-circle"></i></div>
+      <div class="alert-icon"><i class="fas fa-check-circle" aria-hidden="true"></i></div>
       <div class="alert-body">
         <div class="alert-title">Listo para facturar</div>
         <div class="alert-text">
           RUC <strong>{{ configEmpresa?.ruc }}</strong> ·
-          Ambiente <strong>{{ configEmpresa?.ambiente === '2' ? 'PRODUCCIÓN' : 'PRUEBAS' }}</strong> ·
+          Ambiente
+          <strong>{{ configEmpresa?.ambiente === '2' ? 'PRODUCCIÓN' : 'PRUEBAS' }}</strong> ·
           Serie <code>{{ seriePreview }}</code>
         </div>
       </div>
@@ -73,7 +90,6 @@
       <div class="form-grid">
         <!-- ============ COLUMNA PRINCIPAL ============ -->
         <div class="form-main">
-
           <!-- SECCIÓN: Datos del documento -->
           <section class="form-section">
             <header class="section-header">
@@ -86,10 +102,16 @@
             <div class="section-body">
               <div class="form-row cols-2-1-1">
                 <div class="form-field">
-                  <label class="form-label">
+                  <label class="form-label" for="vf-tipo">
                     <span class="required">*</span> Tipo de documento
                   </label>
-                  <select class="form-select" v-model="venta.tipo_documento" @change="cambiarTipo">
+                  <select
+                    id="vf-tipo"
+                    class="form-select"
+                    v-model="venta.tipo_documento"
+                    @change="cambiarTipo"
+                    :disabled="cargando"
+                  >
                     <optgroup label="Documentos de Venta">
                       <option value="factura">01 - Factura</option>
                       <option value="nota_credito">04 - Nota de Crédito</option>
@@ -105,23 +127,28 @@
                   </select>
                 </div>
                 <div class="form-field">
-                  <label class="form-label">Nº documento</label>
+                  <label class="form-label" for="vf-numero">Nº documento</label>
                   <input
+                    id="vf-numero"
                     type="text"
                     class="form-control"
                     v-model="venta.numero_factura"
                     placeholder="Automático"
+                    maxlength="50"
+                    :disabled="cargando"
                   />
                 </div>
                 <div class="form-field">
-                  <label class="form-label">
+                  <label class="form-label" for="vf-fecha">
                     <span class="required">*</span> Fecha emisión
                   </label>
                   <input
+                    id="vf-fecha"
                     type="date"
                     class="form-control"
                     v-model="venta.fecha_emision"
                     required
+                    :disabled="cargando"
                   />
                 </div>
               </div>
@@ -129,7 +156,10 @@
           </section>
 
           <!-- SECCIÓN: Cliente -->
-          <section v-if="venta.tipo_documento !== 'guia_remision'" class="form-section card-with-dropdown">
+          <section
+            v-if="venta.tipo_documento !== 'guia_remision'"
+            class="form-section card-with-dropdown"
+          >
             <header class="section-header">
               <div class="section-number">2</div>
               <div class="section-header-content">
@@ -137,7 +167,7 @@
                 <p class="section-desc">Selecciona o crea un cliente</p>
               </div>
               <router-link to="/clientes/nuevo" class="btn-new-inline">
-                <i class="fas fa-plus"></i>
+                <i class="fas fa-plus" aria-hidden="true"></i>
                 <span>Nuevo</span>
               </router-link>
             </header>
@@ -145,16 +175,19 @@
               <!-- Buscador de cliente -->
               <div class="position-relative">
                 <div class="search-input-group">
-                  <i class="fas fa-search search-icon"></i>
+                  <i class="fas fa-search search-icon" aria-hidden="true"></i>
                   <input
                     ref="inputCliente"
                     type="text"
                     class="search-input"
-                    placeholder="Escribe nombre, RUC o cédula..."
+                    placeholder="Escribe nombre, RUC o cédula…"
                     v-model="busquedaCliente"
                     @focus="mostrarListaClientes = true"
                     @input="filtrarClientes"
                     @blur="cerrarListaClientes"
+                    aria-label="Buscar cliente"
+                    autocomplete="off"
+                    :disabled="cargando"
                   />
                   <button
                     v-if="venta.clienteId"
@@ -162,17 +195,21 @@
                     type="button"
                     @click="limpiarCliente"
                     title="Cambiar cliente"
+                    aria-label="Cambiar cliente"
                   >
-                    <i class="fas fa-times"></i>
+                    <i class="fas fa-times" aria-hidden="true"></i>
                   </button>
                 </div>
 
                 <!-- Dropdown -->
                 <transition name="dropdown">
-                  <div v-if="mostrarListaClientes && clientesFiltrados.length > 0" class="search-dropdown">
+                  <div
+                    v-if="mostrarListaClientes && clientesFiltrados.length > 0"
+                    class="search-dropdown"
+                  >
                     <div
                       v-for="c in clientesFiltrados.slice(0, 8)"
-                      :key="c._id"
+                      :key="String(c._id)"
                       class="dropdown-row"
                       @mousedown.prevent="seleccionarCliente(c)"
                     >
@@ -180,12 +217,25 @@
                       <div class="row-content">
                         <div class="row-title">{{ c.nombre }}</div>
                         <div class="row-meta">
-                          <span><i class="fas fa-id-card"></i> {{ c.ruc }}</span>
-                          <span v-if="c.telefono"><i class="fas fa-phone"></i> {{ c.telefono }}</span>
+                          <span><i class="fas fa-id-card" aria-hidden="true"></i> {{ c.ruc }}</span>
+                          <span v-if="c.telefono">
+                            <i class="fas fa-phone" aria-hidden="true"></i> {{ c.telefono }}
+                          </span>
                         </div>
                       </div>
-                      <i v-if="venta.clienteId === c._id" class="fas fa-check-circle row-check"></i>
+                      <i
+                        v-if="String(venta.clienteId) === String(c._id)"
+                        class="fas fa-check-circle row-check"
+                        aria-hidden="true"
+                      ></i>
                     </div>
+                  </div>
+                  <div
+                    v-else-if="mostrarListaClientes && busquedaCliente.length > 0"
+                    class="search-dropdown search-empty"
+                  >
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <span>Sin resultados para "{{ busquedaCliente }}"</span>
                   </div>
                 </transition>
               </div>
@@ -197,14 +247,26 @@
                   <div class="cliente-details">
                     <div class="cliente-name">{{ clienteActual.nombre }}</div>
                     <div class="cliente-meta-grid">
-                      <div><strong>RUC:</strong> {{ clienteActual.ruc }}</div>
-                      <div v-if="clienteActual.telefono"><strong>Tel:</strong> {{ clienteActual.telefono }}</div>
-                      <div v-if="clienteActual.email"><strong>Email:</strong> {{ clienteActual.email }}</div>
-                      <div v-if="clienteActual.direccion"><strong>Dir:</strong> {{ clienteActual.direccion }}</div>
+                      <div><strong>RUC:</strong> {{ clienteActual.ruc || '—' }}</div>
+                      <div v-if="clienteActual.telefono">
+                        <strong>Tel:</strong> {{ clienteActual.telefono }}
+                      </div>
+                      <div v-if="clienteActual.email">
+                        <strong>Email:</strong> {{ clienteActual.email }}
+                      </div>
+                      <div v-if="clienteActual.direccion">
+                        <strong>Dir:</strong> {{ clienteActual.direccion }}
+                      </div>
                     </div>
                   </div>
-                  <button class="cliente-change" @click="limpiarCliente">
-                    <i class="fas fa-exchange-alt"></i>
+                  <button
+                    type="button"
+                    class="cliente-change"
+                    @click="limpiarCliente"
+                    title="Cambiar cliente"
+                    aria-label="Cambiar cliente"
+                  >
+                    <i class="fas fa-exchange-alt" aria-hidden="true"></i>
                   </button>
                 </div>
               </transition>
@@ -218,12 +280,18 @@
               <div class="section-header-content">
                 <h2 class="section-title">
                   Productos
-                  <span v-if="venta.detalles.length > 0" class="count-badge">{{ venta.detalles.length }}</span>
+                  <span v-if="venta.detalles.length > 0" class="count-badge">
+                    {{ venta.detalles.length }}
+                  </span>
                 </h2>
                 <p class="section-desc">Agrega los productos o servicios</p>
               </div>
-              <button type="button" class="btn-new-inline btn-new-primary" @click="focusBusquedaProducto">
-                <i class="fas fa-search"></i>
+              <button
+                type="button"
+                class="btn-new-inline btn-new-primary"
+                @click="focusBusquedaProducto"
+              >
+                <i class="fas fa-search" aria-hidden="true"></i>
                 <span>Buscar (F2)</span>
               </button>
             </header>
@@ -231,49 +299,59 @@
               <!-- Buscador de productos -->
               <div class="position-relative">
                 <div class="search-input-group search-input-primary">
-                  <i class="fas fa-barcode search-icon"></i>
+                  <i class="fas fa-barcode search-icon" aria-hidden="true"></i>
                   <input
                     ref="inputProducto"
                     type="text"
                     class="search-input"
-                    placeholder="Busca por nombre o código. Presiona Enter para agregar..."
+                    placeholder="Busca por nombre o código. Presiona Enter para agregar…"
                     v-model="busquedaProducto"
                     @focus="mostrarListaProductos = true"
                     @input="filtrarProductos"
                     @keydown.enter.prevent="agregarPrimerProducto"
                     @keydown.esc="limpiarBusquedaProducto"
                     @blur="cerrarListaProductos"
+                    aria-label="Buscar producto"
+                    autocomplete="off"
+                    :disabled="cargando"
                   />
                 </div>
 
                 <transition name="dropdown">
-                  <div v-if="mostrarListaProductos && productosFiltrados.length > 0" class="search-dropdown">
+                  <div
+                    v-if="mostrarListaProductos && productosFiltrados.length > 0"
+                    class="search-dropdown"
+                  >
                     <div
                       v-for="p in productosFiltrados.slice(0, 10)"
-                      :key="p._id"
+                      :key="String(p._id)"
                       class="dropdown-row"
                       @mousedown.prevent="agregarProducto(p)"
                     >
                       <div class="row-avatar row-avatar-product">
-                        <i class="fas fa-box"></i>
+                        <i class="fas fa-box" aria-hidden="true"></i>
                       </div>
                       <div class="row-content">
                         <div class="row-title">{{ p.nombre }}</div>
                         <div class="row-meta">
                           <code>{{ p.codigo }}</code>
-                          <span :class="p.stock <= 0 ? 'stock-zero' : 'stock-ok'">
-                            <i class="fas fa-cube"></i> Stock: {{ p.stock || 0 }}
+                          <span :class="Number(p.stock) <= 0 ? 'stock-zero' : 'stock-ok'">
+                            <i class="fas fa-cube" aria-hidden="true"></i>
+                            Stock: {{ p.stock || 0 }}
                           </span>
                         </div>
                       </div>
                       <div class="row-price">
-                        <div class="price-value">${{ (p.precio_venta || 0).toFixed(2) }}</div>
+                        <div class="price-value">${{ formatMonto(p.precio_venta) }}</div>
                         <div class="price-label">venta</div>
                       </div>
                     </div>
                   </div>
-                  <div v-else-if="mostrarListaProductos && busquedaProducto.length > 0" class="search-dropdown search-empty">
-                    <i class="fas fa-search"></i>
+                  <div
+                    v-else-if="mostrarListaProductos && busquedaProducto.length > 0"
+                    class="search-dropdown search-empty"
+                  >
+                    <i class="fas fa-search" aria-hidden="true"></i>
                     <span>Sin resultados para "{{ busquedaProducto }}"</span>
                   </div>
                 </transition>
@@ -281,23 +359,32 @@
 
               <!-- Lista de items agregados -->
               <div v-if="venta.detalles.length === 0" class="empty-items">
-                <div class="empty-icon"><i class="fas fa-box-open"></i></div>
+                <div class="empty-icon"><i class="fas fa-box-open" aria-hidden="true"></i></div>
                 <div class="empty-title">No has agregado productos</div>
-                <div class="empty-text">Usa el buscador de arriba o presiona <kbd>F2</kbd></div>
+                <div class="empty-text">
+                  Usa el buscador de arriba o presiona <kbd>F2</kbd>
+                </div>
               </div>
 
               <div v-else class="items-list">
-                <div v-for="(item, index) in venta.detalles" :key="index" class="item-card">
+                <div
+                  v-for="(item, index) in venta.detalles"
+                  :key="`item-${index}-${item.productoId}`"
+                  class="item-card"
+                >
                   <div class="item-main">
                     <div class="item-icon">
-                      <i class="fas fa-box"></i>
+                      <i class="fas fa-box" aria-hidden="true"></i>
                     </div>
                     <div class="item-info">
                       <div class="item-name">{{ item.nombre || 'Producto' }}</div>
                       <div class="item-code">{{ item.codigo || 'Sin código' }}</div>
                       <div v-if="item.stockDisponible !== undefined" class="item-stock">
-                        <i class="fas fa-cube"></i>
-                        Stock: <strong :class="item.cantidad > item.stockDisponible ? 'text-danger' : ''">
+                        <i class="fas fa-cube" aria-hidden="true"></i>
+                        Stock:
+                        <strong
+                          :class="item.cantidad > item.stockDisponible ? 'text-danger' : ''"
+                        >
                           {{ item.stockDisponible }}
                         </strong>
                       </div>
@@ -306,35 +393,54 @@
 
                   <div class="item-controls">
                     <div class="control-group">
-                      <label>Cantidad</label>
+                      <label :for="`qty-${index}`">Cantidad</label>
                       <div class="qty-control">
-                        <button type="button" @click="cambiarCantidad(index, -1)">
-                          <i class="fas fa-minus"></i>
+                        <button
+                          type="button"
+                          @click="cambiarCantidad(index, -1)"
+                          aria-label="Disminuir cantidad"
+                        >
+                          <i class="fas fa-minus" aria-hidden="true"></i>
                         </button>
                         <input
+                          :id="`qty-${index}`"
                           type="number"
                           v-model.number="item.cantidad"
                           min="0.01"
                           step="0.01"
                           @blur="validarCantidad(index)"
                         />
-                        <button type="button" @click="cambiarCantidad(index, 1)">
-                          <i class="fas fa-plus"></i>
+                        <button
+                          type="button"
+                          @click="cambiarCantidad(index, 1)"
+                          aria-label="Aumentar cantidad"
+                        >
+                          <i class="fas fa-plus" aria-hidden="true"></i>
                         </button>
                       </div>
                     </div>
 
                     <div class="control-group">
-                      <label>Precio unit.</label>
+                      <label :for="`price-${index}`">Precio unit.</label>
                       <div class="price-input">
                         <span>$</span>
-                        <input type="number" v-model.number="item.precio_unitario" min="0" step="0.01" />
+                        <input
+                          :id="`price-${index}`"
+                          type="number"
+                          v-model.number="item.precio_unitario"
+                          min="0"
+                          step="0.01"
+                        />
                       </div>
                     </div>
 
                     <div class="control-group">
-                      <label>IVA</label>
-                      <select class="form-select form-select-sm" v-model="item.aplica_iva">
+                      <label :for="`iva-${index}`">IVA</label>
+                      <select
+                        :id="`iva-${index}`"
+                        class="form-select form-select-sm"
+                        v-model="item.aplica_iva"
+                      >
                         <option :value="true">15%</option>
                         <option :value="false">0%</option>
                       </select>
@@ -343,12 +449,18 @@
                     <div class="control-group control-subtotal">
                       <label>Subtotal</label>
                       <div class="subtotal-value">
-                        ${{ ((item.cantidad || 0) * (item.precio_unitario || 0)).toFixed(2) }}
+                        ${{ formatMonto((item.cantidad || 0) * (item.precio_unitario || 0)) }}
                       </div>
                     </div>
 
-                    <button class="item-remove" @click="eliminarDetalle(index)" title="Quitar">
-                      <i class="fas fa-times"></i>
+                    <button
+                      type="button"
+                      class="item-remove"
+                      @click="eliminarDetalle(index)"
+                      title="Quitar producto"
+                      aria-label="Quitar producto"
+                    >
+                      <i class="fas fa-times" aria-hidden="true"></i>
                     </button>
                   </div>
                 </div>
@@ -364,27 +476,56 @@
                 <h2 class="section-title">Datos de la Guía de Remisión</h2>
                 <p class="section-desc">Información del traslado y transportista</p>
               </div>
-              <i class="fas toggle-chevron" :class="seccionesExpandidas.guia ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+              <i
+                class="fas toggle-chevron"
+                :class="seccionesExpandidas.guia ? 'fa-chevron-up' : 'fa-chevron-down'"
+                aria-hidden="true"
+              ></i>
             </header>
             <transition name="collapse">
               <div v-show="seccionesExpandidas.guia" class="section-body">
                 <!-- Sub-sección: Generales -->
                 <div class="subsection">
                   <h3 class="subsection-title">
-                    <i class="fas fa-store"></i> Datos Generales
+                    <i class="fas fa-store" aria-hidden="true"></i> Datos Generales
                   </h3>
                   <div class="form-row cols-3">
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Establecimiento</label>
-                      <input type="text" class="form-control" v-model="venta.establecimiento" />
+                      <label class="form-label" for="g-estab">
+                        <span class="required">*</span> Establecimiento
+                      </label>
+                      <input
+                        id="g-estab"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.establecimiento"
+                        maxlength="3"
+                        inputmode="numeric"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Nombre Comercial</label>
-                      <input type="text" class="form-control" v-model="venta.nombre_comercial" />
+                      <label class="form-label" for="g-nombre-comercial">
+                        <span class="required">*</span> Nombre Comercial
+                      </label>
+                      <input
+                        id="g-nombre-comercial"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.nombre_comercial"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Punto de Emisión</label>
-                      <input type="text" class="form-control" v-model="venta.punto_emision" />
+                      <label class="form-label" for="g-punto-emision">
+                        <span class="required">*</span> Punto de Emisión
+                      </label>
+                      <input
+                        id="g-punto-emision"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.punto_emision"
+                        maxlength="3"
+                        inputmode="numeric"
+                      />
                     </div>
                   </div>
                 </div>
@@ -392,36 +533,75 @@
                 <!-- Sub-sección: Destinatario -->
                 <div class="subsection">
                   <h3 class="subsection-title">
-                    <i class="fas fa-user"></i> Destinatario
+                    <i class="fas fa-user" aria-hidden="true"></i> Destinatario
                   </h3>
                   <div class="form-row cols-4">
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Identificación</label>
-                      <input type="text" class="form-control" v-model="venta.destinatario_identificacion" />
+                      <label class="form-label" for="g-dest-id">
+                        <span class="required">*</span> Identificación
+                      </label>
+                      <input
+                        id="g-dest-id"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.destinatario_identificacion"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Tipo ID</label>
-                      <SelectSRI v-model="venta.destinatario_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
+                      <label class="form-label">
+                        <span class="required">*</span> Tipo ID
+                      </label>
+                      <SelectSRI
+                        v-model="venta.destinatario_tipo"
+                        :lista="catalogos.TIPO_IDENTIFICACION || []"
+                        placeholder="Seleccione…"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Razón Social</label>
-                      <input type="text" class="form-control" v-model="venta.destinatario_razon_social" />
+                      <label class="form-label" for="g-dest-razon">
+                        <span class="required">*</span> Razón Social
+                      </label>
+                      <input
+                        id="g-dest-razon"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.destinatario_razon_social"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Dirección Destino</label>
-                      <input type="text" class="form-control" v-model="venta.destinatario_direccion" />
+                      <label class="form-label" for="g-dest-dir">
+                        <span class="required">*</span> Dirección Destino
+                      </label>
+                      <input
+                        id="g-dest-dir"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.destinatario_direccion"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Ruta</label>
-                      <input type="text" class="form-control" v-model="venta.ruta" />
+                      <label class="form-label" for="g-ruta">Ruta</label>
+                      <input id="g-ruta" type="text" class="form-control" v-model="venta.ruta" />
                     </div>
                     <div class="form-field">
-                      <label class="form-label"><span class="required">*</span> Motivo</label>
-                      <input type="text" class="form-control" v-model="venta.motivo" />
+                      <label class="form-label" for="g-motivo">
+                        <span class="required">*</span> Motivo
+                      </label>
+                      <input
+                        id="g-motivo"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.motivo"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Doc. Aduanero</label>
-                      <input type="text" class="form-control" v-model="venta.documento_aduana" />
+                      <label class="form-label" for="g-aduana">Doc. Aduanero</label>
+                      <input
+                        id="g-aduana"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.documento_aduana"
+                      />
                     </div>
                   </div>
                 </div>
@@ -429,12 +609,16 @@
                 <!-- Sub-sección: Comprobante Sustento -->
                 <div class="subsection">
                   <h3 class="subsection-title">
-                    <i class="fas fa-file-alt"></i> Comprobante de Sustento
+                    <i class="fas fa-file-alt" aria-hidden="true"></i> Comprobante de Sustento
                   </h3>
                   <div class="form-row cols-3">
                     <div class="form-field">
-                      <label class="form-label">Tipo Emisión</label>
-                      <select class="form-select" v-model="venta.comprobante_tipo_emision">
+                      <label class="form-label" for="g-comp-tipo-emision">Tipo Emisión</label>
+                      <select
+                        id="g-comp-tipo-emision"
+                        class="form-select"
+                        v-model="venta.comprobante_tipo_emision"
+                      >
                         <option value="">Seleccione</option>
                         <option value="Física">Física</option>
                         <option value="Electrónica">Electrónica</option>
@@ -442,23 +626,48 @@
                     </div>
                     <div class="form-field">
                       <label class="form-label">Tipo Comprobante</label>
-                      <SelectSRI v-model="venta.comprobante_documento" :lista="catalogos.DOCUMENTO_SUSTENTO || []" placeholder="Seleccione..." />
+                      <SelectSRI
+                        v-model="venta.comprobante_documento"
+                        :lista="catalogos.DOCUMENTO_SUSTENTO || []"
+                        placeholder="Seleccione…"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Nº Comprobante</label>
-                      <input type="text" class="form-control" v-model="venta.comprobante_numero" />
+                      <label class="form-label" for="g-comp-numero">Nº Comprobante</label>
+                      <input
+                        id="g-comp-numero"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.comprobante_numero"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Clave de Acceso</label>
-                      <input type="text" class="form-control" v-model="venta.comprobante_clave_acceso" />
+                      <label class="form-label" for="g-comp-clave">Clave de Acceso</label>
+                      <input
+                        id="g-comp-clave"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.comprobante_clave_acceso"
+                        maxlength="49"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Nº Autorización</label>
-                      <input type="text" class="form-control" v-model="venta.comprobante_numero_autorizacion" />
+                      <label class="form-label" for="g-comp-aut">Nº Autorización</label>
+                      <input
+                        id="g-comp-aut"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.comprobante_numero_autorizacion"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Fecha Emisión</label>
-                      <input type="date" class="form-control" v-model="venta.comprobante_fecha_emision" />
+                      <label class="form-label" for="g-comp-fecha">Fecha Emisión</label>
+                      <input
+                        id="g-comp-fecha"
+                        type="date"
+                        class="form-control"
+                        v-model="venta.comprobante_fecha_emision"
+                      />
                     </div>
                   </div>
                 </div>
@@ -466,24 +675,43 @@
                 <!-- Sub-sección: Transportista -->
                 <div class="subsection">
                   <h3 class="subsection-title">
-                    <i class="fas fa-truck"></i> Transportista
+                    <i class="fas fa-truck" aria-hidden="true"></i> Transportista
                   </h3>
                   <div class="form-row cols-4">
                     <div class="form-field">
-                      <label class="form-label">Identificación</label>
-                      <input type="text" class="form-control" v-model="venta.transportista_identificacion" />
+                      <label class="form-label" for="g-trans-id">Identificación</label>
+                      <input
+                        id="g-trans-id"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.transportista_identificacion"
+                      />
                     </div>
                     <div class="form-field">
                       <label class="form-label">Tipo ID</label>
-                      <SelectSRI v-model="venta.transportista_tipo" :lista="catalogos.TIPO_IDENTIFICACION || []" placeholder="Seleccione..." />
+                      <SelectSRI
+                        v-model="venta.transportista_tipo"
+                        :lista="catalogos.TIPO_IDENTIFICACION || []"
+                        placeholder="Seleccione…"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Razón Social</label>
-                      <input type="text" class="form-control" v-model="venta.transportista_razon_social" />
+                      <label class="form-label" for="g-trans-razon">Razón Social</label>
+                      <input
+                        id="g-trans-razon"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.transportista_razon_social"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Correo</label>
-                      <input type="email" class="form-control" v-model="venta.transportista_correo" />
+                      <label class="form-label" for="g-trans-correo">Correo</label>
+                      <input
+                        id="g-trans-correo"
+                        type="email"
+                        class="form-control"
+                        v-model="venta.transportista_correo"
+                      />
                     </div>
                   </div>
                 </div>
@@ -491,24 +719,45 @@
                 <!-- Sub-sección: Traslado -->
                 <div class="subsection">
                   <h3 class="subsection-title">
-                    <i class="fas fa-route"></i> Traslado
+                    <i class="fas fa-route" aria-hidden="true"></i> Traslado
                   </h3>
                   <div class="form-row cols-4">
                     <div class="form-field">
-                      <label class="form-label">Dirección Partida</label>
-                      <input type="text" class="form-control" v-model="venta.direccion_partida" />
+                      <label class="form-label" for="g-partida">Dirección Partida</label>
+                      <input
+                        id="g-partida"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.direccion_partida"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Inicio Transporte</label>
-                      <input type="datetime-local" class="form-control" v-model="venta.inicio_transporte" />
+                      <label class="form-label" for="g-inicio">Inicio Transporte</label>
+                      <input
+                        id="g-inicio"
+                        type="datetime-local"
+                        class="form-control"
+                        v-model="venta.inicio_transporte"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Fin Transporte</label>
-                      <input type="datetime-local" class="form-control" v-model="venta.fin_transporte" />
+                      <label class="form-label" for="g-fin">Fin Transporte</label>
+                      <input
+                        id="g-fin"
+                        type="datetime-local"
+                        class="form-control"
+                        v-model="venta.fin_transporte"
+                      />
                     </div>
                     <div class="form-field">
-                      <label class="form-label">Placa</label>
-                      <input type="text" class="form-control" v-model="venta.placa_transporte" />
+                      <label class="form-label" for="g-placa">Placa</label>
+                      <input
+                        id="g-placa"
+                        type="text"
+                        class="form-control"
+                        v-model="venta.placa_transporte"
+                        maxlength="10"
+                      />
                     </div>
                   </div>
                 </div>
@@ -520,41 +769,60 @@
           <section v-if="venta.tipo_documento !== 'guia_remision'" class="form-section">
             <header class="section-header section-header-clickable" @click="toggleSeccion('pago')">
               <div class="section-number">
-                <i class="fas fa-credit-card"></i>
+                <i class="fas fa-credit-card" aria-hidden="true"></i>
               </div>
               <div class="section-header-content">
                 <h2 class="section-title">Información de Pago</h2>
                 <p class="section-desc">Forma, estado y fecha de pago</p>
               </div>
-              <i class="fas toggle-chevron" :class="seccionesExpandidas.pago ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+              <i
+                class="fas toggle-chevron"
+                :class="seccionesExpandidas.pago ? 'fa-chevron-up' : 'fa-chevron-down'"
+                aria-hidden="true"
+              ></i>
             </header>
             <transition name="collapse">
               <div v-show="seccionesExpandidas.pago" class="section-body">
                 <div class="form-row cols-3">
                   <div class="form-field">
                     <label class="form-label">Forma de pago</label>
-                    <SelectSRI v-model="venta.forma_pago" :lista="catalogos.FORMA_PAGO || []" placeholder="Seleccione..." />
+                    <SelectSRI
+                      v-model="venta.forma_pago"
+                      :lista="catalogos.FORMA_PAGO || []"
+                      placeholder="Seleccione…"
+                    />
                   </div>
                   <div class="form-field">
-                    <label class="form-label">Estado de pago</label>
-                    <select class="form-select" v-model="venta.estado_pago">
+                    <label class="form-label" for="vf-estado-pago">Estado de pago</label>
+                    <select
+                      id="vf-estado-pago"
+                      class="form-select"
+                      v-model="venta.estado_pago"
+                    >
                       <option value="pendiente">Pendiente</option>
                       <option value="pagado">Pagado</option>
                       <option value="parcial">Pago Parcial</option>
                     </select>
                   </div>
                   <div class="form-field">
-                    <label class="form-label">Fecha de pago</label>
-                    <input type="date" class="form-control" v-model="venta.fecha_pago" />
+                    <label class="form-label" for="vf-fecha-pago">Fecha de pago</label>
+                    <input
+                      id="vf-fecha-pago"
+                      type="date"
+                      class="form-control"
+                      v-model="venta.fecha_pago"
+                    />
                   </div>
                 </div>
                 <div class="form-row">
                   <div class="form-field">
-                    <label class="form-label">Observaciones</label>
+                    <label class="form-label" for="vf-obs">Observaciones</label>
                     <textarea
+                      id="vf-obs"
                       class="form-control"
                       v-model="venta.observaciones"
                       rows="3"
+                      maxlength="1000"
                       placeholder="Notas adicionales sobre el pago, referencias, etc."
                     ></textarea>
                   </div>
@@ -570,7 +838,7 @@
             <!-- Resumen -->
             <div class="summary-card">
               <div class="summary-header">
-                <i class="fas fa-calculator"></i>
+                <i class="fas fa-calculator" aria-hidden="true"></i>
                 <span>Resumen del documento</span>
               </div>
               <div class="summary-body">
@@ -580,32 +848,50 @@
                 </div>
                 <div class="summary-row">
                   <span class="summary-label">Subtotal</span>
-                  <span class="summary-value">${{ subtotal.toFixed(2) }}</span>
+                  <span class="summary-value">${{ formatMonto(subtotal) }}</span>
                 </div>
                 <div class="summary-row">
-                  <span class="summary-label">IVA 15%</span>
-                  <span class="summary-value">${{ iva.toFixed(2) }}</span>
+                  <span class="summary-label">IVA</span>
+                  <span class="summary-value">${{ formatMonto(iva) }}</span>
                 </div>
                 <div class="summary-divider"></div>
                 <div class="summary-total">
                   <span class="total-label">TOTAL</span>
-                  <span class="total-value">${{ total.toFixed(2) }}</span>
+                  <span class="total-value">${{ formatMonto(total) }}</span>
                 </div>
               </div>
             </div>
 
             <!-- Estado del formulario -->
             <div class="status-card">
-              <div class="status-item" :class="{ complete: venta.clienteId || venta.tipo_documento === 'guia_remision' }">
-                <i :class="venta.clienteId || venta.tipo_documento === 'guia_remision' ? 'fas fa-check-circle' : 'far fa-circle'"></i>
+              <div
+                class="status-item"
+                :class="{
+                  complete: venta.clienteId || venta.tipo_documento === 'guia_remision'
+                }"
+              >
+                <i
+                  :class="
+                    venta.clienteId || venta.tipo_documento === 'guia_remision'
+                      ? 'fas fa-check-circle'
+                      : 'far fa-circle'
+                  "
+                  aria-hidden="true"
+                ></i>
                 <span>Cliente seleccionado</span>
               </div>
               <div class="status-item" :class="{ complete: venta.detalles.length > 0 }">
-                <i :class="venta.detalles.length > 0 ? 'fas fa-check-circle' : 'far fa-circle'"></i>
+                <i
+                  :class="venta.detalles.length > 0 ? 'fas fa-check-circle' : 'far fa-circle'"
+                  aria-hidden="true"
+                ></i>
                 <span>Productos agregados</span>
               </div>
               <div class="status-item" :class="{ complete: venta.fecha_emision }">
-                <i :class="venta.fecha_emision ? 'fas fa-check-circle' : 'far fa-circle'"></i>
+                <i
+                  :class="venta.fecha_emision ? 'fas fa-check-circle' : 'far fa-circle'"
+                  aria-hidden="true"
+                ></i>
                 <span>Fecha establecida</span>
               </div>
             </div>
@@ -617,19 +903,19 @@
                 class="btn-save"
                 :disabled="cargando || !formularioValido || !!periodoCerrado"
               >
-                <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
-                <span>{{ cargando ? 'Guardando...' : 'Guardar documento' }}</span>
+                <i class="fas fa-save" :class="{ 'fa-spin': cargando }" aria-hidden="true"></i>
+                <span>{{ cargando ? 'Guardando…' : 'Guardar documento' }}</span>
                 <kbd>Ctrl+↵</kbd>
               </button>
-              <button type="button" class="btn-cancel" @click="$router.push('/ventas')">
-                <i class="fas fa-times"></i>
+              <button type="button" class="btn-cancel" @click="cancelar">
+                <i class="fas fa-times" aria-hidden="true"></i>
                 <span>Cancelar</span>
               </button>
             </div>
 
             <!-- Info clave -->
             <div v-if="puedeGenerarClave && configEmpresaOk" class="info-card">
-              <i class="fas fa-key"></i>
+              <i class="fas fa-key" aria-hidden="true"></i>
               <div>
                 <div class="info-title">Clave de acceso</div>
                 <div class="info-text">
@@ -643,42 +929,156 @@
 
       <!-- Errores -->
       <transition name="fade">
-        <div v-if="errorGeneral" class="error-banner">
-          <i class="fas fa-exclamation-circle"></i>
+        <div v-if="errorGeneral" class="error-banner" role="alert">
+          <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
           <span>{{ errorGeneral }}</span>
         </div>
       </transition>
     </form>
+
+    <!-- ===== MODAL CONFIRMACIÓN ===== -->
+    <div
+      class="modal fade"
+      id="modalConfirmVentaForm"
+      tabindex="-1"
+      aria-hidden="true"
+      data-bs-backdrop="static"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content modal-content-clean">
+          <div class="modal-header" :class="`bg-${confirmState.variante}`">
+            <h5 class="modal-title text-white">
+              <i :class="confirmState.icono" class="me-2" aria-hidden="true"></i>
+              {{ confirmState.titulo }}
+            </h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              @click="cancelarConfirm"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-3">{{ confirmState.mensaje }}</p>
+            <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
+              <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
+              <span>{{ confirmState.detalle }}</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
+              {{ confirmState.textoCancelar }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :class="`btn-${confirmState.variante}`"
+              @click="aceptarConfirm"
+            >
+              {{ confirmState.textoConfirmar }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useMongoDB } from '../../composables/useMongoDB'
+import {
+  ref,
+  reactive,
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+  nextTick
+} from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { roundTo2 } from '../../utils/formatters'
 import { useToast } from 'vue-toastification'
 import { useCatalogosSRI } from '../../composables/useCatalogosSRI'
 import SelectSRI from '../shared/SelectSRI.vue'
 import AlertaPeriodoCerrado from '../shared/AlertaPeriodoCerrado.vue'
 import { api } from '../../services/api'
+import { Modal } from 'bootstrap'
 import Fuse from 'fuse.js'
 
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
-const { find, findById, insertOne, updateOne } = useMongoDB()
 const { catalogos, cargarCatalogos } = useCatalogosSRI()
 
+// ===== CONSTANTES =====
+const STOCK_BLOCK = true
+const FUSE_LIMIT = 20
+const IVA_DEFAULT = 15
+const TIPOS_CON_CLAVE = Object.freeze([
+  'factura',
+  'liquidacion',
+  'nota_credito',
+  'nota_debito',
+  'guia_remision',
+  'retencion',
+  'exportacion',
+  'reembolso'
+])
+
+// ===== HELPERS DE FECHA =====
+/**
+ * Devuelve la fecha de HOY en formato YYYY-MM-DD según TZ Ecuador (UTC-5).
+ * Evita el bug de `toISOString().split('T')[0]` que devuelve la fecha UTC
+ * (un día adelante después de las 19:00 EC).
+ */
+function hoyECISO() {
+  try {
+    const partes = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Guayaquil',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date())
+    const get = (t) => partes.find((p) => p.type === t)?.value
+    const year = get('year')
+    const month = get('month')
+    const day = get('day')
+    if (year && month && day) return `${year}-${month}-${day}`
+  } catch {
+    /* cae al fallback */
+  }
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`
+}
+
+/** Formato 2 decimales con guard. */
+const formatMonto = (n) => {
+  const v = Number(n)
+  return Number.isFinite(v) ? v.toFixed(2) : '0.00'
+}
+
+const escapeHtml = (s) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+// ===== ROUTE (reactivo) =====
+const id = computed(() => (route.params.id ? String(route.params.id) : null))
+const esEdicion = computed(() => Boolean(id.value))
+const tipoInicial = computed(() => route.query.tipo || 'factura')
+
+// ===== STATE =====
 const clientes = ref([])
 const productos = ref([])
 const cargando = ref(false)
+const cargandoInicial = ref(false)
 const errorGeneral = ref('')
 const periodoCerrado = ref(null)
 const configEmpresa = ref(null)
-
-const tipoInicial = route.query.tipo || 'factura'
-const id = route.params.id
 
 const inputCliente = ref(null)
 const inputProducto = ref(null)
@@ -687,19 +1087,35 @@ const busquedaProducto = ref('')
 const mostrarListaClientes = ref(false)
 const mostrarListaProductos = ref(false)
 const mostrarAyuda = ref(false)
+
 let fuseClientes = null
 let fuseProductos = null
 
-const seccionesExpandidas = ref({
-  guia: false,
-  pago: true
+const seccionesExpandidas = ref({ guia: false, pago: true })
+
+// Snapshot para detectar cambios sin guardar
+let snapshotInicial = null
+
+// Confirmación reactiva
+const confirmState = reactive({
+  titulo: '',
+  mensaje: '',
+  detalle: '',
+  textoConfirmar: 'Confirmar',
+  textoCancelar: 'Cancelar',
+  variante: 'primary',
+  icono: 'fas fa-question-circle',
+  resolve: null
 })
 
+let modalConfirm = null
+
+// ===== FORM =====
 const venta = ref({
   clienteId: '',
   numero_factura: '',
-  fecha_emision: new Date().toISOString().split('T')[0],
-  tipo_documento: tipoInicial,
+  fecha_emision: hoyECISO(),
+  tipo_documento: tipoInicial.value,
   detalles: [],
   numero_guia: '',
   transportista: '',
@@ -741,11 +1157,18 @@ const venta = ref({
 
 const errores = ref({ cliente: '', detalles: [] })
 
+// ===== GUARDS =====
+let unmounted = false
+let periodoAbort = null
+
 // ===== CONFIG =====
-const configEmpresaOk = computed(() => configEmpresa.value?.ruc && configEmpresa.value.ruc.length === 13)
+const configEmpresaOk = computed(
+  () => configEmpresa.value?.ruc && String(configEmpresa.value.ruc).length === 13
+)
+
 const seriePreview = computed(() => {
-  const est = (configEmpresa.value?.establecimiento || '001').padStart(3, '0')
-  const pe = (configEmpresa.value?.punto_emision || '001').padStart(3, '0')
+  const est = String(configEmpresa.value?.establecimiento || '001').padStart(3, '0')
+  const pe = String(configEmpresa.value?.punto_emision || '001').padStart(3, '0')
   return `${est}-${pe}`
 })
 
@@ -762,71 +1185,135 @@ const tituloDocumento = computed(() => {
     proforma: 'Proforma'
   }
   const base = titulos[venta.value.tipo_documento] || 'Documento'
-  return id ? `Editar ${base}` : base
+  return esEdicion.value ? `Editar ${base}` : base
 })
 
 const clienteActual = computed(() => {
   if (!venta.value.clienteId) return null
   if (!Array.isArray(clientes.value)) return null
-  return clientes.value.find(c => c._id === venta.value.clienteId) || null
+  return (
+    clientes.value.find((c) => String(c._id) === String(venta.value.clienteId)) || null
+  )
 })
 
 const clientesFiltrados = computed(() => {
   try {
-    if (!busquedaCliente.value.trim()) {
-      return Array.isArray(clientes.value) ? clientes.value.slice(0, 20) : []
+    if (!Array.isArray(clientes.value)) return []
+    const q = busquedaCliente.value.trim()
+    if (!q) return clientes.value.slice(0, FUSE_LIMIT)
+    if (!fuseClientes) {
+      const qLow = q.toLowerCase()
+      return clientes.value
+        .filter(
+          (c) =>
+            String(c.nombre || '').toLowerCase().includes(qLow) ||
+            String(c.ruc || '').includes(q) ||
+            String(c.email || '').toLowerCase().includes(qLow)
+        )
+        .slice(0, FUSE_LIMIT)
     }
-    if (!fuseClientes) return []
-    return fuseClientes.search(busquedaCliente.value.trim()).map(r => r.item)
-  } catch (e) { return [] }
+    return fuseClientes.search(q).map((r) => r.item).slice(0, FUSE_LIMIT)
+  } catch {
+    return []
+  }
 })
 
 const productosFiltrados = computed(() => {
   try {
-    if (!busquedaProducto.value.trim()) {
-      return Array.isArray(productos.value) ? productos.value.slice(0, 20) : []
+    if (!Array.isArray(productos.value)) return []
+    const q = busquedaProducto.value.trim()
+    if (!q) return productos.value.slice(0, FUSE_LIMIT)
+    if (!fuseProductos) {
+      const qLow = q.toLowerCase()
+      return productos.value
+        .filter(
+          (p) =>
+            String(p.nombre || '').toLowerCase().includes(qLow) ||
+            String(p.codigo || '').toLowerCase().includes(qLow) ||
+            String(p.codigo_barras || '').includes(q)
+        )
+        .slice(0, FUSE_LIMIT)
     }
-    if (!fuseProductos) return []
-    return fuseProductos.search(busquedaProducto.value.trim()).map(r => r.item)
-  } catch (e) { return [] }
+    return fuseProductos.search(q).map((r) => r.item).slice(0, FUSE_LIMIT)
+  } catch {
+    return []
+  }
 })
 
 const subtotal = computed(() => {
   if (!Array.isArray(venta.value.detalles)) return 0
-  return roundTo2(venta.value.detalles.reduce((acc, d) => acc + ((d.cantidad || 0) * (d.precio_unitario || 0)), 0))
+  return roundTo2(
+    venta.value.detalles.reduce(
+      (acc, d) => acc + (Number(d.cantidad) || 0) * (Number(d.precio_unitario) || 0),
+      0
+    )
+  )
 })
 
 const iva = computed(() => {
   if (!Array.isArray(venta.value.detalles)) return 0
-  let base = 0
-  venta.value.detalles.forEach(d => {
-    if (d.aplica_iva !== false) base += (d.cantidad || 0) * (d.precio_unitario || 0)
-  })
-  return roundTo2(base * 0.15)
+  let totalIva = 0
+  for (const d of venta.value.detalles) {
+    if (d.aplica_iva === false) continue
+    const tarifa = Number(d.tarifa_iva ?? IVA_DEFAULT) || 0
+    totalIva +=
+      (Number(d.cantidad) || 0) * (Number(d.precio_unitario) || 0) * (tarifa / 100)
+  }
+  return roundTo2(totalIva)
 })
 
 const total = computed(() => roundTo2(subtotal.value + iva.value))
 
 const formularioValido = computed(() => {
-  if (venta.value.tipo_documento !== 'guia_remision' && !venta.value.clienteId) return false
+  if (
+    venta.value.tipo_documento !== 'guia_remision' &&
+    !venta.value.clienteId
+  ) {
+    return false
+  }
   if (!Array.isArray(venta.value.detalles) || venta.value.detalles.length === 0) return false
-  return venta.value.detalles.every(d => d.productoId && d.cantidad > 0 && d.precio_unitario >= 0)
+  if (!venta.value.fecha_emision) return false
+  return venta.value.detalles.every(
+    (d) =>
+      d.productoId &&
+      Number(d.cantidad) > 0 &&
+      Number(d.precio_unitario) >= 0
+  )
 })
 
-const puedeGenerarClave = computed(() => {
-  return ['factura', 'liquidacion', 'nota_credito', 'guia_remision', 'retencion', 'exportacion', 'reembolso'].includes(venta.value.tipo_documento)
+const puedeGenerarClave = computed(() =>
+  TIPOS_CON_CLAVE.includes(venta.value.tipo_documento)
+)
+
+const hayCambios = computed(() => {
+  if (!snapshotInicial) return false
+  return JSON.stringify(venta.value) !== JSON.stringify(snapshotInicial)
 })
 
 // ===== HELPERS =====
 const getInitials = (nombre) => {
-  if (!nombre) return '?'
-  return String(nombre).split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  if (!nombre || typeof nombre !== 'string') return '?'
+  return (
+    nombre
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?'
+  )
 }
 
 const generarCodigoLocal = (tipo) => {
   const prefijos = {
-    'factura': 'FAC', 'guia_remision': 'GUI', 'exportacion': 'EXP', 'reembolso': 'REB',
-    'retencion': 'RET', 'liquidacion': 'LIQ', 'nota_credito': 'NCR', 'proforma': 'PRO'
+    factura: 'FAC',
+    guia_remision: 'GUI',
+    exportacion: 'EXP',
+    reembolso: 'REB',
+    retencion: 'RET',
+    liquidacion: 'LIQ',
+    nota_credito: 'NCR',
+    proforma: 'PRO'
   }
   const prefijo = prefijos[tipo] || 'DOC'
   return `${prefijo}-${String(Date.now()).slice(-6)}`
@@ -836,9 +1323,52 @@ const toggleSeccion = (nombre) => {
   seccionesExpandidas.value[nombre] = !seccionesExpandidas.value[nombre]
 }
 
+// ===== CONFIRMACIÓN =====
+const pedirConfirmacion = (opts = {}) => {
+  return new Promise((resolve) => {
+    confirmState.titulo = opts.titulo || 'Confirmar acción'
+    confirmState.mensaje = opts.mensaje || '¿Estás seguro?'
+    confirmState.detalle = opts.detalle || ''
+    confirmState.textoConfirmar = opts.textoConfirmar || 'Confirmar'
+    confirmState.textoCancelar = opts.textoCancelar || 'Cancelar'
+    confirmState.variante = opts.variante || 'primary'
+    confirmState.icono = opts.icono || 'fas fa-question-circle'
+    confirmState.resolve = resolve
+
+    if (!modalConfirm) {
+      modalConfirm = new Modal(
+        document.getElementById('modalConfirmVentaForm'),
+        { backdrop: 'static' }
+      )
+    }
+    modalConfirm.show()
+  })
+}
+
+const aceptarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(true)
+}
+
+const cancelarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(false)
+}
+
 // ===== BÚSQUEDA CLIENTES =====
-const filtrarClientes = () => { mostrarListaClientes.value = true }
-const cerrarListaClientes = () => { setTimeout(() => { mostrarListaClientes.value = false }, 200) }
+const filtrarClientes = () => {
+  mostrarListaClientes.value = true
+}
+const cerrarListaClientes = () => {
+  setTimeout(() => {
+    if (unmounted) return
+    mostrarListaClientes.value = false
+  }, 200)
+}
 
 const seleccionarCliente = (c) => {
   venta.value.clienteId = c._id
@@ -854,10 +1384,24 @@ const limpiarCliente = () => {
 }
 
 // ===== BÚSQUEDA PRODUCTOS =====
-const filtrarProductos = () => { mostrarListaProductos.value = true }
-const cerrarListaProductos = () => { setTimeout(() => { mostrarListaProductos.value = false }, 200) }
-const limpiarBusquedaProducto = () => { busquedaProducto.value = ''; mostrarListaProductos.value = false }
-const focusBusquedaProducto = () => { inputProducto.value?.focus() }
+const filtrarProductos = () => {
+  mostrarListaProductos.value = true
+}
+const cerrarListaProductos = () => {
+  setTimeout(() => {
+    if (unmounted) return
+    mostrarListaProductos.value = false
+    // Limpiar la búsqueda al cerrar sin selección
+    busquedaProducto.value = ''
+  }, 200)
+}
+const limpiarBusquedaProducto = () => {
+  busquedaProducto.value = ''
+  mostrarListaProductos.value = false
+}
+const focusBusquedaProducto = () => {
+  inputProducto.value?.focus()
+}
 
 const agregarPrimerProducto = () => {
   if (productosFiltrados.value.length > 0) agregarProducto(productosFiltrados.value[0])
@@ -865,10 +1409,13 @@ const agregarPrimerProducto = () => {
 
 const agregarProducto = (p) => {
   if (!p || !p._id) return
-  const existente = venta.value.detalles.find(d => d.productoId === p._id)
+
+  const existente = venta.value.detalles.find(
+    (d) => String(d.productoId) === String(p._id)
+  )
   if (existente) {
-    existente.cantidad = (existente.cantidad || 1) + 1
-    toast.info(`${p.nombre} aumentado a ${existente.cantidad}`)
+    existente.cantidad = roundTo2((Number(existente.cantidad) || 1) + 1)
+    toast.info(`${p.nombre} → ${existente.cantidad}`)
   } else {
     venta.value.detalles.push({
       productoId: p._id,
@@ -876,8 +1423,9 @@ const agregarProducto = (p) => {
       nombre: p.nombre || 'Producto',
       cantidad: 1,
       precio_unitario: roundTo2(p.precio_venta || 0),
-      aplica_iva: p.aplica_iva !== undefined ? p.aplica_iva : true,
-      stockDisponible: p.stock || 0
+      aplica_iva: p.aplica_iva !== undefined ? Boolean(p.aplica_iva) : true,
+      tarifa_iva: Number(p.tarifa_iva ?? IVA_DEFAULT),
+      stockDisponible: Number(p.stock || 0)
     })
     errores.value.detalles.push({ producto: '', cantidad: '', precio: '' })
   }
@@ -888,14 +1436,26 @@ const agregarProducto = (p) => {
 
 const cambiarCantidad = (index, delta) => {
   const item = venta.value.detalles[index]
-  const nueva = (item.cantidad || 0) + delta
+  if (!item) return
+  const nueva = roundTo2((Number(item.cantidad) || 0) + delta)
   if (nueva < 0.01) return
-  item.cantidad = roundTo2(nueva)
+  item.cantidad = nueva
 }
 
 const validarCantidad = (index) => {
   const item = venta.value.detalles[index]
-  if (!item.cantidad || item.cantidad <= 0) item.cantidad = 1
+  if (!item) return
+  if (!item.cantidad || Number(item.cantidad) <= 0) item.cantidad = 1
+  // Clamp a stock disponible (si aplica)
+  if (
+    STOCK_BLOCK &&
+    item.stockDisponible !== undefined &&
+    item.stockDisponible > 0 &&
+    Number(item.cantidad) > item.stockDisponible
+  ) {
+    item.cantidad = item.stockDisponible
+    toast.warning(`Cantidad ajustada al stock disponible (${item.stockDisponible})`)
+  }
 }
 
 const eliminarDetalle = (index) => {
@@ -903,133 +1463,220 @@ const eliminarDetalle = (index) => {
   errores.value.detalles.splice(index, 1)
 }
 
-// ===== TIPO =====
+// ===== TIPO DE DOCUMENTO =====
 const asignarCodigos = () => {
   const tipo = venta.value.tipo_documento
   venta.value.numero_factura = generarCodigoLocal(tipo)
-  if (tipo === 'exportacion') venta.value.numero_exportacion = generarCodigoLocal('exportacion')
-  if (tipo === 'guia_remision') venta.value.numero_guia = generarCodigoLocal('guia_remision')
-  if (tipo === 'retencion') venta.value.numero_retencion = generarCodigoLocal('retencion')
+  if (tipo === 'exportacion')
+    venta.value.numero_exportacion = generarCodigoLocal('exportacion')
+  if (tipo === 'guia_remision')
+    venta.value.numero_guia = generarCodigoLocal('guia_remision')
+  if (tipo === 'retencion')
+    venta.value.numero_retencion = generarCodigoLocal('retencion')
 }
 
 const cambiarTipo = () => {
   Object.assign(venta.value, {
-    numero_guia: '', transportista: '', placa: '', numero_exportacion: '', pais_destino: '',
-    numero_retencion: '', porcentaje_retencion: 0, establecimiento: '', nombre_comercial: '',
-    punto_emision: '', transportista_identificacion: '', transportista_tipo: '',
-    transportista_razon_social: '', transportista_correo: '', direccion_partida: '',
-    inicio_transporte: '', fin_transporte: '', placa_transporte: '',
-    destinatario_identificacion: '', destinatario_tipo: '', destinatario_razon_social: '',
-    destinatario_direccion: '', ruta: '', motivo: '', documento_aduana: '',
-    comprobante_tipo_emision: '', comprobante_documento: '', comprobante_buscar: '',
-    comprobante_clave_acceso: '', comprobante_numero_autorizacion: '', comprobante_numero: '',
+    numero_guia: '',
+    transportista: '',
+    placa: '',
+    numero_exportacion: '',
+    pais_destino: '',
+    numero_retencion: '',
+    porcentaje_retencion: 0,
+    establecimiento: '',
+    nombre_comercial: '',
+    punto_emision: '',
+    transportista_identificacion: '',
+    transportista_tipo: '',
+    transportista_razon_social: '',
+    transportista_correo: '',
+    direccion_partida: '',
+    inicio_transporte: '',
+    fin_transporte: '',
+    placa_transporte: '',
+    destinatario_identificacion: '',
+    destinatario_tipo: '',
+    destinatario_razon_social: '',
+    destinatario_direccion: '',
+    ruta: '',
+    motivo: '',
+    documento_aduana: '',
+    comprobante_tipo_emision: '',
+    comprobante_documento: '',
+    comprobante_buscar: '',
+    comprobante_clave_acceso: '',
+    comprobante_numero_autorizacion: '',
+    comprobante_numero: '',
     comprobante_fecha_emision: ''
   })
-  if (!id) asignarCodigos()
+  if (!esEdicion.value) asignarCodigos()
 }
 
-// ===== PERIODO =====
+// ===== PERÍODO =====
 const verificarPeriodo = async () => {
-  if (!venta.value.fecha_emision) { periodoCerrado.value = null; return }
+  if (periodoAbort) {
+    try {
+      periodoAbort.abort()
+    } catch {
+      /* noop */
+    }
+  }
+  periodoAbort = new AbortController()
+
+  if (!venta.value.fecha_emision) {
+    periodoCerrado.value = null
+    return
+  }
   try {
-    const fecha = new Date(venta.value.fecha_emision)
-    const res = await api.request(`/periodos/verificar/${fecha.getFullYear()}/${fecha.getMonth() + 1}`, { method: 'GET' })
-    periodoCerrado.value = res.cerrado ? res.periodo : null
-  } catch (e) { periodoCerrado.value = null }
+    const d = new Date(venta.value.fecha_emision)
+    if (Number.isNaN(d.getTime())) {
+      periodoCerrado.value = null
+      return
+    }
+    const res = await api.request(
+      `/periodos/verificar/${d.getFullYear()}/${d.getMonth() + 1}`,
+      { method: 'GET', skipLoader: true, signal: periodoAbort.signal }
+    )
+    if (unmounted) return
+    periodoCerrado.value = res?.cerrado ? res.periodo : null
+  } catch (e) {
+    const esAbort = e?.name === 'AbortError' || /aborted/i.test(e?.message || '')
+    if (unmounted || esAbort) return
+    periodoCerrado.value = null
+  }
 }
 
 // ===== ATAJOS =====
 const handleKeydown = (e) => {
+  const tag = (e.target?.tagName || '').toLowerCase()
+  const esInput = tag === 'input' || tag === 'textarea' || tag === 'select'
+  const esBuscadorInterno =
+    e.target === inputProducto.value || e.target === inputCliente.value
+
   if (e.key === 'F2') {
     e.preventDefault()
     inputProducto.value?.focus()
-  } else if (e.key === 'F3') {
+    return
+  }
+  if (e.key === 'F3') {
     e.preventDefault()
     inputCliente.value?.focus()
-  } else if (e.ctrlKey && e.key === 'Enter') {
+    return
+  }
+  if (e.ctrlKey && e.key === 'Enter') {
+    // Solo dispara si NO está en un input ajeno
+    if (esInput && !esBuscadorInterno) return
     e.preventDefault()
-    if (formularioValido.value && !cargando.value) guardar()
+    if (formularioValido.value && !cargando.value && !periodoCerrado.value) guardar()
   }
 }
 
-// ===== CARGA INICIAL =====
+// ===== CARGA =====
 const cargarConfigEmpresa = async () => {
   try {
-    configEmpresa.value = await api.request('/configuracion/empresa', { method: 'GET' })
-  } catch (e) { configEmpresa.value = null }
+    configEmpresa.value = await api.request('/configuracion/empresa', {
+      method: 'GET',
+      skipLoader: true
+    })
+  } catch {
+    configEmpresa.value = null
+  }
 }
 
-onMounted(async () => {
+const cargarClientesYProductos = async () => {
   try {
-    try { await cargarCatalogos() } catch (e) { console.warn(e) }
-    await cargarConfigEmpresa()
+    const [clis, prods] = await Promise.all([
+      api.request('/clientes', { method: 'GET', skipLoader: true }).catch(() => []),
+      api.request('/productos', { method: 'GET', skipLoader: true }).catch(() => [])
+    ])
 
-    const [clis, prods] = await Promise.all([find('clientes'), find('productos')])
-    clientes.value = Array.isArray(clis) ? clis : []
-    productos.value = Array.isArray(prods) ? prods : []
+    clientes.value = Array.isArray(clis) ? clis : clis?.data || []
+    productos.value = Array.isArray(prods) ? prods : prods?.data || []
 
-    try {
-      if (clientes.value.length > 0) {
-        fuseClientes = new Fuse(clientes.value, { keys: ['nombre', 'ruc', 'telefono', 'email'], threshold: 0.3 })
-      }
-      if (productos.value.length > 0) {
-        fuseProductos = new Fuse(productos.value, { keys: ['nombre', 'codigo', 'codigo_barras'], threshold: 0.3 })
-      }
-    } catch (e) { console.warn(e) }
+    if (clientes.value.length > 0) {
+      fuseClientes = new Fuse(clientes.value, {
+        keys: [
+          { name: 'ruc', weight: 3 },
+          { name: 'nombre', weight: 2 },
+          { name: 'email', weight: 1 },
+          { name: 'telefono', weight: 1 }
+        ],
+        threshold: 0.35,
+        ignoreLocation: true
+      })
+    }
+    if (productos.value.length > 0) {
+      fuseProductos = new Fuse(productos.value, {
+        keys: [
+          { name: 'codigo', weight: 3 },
+          { name: 'codigo_barras', weight: 3 },
+          { name: 'nombre', weight: 2 }
+        ],
+        threshold: 0.35,
+        ignoreLocation: true
+      })
+    }
+  } catch (e) {
+    console.warn('Error cargando catálogos de apoyo:', e?.message)
+  }
+}
 
-    if (id) {
-      const data = await findById('ventas', id)
-      if (data) {
-        if (data.detalles) {
-          data.detalles = data.detalles.map(d => {
-            const prod = productos.value.find(p => p._id === d.productoId)
-            return {
-              ...d,
-              codigo: prod?.codigo || d.codigo || '',
-              nombre: prod?.nombre || d.nombre || 'Producto',
-              stockDisponible: prod?.stock || 0
-            }
-          })
+const cargarVenta = async (ventaId) => {
+  try {
+    const data = await api.request(`/ventas/${ventaId}`, { method: 'GET' })
+    if (unmounted || !data) return
+
+    if (Array.isArray(data.detalles)) {
+      data.detalles = data.detalles.map((d) => {
+        const prod = productos.value.find((p) => String(p._id) === String(d.productoId))
+        return {
+          ...d,
+          codigo: prod?.codigo || d.codigo || '',
+          nombre: prod?.nombre || d.nombre || 'Producto',
+          stockDisponible: Number(prod?.stock || 0),
+          tarifa_iva: Number(d.tarifa_iva ?? IVA_DEFAULT)
         }
-        venta.value = { ...venta.value, ...data }
-      } else {
-        errorGeneral.value = 'No se encontró el documento'
-      }
-    } else {
-      asignarCodigos()
+      })
     }
 
-    document.addEventListener('keydown', handleKeydown)
+    venta.value = { ...venta.value, ...data }
+    snapshotInicial = JSON.parse(JSON.stringify(venta.value))
   } catch (e) {
-    console.error(e)
-    errorGeneral.value = 'Error al cargar datos: ' + e.message
+    if (unmounted) return
+    errorGeneral.value = 'Error al cargar el documento: ' + (e?.message || 'desconocido')
+    toast.error('No se pudo cargar el documento')
   }
-})
-
-onBeforeUnmount(() => { document.removeEventListener('keydown', handleKeydown) })
-
-watch(() => venta.value.fecha_emision, verificarPeriodo, { immediate: true })
+}
 
 // ===== GUARDAR =====
 const guardar = async () => {
+  if (cargando.value) return
+
   if (periodoCerrado.value) {
     toast.error(`No se puede guardar: ${periodoCerrado.value.nombre} está cerrado`)
     return
   }
 
   if (!formularioValido.value) {
-    errorGeneral.value = 'Corrija los errores antes de guardar'
+    errorGeneral.value = 'Corrige los errores antes de guardar'
     toast.warning('Verifica los datos')
     return
   }
 
+  // Confirmar si la empresa no tiene RUC válido y el documento requiere clave
   if (puedeGenerarClave.value && !configEmpresaOk.value) {
-    const confirmar = confirm(
-      'La empresa no tiene un RUC válido configurado.\n\n' +
-      'El documento se guardará pero NO se generará la clave de acceso.\n\n' +
-      '¿Deseas continuar?'
-    )
-    if (!confirmar) {
+    const ok = await pedirConfirmacion({
+      titulo: 'Configuración incompleta',
+      mensaje: 'La empresa no tiene un RUC válido configurado.',
+      detalle:
+        'El documento se guardará pero NO se generará la clave de acceso ni el XML.',
+      textoConfirmar: 'Continuar de todos modos',
+      textoCancelar: 'Ir a configurar',
+      variante: 'warning',
+      icono: 'fas fa-exclamation-triangle'
+    })
+    if (!ok) {
       router.push('/configuracion-empresa')
       return
     }
@@ -1039,54 +1686,228 @@ const guardar = async () => {
   cargando.value = true
 
   try {
+    // Payload exacto al contrato del backend
     const payload = {
-      clienteId: venta.value.clienteId || '',
-      numero_factura: venta.value.numero_factura,
+      clienteId: venta.value.clienteId || undefined,
+      numero_factura: venta.value.numero_factura || undefined,
       fecha_emision: venta.value.fecha_emision,
       tipo_documento: venta.value.tipo_documento,
-      detalles: venta.value.detalles.map(d => ({
+      detalles: venta.value.detalles.map((d) => ({
         productoId: d.productoId,
         cantidad: roundTo2(d.cantidad),
         precio_unitario: roundTo2(d.precio_unitario),
-        aplica_iva: d.aplica_iva
+        aplica_iva: Boolean(d.aplica_iva)
       })),
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
-      ...Object.fromEntries([
-        'numero_guia', 'transportista', 'placa', 'numero_exportacion', 'pais_destino',
-        'numero_retencion', 'porcentaje_retencion', 'establecimiento', 'nombre_comercial',
-        'punto_emision', 'transportista_identificacion', 'transportista_tipo',
-        'transportista_razon_social', 'transportista_correo', 'direccion_partida',
-        'inicio_transporte', 'fin_transporte', 'placa_transporte',
-        'destinatario_identificacion', 'destinatario_tipo', 'destinatario_razon_social',
-        'destinatario_direccion', 'ruta', 'motivo', 'documento_aduana',
-        'comprobante_tipo_emision', 'comprobante_documento', 'comprobante_buscar',
-        'comprobante_clave_acceso', 'comprobante_numero_autorizacion', 'comprobante_numero',
-        'comprobante_fecha_emision', 'forma_pago', 'estado_pago', 'observaciones'
-      ].map(k => [k, venta.value[k] || ''])),
-      fecha_pago: venta.value.fecha_pago || null
+      ...(() => {
+        const extras = {}
+        const campos = [
+          'numero_guia',
+          'transportista',
+          'placa',
+          'numero_exportacion',
+          'pais_destino',
+          'numero_retencion',
+          'establecimiento',
+          'nombre_comercial',
+          'punto_emision',
+          'transportista_identificacion',
+          'transportista_tipo',
+          'transportista_razon_social',
+          'transportista_correo',
+          'direccion_partida',
+          'inicio_transporte',
+          'fin_transporte',
+          'placa_transporte',
+          'destinatario_identificacion',
+          'destinatario_tipo',
+          'destinatario_razon_social',
+          'destinatario_direccion',
+          'ruta',
+          'motivo',
+          'documento_aduana',
+          'comprobante_tipo_emision',
+          'comprobante_documento',
+          'comprobante_clave_acceso',
+          'comprobante_numero_autorizacion',
+          'comprobante_numero',
+          'comprobante_fecha_emision',
+          'forma_pago',
+          'estado_pago',
+          'observaciones'
+        ]
+        for (const k of campos) {
+          const v = venta.value[k]
+          if (v !== undefined && v !== null && v !== '') extras[k] = v
+        }
+        if (venta.value.fecha_pago) extras.fecha_pago = venta.value.fecha_pago
+        if (Number(venta.value.porcentaje_retencion) > 0) {
+          extras.porcentaje_retencion = Number(venta.value.porcentaje_retencion)
+        }
+        return extras
+      })()
     }
 
-    if (id) {
-      await updateOne('ventas', id, payload)
-      toast.success('Documento actualizado correctamente')
+    // CRÍTICO: pasa por el backend (clave, XML, firma, kardex, auditoría, WS)
+    let res
+    if (esEdicion.value) {
+      res = await api.request(`/ventas/${id.value}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+        loaderMessage: 'Actualizando documento…'
+      })
+      if (!unmounted) toast.success('Documento actualizado')
     } else {
-      const res = await insertOne('ventas', payload)
-      if (res?.clave_acceso) {
-        toast.success('Documento creado con clave de acceso')
-      } else {
-        toast.success('Documento creado exitosamente')
+      res = await api.request('/ventas', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        loaderMessage: 'Creando documento…'
+      })
+      if (!unmounted) {
+        if (res?.clave_acceso) toast.success('Documento creado con clave de acceso')
+        else toast.success('Documento creado')
+
+        if (res?._advertencia) {
+          toast.warning(res._advertencia, { timeout: 10000 })
+        }
       }
     }
-    router.push('/ventas')
+
+    // Marcar como guardado
+    snapshotInicial = JSON.parse(JSON.stringify(venta.value))
+
+    if (!unmounted) router.push('/ventas')
   } catch (e) {
-    errorGeneral.value = 'Error al guardar: ' + e.message
-    toast.error('Error: ' + e.message)
+    if (unmounted) return
+
+    // Mensajes de error del backend: { error, codigo, detalles }
+    const codigo = e?.codigo || e?.code
+    const msg = e?.message || 'Error desconocido'
+
+    // Códigos especiales con acción sugerida
+    let msgMostrar = msg
+    if (codigo === 'STOCK_INSUFICIENTE') {
+      msgMostrar =
+        msg ||
+        'Stock insuficiente: otro usuario consumió el stock mientras ingresabas el documento. Recargá e intentá de nuevo.'
+    } else if (codigo === 'NUMERO_DUPLICADO') {
+      msgMostrar = msg || 'Ya existe un comprobante con ese número.'
+    } else if (codigo === 'PERIODO_CERRADO') {
+      msgMostrar = msg || 'El período está cerrado. No se puede guardar.'
+    }
+
+    errorGeneral.value = 'Error al guardar: ' + msgMostrar
+    toast.error('Error: ' + msgMostrar)
   } finally {
-    cargando.value = false
+    if (!unmounted) cargando.value = false
   }
 }
+
+// ===== CANCELAR =====
+const cancelar = async () => {
+  if (hayCambios.value) {
+    const ok = await pedirConfirmacion({
+      titulo: 'Salir sin guardar',
+      mensaje: 'Tienes cambios sin guardar en este documento.',
+      detalle: 'Si sales ahora, perderás todo lo que ingresaste.',
+      textoConfirmar: 'Salir sin guardar',
+      textoCancelar: 'Seguir editando',
+      variante: 'danger',
+      icono: 'fas fa-exclamation-triangle'
+    })
+    if (!ok) return
+    snapshotInicial = JSON.parse(JSON.stringify(venta.value))
+  }
+  router.push('/ventas')
+}
+
+// ===== GUARDS DE NAVEGACIÓN =====
+const beforeUnloadHandler = (e) => {
+  if (hayCambios.value && !cargando.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
+onBeforeRouteLeave(async (to, from, next) => {
+  if (!hayCambios.value || cargando.value) return next()
+  const ok = await pedirConfirmacion({
+    titulo: 'Salir sin guardar',
+    mensaje: 'Tienes cambios sin guardar.',
+    detalle: 'Si sales ahora, perderás los cambios.',
+    textoConfirmar: 'Salir',
+    textoCancelar: 'Quedarme',
+    variante: 'warning',
+    icono: 'fas fa-exclamation-triangle'
+  })
+  if (ok) {
+    snapshotInicial = JSON.parse(JSON.stringify(venta.value))
+    next()
+  } else {
+    next(false)
+  }
+})
+
+// ===== LIFECYCLE =====
+onMounted(async () => {
+  cargandoInicial.value = true
+  try {
+    await Promise.all([cargarCatalogos().catch(() => {}), cargarConfigEmpresa()])
+    await cargarClientesYProductos()
+
+    if (esEdicion.value) {
+      await cargarVenta(id.value)
+    } else {
+      asignarCodigos()
+      snapshotInicial = JSON.parse(JSON.stringify(venta.value))
+    }
+
+    await verificarPeriodo()
+
+    if (!unmounted) {
+      document.addEventListener('keydown', handleKeydown)
+      window.addEventListener('beforeunload', beforeUnloadHandler)
+    }
+  } catch (e) {
+    if (!unmounted) {
+      console.error('Error inicial:', e)
+      errorGeneral.value = 'Error al cargar datos: ' + (e?.message || 'desconocido')
+    }
+  } finally {
+    if (!unmounted) cargandoInicial.value = false
+  }
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+  document.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('beforeunload', beforeUnloadHandler)
+
+  if (periodoAbort) {
+    try {
+      periodoAbort.abort()
+    } catch {
+      /* noop */
+    }
+    periodoAbort = null
+  }
+
+  try {
+    modalConfirm?.hide()
+  } catch {
+    /* noop */
+  }
+
+  if (confirmState.resolve) {
+    confirmState.resolve(false)
+    confirmState.resolve = null
+  }
+})
+
+// ===== WATCH =====
+watch(() => venta.value.fecha_emision, verificarPeriodo, { immediate: false })
 </script>
 
 <style scoped>
@@ -1224,7 +2045,7 @@ kbd {
   color: var(--text-primary);
   padding: 3px 8px;
   border-radius: 6px;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.7rem;
   font-weight: 700;
   border: 1px solid var(--border-color);
@@ -1271,7 +2092,10 @@ kbd {
   background: rgba(39, 174, 96, 0.15);
   color: var(--success);
 }
-.alert-body { flex: 1; min-width: 0; }
+.alert-body {
+  flex: 1;
+  min-width: 0;
+}
 .alert-title {
   font-weight: 700;
   font-size: 0.9rem;
@@ -1287,7 +2111,7 @@ kbd {
   background: var(--bg-table-stripe);
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   color: var(--primary-color);
 }
@@ -1478,10 +2302,18 @@ kbd {
   gap: 16px;
   margin-bottom: 16px;
 }
-.form-row:last-child { margin-bottom: 0; }
-.form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
-.form-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
-.form-row.cols-2-1-1 { grid-template-columns: 2fr 1fr 1fr; }
+.form-row:last-child {
+  margin-bottom: 0;
+}
+.form-row.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.form-row.cols-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+.form-row.cols-2-1-1 {
+  grid-template-columns: 2fr 1fr 1fr;
+}
 
 .form-field {
   display: flex;
@@ -1523,6 +2355,11 @@ kbd {
 .form-control::placeholder {
   color: var(--text-muted);
 }
+.form-control:disabled,
+.form-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 /* ============================================================
    SEARCH INPUT
@@ -1556,6 +2393,10 @@ kbd {
   box-shadow: 0 0 0 4px var(--shadow-focus);
   background: var(--bg-card);
 }
+.search-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .search-input-primary .search-icon {
   color: var(--primary-color);
 }
@@ -1570,7 +2411,7 @@ kbd {
   color: var(--text-muted);
   cursor: pointer;
   padding: 8px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-xs, 4px);
   transition: all var(--transition-fast);
 }
 .search-clear:hover {
@@ -1662,7 +2503,7 @@ kbd {
   background: var(--bg-table-stripe);
   padding: 1px 6px;
   border-radius: 4px;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   color: var(--primary-color);
 }
 .stock-ok {
@@ -1702,7 +2543,11 @@ kbd {
   gap: 14px;
   padding: 16px;
   margin-top: 16px;
-  background: linear-gradient(135deg, rgba(52, 152, 219, 0.05), rgba(52, 152, 219, 0.02));
+  background: linear-gradient(
+    135deg,
+    rgba(52, 152, 219, 0.05),
+    rgba(52, 152, 219, 0.02)
+  );
   border: 1px solid rgba(52, 152, 219, 0.2);
   border-radius: var(--radius-md);
   border-left: 4px solid var(--primary-color);
@@ -1721,7 +2566,10 @@ kbd {
   flex-shrink: 0;
   box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
 }
-.cliente-details { flex: 1; min-width: 0; }
+.cliente-details {
+  flex: 1;
+  min-width: 0;
+}
 .cliente-name {
   font-weight: 700;
   color: var(--text-primary);
@@ -1830,7 +2678,10 @@ kbd {
   justify-content: center;
   flex-shrink: 0;
 }
-.item-info { min-width: 0; flex: 1; }
+.item-info {
+  min-width: 0;
+  flex: 1;
+}
 .item-name {
   font-weight: 700;
   color: var(--text-primary);
@@ -1838,7 +2689,7 @@ kbd {
   margin-bottom: 2px;
 }
 .item-code {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.72rem;
   color: var(--text-muted);
 }
@@ -2000,7 +2851,7 @@ kbd {
   gap: 10px;
 }
 .summary-header i {
-  color: var(--accent-color);
+  color: var(--accent-color, #f1c40f);
 }
 .summary-body {
   padding: 20px;
@@ -2144,7 +2995,11 @@ kbd {
   display: flex;
   gap: 12px;
   padding: 14px 16px;
-  background: linear-gradient(135deg, rgba(241, 196, 15, 0.08), rgba(230, 126, 34, 0.04));
+  background: linear-gradient(
+    135deg,
+    rgba(241, 196, 15, 0.08),
+    rgba(230, 126, 34, 0.04)
+  );
   border: 1px solid rgba(241, 196, 15, 0.25);
   border-radius: var(--radius-lg);
 }
@@ -2188,6 +3043,15 @@ kbd {
 }
 
 /* ============================================================
+   MODAL
+   ============================================================ */
+.modal-content-clean {
+  border-radius: 14px;
+  overflow: hidden;
+  border: none;
+}
+
+/* ============================================================
    TRANSICIONES
    ============================================================ */
 .fade-enter-active,
@@ -2201,7 +3065,7 @@ kbd {
 
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: all 0.2s var(--ease-out);
+  transition: all 0.2s ease-out;
 }
 .dropdown-enter-from,
 .dropdown-leave-to {
@@ -2211,7 +3075,7 @@ kbd {
 
 .collapse-enter-active,
 .collapse-leave-active {
-  transition: all 0.3s var(--ease-out);
+  transition: all 0.3s ease-out;
   overflow: hidden;
 }
 .collapse-enter-from,
@@ -2260,19 +3124,41 @@ kbd {
   .form-header {
     gap: 12px;
   }
-  .btn-back { width: 38px; height: 38px; }
-  .title-icon { width: 36px; height: 36px; font-size: 1rem; }
-  .form-title { font-size: 1.2rem; }
-  .form-subtitle { padding-left: 0; font-size: 0.78rem; }
-  .section-header { padding: 16px 18px; }
-  .section-body { padding: 18px; }
+  .btn-back {
+    width: 38px;
+    height: 38px;
+  }
+  .title-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+  .form-title {
+    font-size: 1.2rem;
+  }
+  .form-subtitle {
+    padding-left: 0;
+    font-size: 0.78rem;
+  }
+  .section-header {
+    padding: 16px 18px;
+  }
+  .section-body {
+    padding: 18px;
+  }
   .form-row.cols-3,
   .form-row.cols-4,
   .form-row.cols-2-1-1 {
     grid-template-columns: 1fr;
   }
-  .total-value { font-size: 1.4rem; }
-  .item-card { padding: 12px; }
-  .item-main { min-width: 0; }
+  .total-value {
+    font-size: 1.4rem;
+  }
+  .item-card {
+    padding: 12px;
+  }
+  .item-main {
+    min-width: 0;
+  }
 }
 </style>

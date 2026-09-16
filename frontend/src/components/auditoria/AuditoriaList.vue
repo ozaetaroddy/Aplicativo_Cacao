@@ -12,11 +12,21 @@
         </p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="exportarCSV" :disabled="registros.length === 0">
-          <i class="fas fa-file-csv"></i>
-          Exportar CSV
+        <button
+          class="btn-secondary"
+          @click="exportarCSV"
+          :disabled="registros.length === 0 || exportando"
+          aria-label="Exportar a CSV"
+        >
+          <i class="fas fa-file-csv" :class="{ 'fa-spin': exportando }"></i>
+          {{ exportando ? 'Exportando...' : 'Exportar CSV' }}
         </button>
-        <button class="btn-secondary" @click="cargarTodo" :disabled="loading">
+        <button
+          class="btn-secondary"
+          @click="cargarTodo"
+          :disabled="loading"
+          aria-label="Actualizar listado"
+        >
           <i class="fas fa-sync" :class="{ 'fa-spin': loading }"></i>
           Actualizar
         </button>
@@ -28,7 +38,7 @@
       <div class="stat-card">
         <div class="stat-icon azul"><i class="fas fa-list"></i></div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.totalRegistros.toLocaleString() }}</div>
+          <div class="stat-value">{{ (stats.totalRegistros ?? 0).toLocaleString() }}</div>
           <div class="stat-label">Registros totales</div>
         </div>
       </div>
@@ -36,7 +46,7 @@
       <div class="stat-card">
         <div class="stat-icon verde"><i class="fas fa-calendar-week"></i></div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.ultimos7dias.toLocaleString() }}</div>
+          <div class="stat-value">{{ (stats.ultimos7dias ?? 0).toLocaleString() }}</div>
           <div class="stat-label">Últimos 7 días</div>
         </div>
       </div>
@@ -71,7 +81,10 @@
               <div class="rank-name">{{ u._id }}</div>
             </div>
             <div class="rank-bar">
-              <div class="rank-bar-fill" :style="{ width: `${(u.total / maxTopUsuarios) * 100}%` }"></div>
+              <div
+                class="rank-bar-fill"
+                :style="{ width: `${(u.total / maxTopUsuarios) * 100}%` }"
+              ></div>
             </div>
             <div class="rank-value">{{ u.total }}</div>
           </div>
@@ -105,6 +118,7 @@
           v-if="hayFiltrosActivos"
           class="btn-clear-all"
           @click="limpiarFiltros"
+          aria-label="Limpiar todos los filtros"
         >
           <i class="fas fa-times-circle"></i> Limpiar todo
         </button>
@@ -112,22 +126,25 @@
       <div class="card-body">
         <div class="filters-grid">
           <div class="filter-field search-field">
-            <label class="filter-label">
+            <label class="filter-label" for="aud-search">
               <i class="fas fa-search"></i> Buscar
             </label>
             <input
+              id="aud-search"
               ref="searchInput"
               type="text"
               class="filter-input"
               v-model="search"
               @input="onSearchInput"
-              placeholder="Usuario, número, detalle..."
+              placeholder="Usuario, número, detalle... (atajo: /)"
             />
           </div>
 
           <div class="filter-field">
-            <label class="filter-label"><i class="fas fa-bolt"></i> Acción</label>
-            <select class="filter-input" v-model="accion" @change="reload">
+            <label class="filter-label" for="aud-accion">
+              <i class="fas fa-bolt"></i> Acción
+            </label>
+            <select id="aud-accion" class="filter-input" v-model="accion" @change="reload">
               <option value="">Todas</option>
               <option value="crear">Crear</option>
               <option value="actualizar">Actualizar</option>
@@ -143,8 +160,10 @@
           </div>
 
           <div class="filter-field">
-            <label class="filter-label"><i class="fas fa-folder"></i> Módulo</label>
-            <select class="filter-input" v-model="coleccion" @change="reload">
+            <label class="filter-label" for="aud-modulo">
+              <i class="fas fa-folder"></i> Módulo
+            </label>
+            <select id="aud-modulo" class="filter-input" v-model="coleccion" @change="reload">
               <option value="">Todos</option>
               <option value="ventas">Ventas</option>
               <option value="compras">Compras</option>
@@ -162,13 +181,29 @@
           </div>
 
           <div class="filter-field">
-            <label class="filter-label"><i class="fas fa-calendar"></i> Desde</label>
-            <input type="date" class="filter-input" v-model="desde" @change="reload" />
+            <label class="filter-label" for="aud-desde">
+              <i class="fas fa-calendar"></i> Desde
+            </label>
+            <input
+              id="aud-desde"
+              type="date"
+              class="filter-input"
+              v-model="desde"
+              @change="reload"
+            />
           </div>
 
           <div class="filter-field">
-            <label class="filter-label"><i class="fas fa-calendar"></i> Hasta</label>
-            <input type="date" class="filter-input" v-model="hasta" @change="reload" />
+            <label class="filter-label" for="aud-hasta">
+              <i class="fas fa-calendar"></i> Hasta
+            </label>
+            <input
+              id="aud-hasta"
+              type="date"
+              class="filter-input"
+              v-model="hasta"
+              @change="reload"
+            />
           </div>
 
           <div class="filter-field">
@@ -189,27 +224,27 @@
             <span class="chips-label">Filtros activos:</span>
             <span v-if="search" class="chip-filter">
               <i class="fas fa-search"></i> "{{ search }}"
-              <button class="chip-x" @click="search = ''; reload()">×</button>
+              <button class="chip-x" @click="quitarFiltro('search')" aria-label="Quitar filtro búsqueda">×</button>
             </span>
             <span v-if="accion" class="chip-filter">
               <i class="fas fa-bolt"></i> {{ accion }}
-              <button class="chip-x" @click="accion = ''; reload()">×</button>
+              <button class="chip-x" @click="quitarFiltro('accion')" aria-label="Quitar filtro acción">×</button>
             </span>
             <span v-if="coleccion" class="chip-filter">
               <i class="fas fa-folder"></i> {{ coleccion }}
-              <button class="chip-x" @click="coleccion = ''; reload()">×</button>
+              <button class="chip-x" @click="quitarFiltro('coleccion')" aria-label="Quitar filtro módulo">×</button>
             </span>
             <span v-if="desde" class="chip-filter">
               <i class="fas fa-calendar"></i> desde {{ desde }}
-              <button class="chip-x" @click="desde = ''; reload()">×</button>
+              <button class="chip-x" @click="quitarFiltro('desde')" aria-label="Quitar filtro desde">×</button>
             </span>
             <span v-if="hasta" class="chip-filter">
               <i class="fas fa-calendar"></i> hasta {{ hasta }}
-              <button class="chip-x" @click="hasta = ''; reload()">×</button>
+              <button class="chip-x" @click="quitarFiltro('hasta')" aria-label="Quitar filtro hasta">×</button>
             </span>
             <span v-if="soloErrores" class="chip-filter chip-danger">
               <i class="fas fa-exclamation-triangle"></i> Solo errores
-              <button class="chip-x" @click="soloErrores = false; reload()">×</button>
+              <button class="chip-x" @click="quitarFiltro('soloErrores')" aria-label="Quitar filtro errores">×</button>
             </span>
           </div>
         </transition>
@@ -223,8 +258,14 @@
           <i class="fas fa-list me-2"></i>
           Registros ({{ total.toLocaleString() }})
         </div>
-        <select class="select-sm" v-model.number="limit" @change="reload">
+        <select
+          class="select-sm"
+          v-model.number="limit"
+          @change="reload"
+          aria-label="Registros por página"
+        >
           <option :value="20">20 / pág</option>
+          <option :value="30">30 / pág</option>
           <option :value="50">50 / pág</option>
           <option :value="100">100 / pág</option>
         </select>
@@ -245,12 +286,24 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="8" class="empty-row">
-                  <div class="spinner-sm"></div>
-                  Cargando registros...
-                </td>
-              </tr>
+              <!-- 🆕 Loading skeleton -->
+              <template v-if="loading">
+                <tr v-for="i in 6" :key="`skel-${i}`" class="skeleton-row">
+                  <td><div class="skeleton-line w-80"></div></td>
+                  <td><div class="skeleton-line w-60"></div></td>
+                  <td><div class="skeleton-line w-60"></div></td>
+                  <td>
+                    <div class="skeleton-usuario">
+                      <div class="skeleton-circle"></div>
+                      <div class="skeleton-line w-80"></div>
+                    </div>
+                  </td>
+                  <td><div class="skeleton-line w-60"></div></td>
+                  <td><div class="skeleton-line w-100"></div></td>
+                  <td><div class="skeleton-line w-60"></div></td>
+                  <td><div class="skeleton-line w-40"></div></td>
+                </tr>
+              </template>
               <tr v-else-if="registros.length === 0">
                 <td colspan="8" class="empty-row">
                   <i class="fas fa-inbox"></i>
@@ -294,13 +347,18 @@
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td>
-                  <div class="detalle-cell">{{ reg.detalle || '—' }}</div>
+                  <div class="detalle-cell" :title="reg.detalle">{{ reg.detalle || '—' }}</div>
                 </td>
                 <td>
                   <code class="ip-cell">{{ reg.ip || '—' }}</code>
                 </td>
                 <td class="text-center">
-                  <button class="btn-icon-view" @click="verDetalle(reg)" title="Ver detalle">
+                  <button
+                    class="btn-icon-view"
+                    @click="verDetalle(reg)"
+                    title="Ver detalle"
+                    :aria-label="`Ver detalle del registro ${reg._id}`"
+                  >
                     <i class="fas fa-eye"></i>
                   </button>
                 </td>
@@ -313,23 +371,94 @@
       <!-- PAGINACIÓN -->
       <div class="table-footer">
         <div class="footer-info">
-          Mostrando <strong>{{ startIndex.toLocaleString() }}</strong> - <strong>{{ endIndex.toLocaleString() }}</strong>
+          Mostrando <strong>{{ startIndex.toLocaleString() }}</strong> -
+          <strong>{{ endIndex.toLocaleString() }}</strong>
           de <strong>{{ total.toLocaleString() }}</strong>
         </div>
         <div class="pagination-controls">
-          <button class="page-btn" :disabled="page === 1" @click="goToPage(1)" title="Primera">
+          <button
+            class="page-btn"
+            :disabled="page === 1"
+            @click="goToPage(1)"
+            title="Primera página"
+            aria-label="Primera página"
+          >
             <i class="fas fa-angle-double-left"></i>
           </button>
-          <button class="page-btn" :disabled="page === 1" @click="goToPage(page - 1)" title="Anterior">
+          <button
+            class="page-btn"
+            :disabled="page === 1"
+            @click="goToPage(page - 1)"
+            title="Anterior (Alt+←)"
+            aria-label="Página anterior"
+          >
             <i class="fas fa-angle-left"></i>
           </button>
           <span class="page-info">Página {{ page }} / {{ totalPages || 1 }}</span>
-          <button class="page-btn" :disabled="page >= totalPages" @click="goToPage(page + 1)" title="Siguiente">
+          <button
+            class="page-btn"
+            :disabled="page >= totalPages"
+            @click="goToPage(page + 1)"
+            title="Siguiente (Alt+→)"
+            aria-label="Página siguiente"
+          >
             <i class="fas fa-angle-right"></i>
           </button>
-          <button class="page-btn" :disabled="page >= totalPages" @click="goToPage(totalPages)" title="Última">
+          <button
+            class="page-btn"
+            :disabled="page >= totalPages"
+            @click="goToPage(totalPages)"
+            title="Última página"
+            aria-label="Última página"
+          >
             <i class="fas fa-angle-double-right"></i>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🆕 MODAL CONFIRMACIÓN CSV -->
+    <div
+      class="modal fade"
+      id="modalExportCsv"
+      tabindex="-1"
+      aria-hidden="true"
+      data-bs-backdrop="static"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content modal-content-clean">
+          <div class="modal-header bg-primary">
+            <h5 class="modal-title text-white">
+              <i class="fas fa-file-csv me-2"></i>
+              Exportar auditoría
+            </h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              @click="cancelarExport"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-3">¿Qué querés exportar?</p>
+            <div class="alert alert-info small mb-0">
+              <i class="fas fa-info-circle me-2"></i>
+              <strong>Página actual:</strong> {{ registros.length }} registros.<br />
+              <strong>Todo filtrado:</strong> {{ total.toLocaleString() }} registros
+              (puede tardar unos segundos).
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="cancelarExport">
+              Cancelar
+            </button>
+            <button type="button" class="btn btn-outline-primary" @click="exportarPaginaActual">
+              Solo página ({{ registros.length }})
+            </button>
+            <button type="button" class="btn btn-primary" @click="exportarTodoFiltrado">
+              Todo filtrado ({{ total.toLocaleString() }})
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -350,7 +479,13 @@
                 </div>
               </div>
             </div>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              @click="registroActual = null"
+              aria-label="Cerrar"
+            ></button>
           </div>
 
           <div class="modal-body" v-if="registroActual">
@@ -370,18 +505,27 @@
               <div class="meta-item">
                 <label>Usuario</label>
                 <div class="usuario-cell">
-                  <div class="usuario-avatar" :class="`avatar-${registroActual.usuarioRol || 'user'}`">
+                  <div
+                    class="usuario-avatar"
+                    :class="`avatar-${registroActual.usuarioRol || 'user'}`"
+                  >
                     {{ iniciales(registroActual.usuarioNombre || registroActual.usuarioEmail) }}
                   </div>
                   <div>
-                    <div class="fw-bold">{{ registroActual.usuarioNombre || registroActual.usuarioEmail }}</div>
+                    <div class="fw-bold">
+                      {{ registroActual.usuarioNombre || registroActual.usuarioEmail }}
+                    </div>
                     <div class="small text-muted">{{ registroActual.usuarioEmail }}</div>
                   </div>
                 </div>
               </div>
               <div class="meta-item">
                 <label>Rol</label>
-                <span v-if="registroActual.usuarioRol" class="badge-rol" :class="`rol-${registroActual.usuarioRol}`">
+                <span
+                  v-if="registroActual.usuarioRol"
+                  class="badge-rol"
+                  :class="`rol-${registroActual.usuarioRol}`"
+                >
                   {{ registroActual.usuarioRol }}
                 </span>
                 <span v-else class="text-muted">—</span>
@@ -437,7 +581,12 @@
                   <div class="diff-panel-header">
                     <i class="fas fa-undo"></i>
                     <span>Antes</span>
-                    <button class="btn-copy-mini" @click="copiarJson(registroActual.datosAnteriores)" title="Copiar">
+                    <button
+                      class="btn-copy-mini"
+                      @click="copiarJson(registroActual.datosAnteriores)"
+                      title="Copiar JSON"
+                      aria-label="Copiar JSON antes"
+                    >
                       <i class="fas fa-copy"></i>
                     </button>
                   </div>
@@ -448,7 +597,12 @@
                   <div class="diff-panel-header">
                     <i class="fas fa-redo"></i>
                     <span>Después</span>
-                    <button class="btn-copy-mini" @click="copiarJson(registroActual.datosNuevos)" title="Copiar">
+                    <button
+                      class="btn-copy-mini"
+                      @click="copiarJson(registroActual.datosNuevos)"
+                      title="Copiar JSON"
+                      aria-label="Copiar JSON después"
+                    >
                       <i class="fas fa-copy"></i>
                     </button>
                   </div>
@@ -482,8 +636,14 @@
           </div>
 
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-            <button type="button" class="btn btn-primary" @click="copiarJson(registroActual)">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+              Cerrar
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              @click="copiarJson(registroActual)"
+            >
               <i class="fas fa-copy me-1"></i> Copiar registro completo
             </button>
           </div>
@@ -494,19 +654,26 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 
 const toast = useToast()
 
+// ===== CONSTANTES =====
+const SEARCH_DEBOUNCE_MS = 400
+const EXPORT_MAX_ROWS = 10_000
+const CAMPOS_IGNORADOS_DIFF = new Set(['_id', 'createdAt', 'updatedAt', '__v'])
+
+// ===== STATE =====
 const registros = ref([])
 const total = ref(0)
 const page = ref(1)
 const limit = ref(30)
 const totalPages = ref(1)
 const loading = ref(false)
+const exportando = ref(false)
 const stats = ref(null)
 
 // Filtros
@@ -517,19 +684,36 @@ const desde = ref('')
 const hasta = ref('')
 const soloErrores = ref(false)
 
+// Modales
 const modalInstance = ref(null)
 const registroActual = ref(null)
 const vistaDiff = ref('lado')
 const searchInput = ref(null)
 
+// 🆕 Confirmación export CSV
+let modalExport = null
+const exportState = { resolve: null }
+
+// 🆕 Timers y flags
 let searchTimer = null
+let unmounted = false
+// 🆕 Request ID para descartar respuestas viejas
+let currentRequestId = 0
 
 // ===== COMPUTED =====
-const startIndex = computed(() => total.value === 0 ? 0 : (page.value - 1) * limit.value + 1)
+const startIndex = computed(() => (total.value === 0 ? 0 : (page.value - 1) * limit.value + 1))
 const endIndex = computed(() => Math.min(page.value * limit.value, total.value))
 
-const hayFiltrosActivos = computed(() =>
-  !!(search.value || accion.value || coleccion.value || desde.value || hasta.value || soloErrores.value)
+const hayFiltrosActivos = computed(
+  () =>
+    Boolean(
+      search.value ||
+        accion.value ||
+        coleccion.value ||
+        desde.value ||
+        hasta.value ||
+        soloErrores.value
+    )
 )
 
 const maxTopUsuarios = computed(() => {
@@ -554,11 +738,8 @@ const cambios = computed(() => {
     ...Object.keys(datosNuevos || {})
   ])
 
-  // Ignorar campos técnicos
-  const ignorar = new Set(['_id', 'createdAt', 'updatedAt', '__v'])
-
   todosLosCampos.forEach(campo => {
-    if (ignorar.has(campo)) return
+    if (CAMPOS_IGNORADOS_DIFF.has(campo)) return
     const antes = stringify(datosAnteriores?.[campo])
     const despues = stringify(datosNuevos?.[campo])
     if (antes !== despues) {
@@ -574,58 +755,97 @@ const cambios = computed(() => {
 })
 
 // ===== HELPERS =====
-const stringify = (val) => {
-  if (val === undefined || val === null) return ''
-  if (typeof val === 'object') {
-    try { return JSON.stringify(val) } catch { return String(val) }
-  }
-  return String(val)
-}
+const esString = (v) => typeof v === 'string' && v.length > 0
 
-const iniciales = (texto) => {
-  if (!texto) return '?'
-  return texto.split(/[\s@]/).slice(0, 2).map(x => x[0]).join('').toUpperCase()
-}
-
+/** 🐛 BUG FIX: try/catch para fechas inválidas */
 const formatFecha = (fecha) => {
-  if (!fecha) return ''
-  return new Date(fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  if (!fecha) return '—'
+  try {
+    return new Date(fecha).toLocaleDateString('es-EC', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    })
+  } catch {
+    return '—'
+  }
 }
 
 const formatHora = (fecha) => {
   if (!fecha) return ''
-  return new Date(fecha).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  try {
+    return new Date(fecha).toLocaleTimeString('es-EC', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  } catch {
+    return ''
+  }
 }
 
 const formatFechaHora = (fecha) => {
-  if (!fecha) return ''
-  return new Date(fecha).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'medium' })
+  if (!fecha) return '—'
+  try {
+    return new Date(fecha).toLocaleString('es-EC', {
+      dateStyle: 'medium',
+      timeStyle: 'medium'
+    })
+  } catch {
+    return '—'
+  }
 }
 
-const badgeClassAccion = (acc) => {
-  if (!acc) return 'accion-otro'
+const iniciales = (texto) => {
+  if (!texto) return '?'
+  return String(texto)
+    .split(/[\s@]/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(x => x[0])
+    .join('')
+    .toUpperCase()
+}
+
+const stringify = (val) => {
+  if (val === undefined || val === null) return ''
+  if (typeof val === 'object') {
+    try {
+      return JSON.stringify(val)
+    } catch {
+      return String(val)
+    }
+  }
+  return String(val)
+}
+
+/** 🐛 BUG FIX: case-insensitive + guard de string */
+const badgeClassAccion = (accRaw) => {
+  if (!esString(accRaw)) return 'accion-otro'
+  const acc = accRaw.toLowerCase()
   if (acc === 'crear') return 'accion-crear'
   if (acc === 'actualizar') return 'accion-actualizar'
   if (acc === 'eliminar') return 'accion-eliminar'
   if (acc === 'login') return 'accion-login'
-  if (acc === 'login-fallido') return 'accion-error'
-  if (acc === 'importar') return 'accion-importar'
-  if (acc === 'firmar') return 'accion-firmar'
+  if (acc.includes('fallido') || acc.includes('error') || acc.includes('rechaz')) return 'accion-error'
+  if (acc.includes('import')) return 'accion-importar'
+  if (acc.includes('firm')) return 'accion-firmar'
   if (acc.includes('sri')) return 'accion-sri'
   if (acc.includes('periodo')) return 'accion-periodo'
-  if (acc.includes('error') || acc.includes('fallido')) return 'accion-error'
   return 'accion-otro'
 }
 
-const iconoAccion = (acc) => {
-  if (!acc) return 'fas fa-circle'
+const iconoAccion = (accRaw) => {
+  if (!esString(accRaw)) return 'fas fa-circle'
+  const acc = accRaw.toLowerCase()
   if (acc === 'crear') return 'fas fa-plus'
   if (acc === 'actualizar') return 'fas fa-edit'
   if (acc === 'eliminar') return 'fas fa-trash'
   if (acc === 'login') return 'fas fa-sign-in-alt'
-  if (acc === 'login-fallido') return 'fas fa-user-times'
-  if (acc === 'importar') return 'fas fa-file-import'
-  if (acc === 'firmar') return 'fas fa-signature'
+  if (acc.includes('fallido')) return 'fas fa-user-times'
+  if (acc.includes('error') || acc.includes('rechaz')) return 'fas fa-exclamation-circle'
+  if (acc.includes('import')) return 'fas fa-file-import'
+  if (acc.includes('firm')) return 'fas fa-signature'
   if (acc.includes('sri')) return 'fas fa-cloud-upload-alt'
   if (acc.includes('periodo')) return 'fas fa-lock'
   if (acc.includes('backup')) return 'fas fa-database'
@@ -633,38 +853,54 @@ const iconoAccion = (acc) => {
 }
 
 const prettyJson = (obj) => {
-  if (!obj) return '(vacío)'
+  if (obj === null || obj === undefined) return '(vacío)'
   try {
     return JSON.stringify(obj, null, 2)
-  } catch (e) {
+  } catch {
     return String(obj)
   }
 }
 
-const countPorAccion = (acc) => {
-  if (!stats.value?.porAccion) return 0
-  const found = stats.value.porAccion.find(a => a._id === acc)
-  return found ? found.total : 0
+const countPorAccion = (accionObjetivo) => {
+  if (!stats.value?.porAccion || !Array.isArray(stats.value.porAccion)) return 0
+  const target = String(accionObjetivo).toLowerCase()
+  return stats.value.porAccion
+    .filter(a => String(a._id || '').toLowerCase() === target)
+    .reduce((sum, a) => sum + (a.total || 0), 0)
 }
 
 // ===== CARGA =====
 const onSearchInput = () => {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    searchTimer = null
     page.value = 1
     cargar()
-  }, 400)
+  }, SEARCH_DEBOUNCE_MS)
 }
 
 const goToPage = (p) => {
-  if (p < 1 || p > totalPages.value || p === page.value) return
-  page.value = p
+  const target = Math.max(1, Math.min(totalPages.value || 1, p))
+  if (target === page.value) return
+  page.value = target
   cargar()
 }
 
 const reload = () => {
   page.value = 1
   cargar()
+}
+
+const quitarFiltro = (campo) => {
+  switch (campo) {
+    case 'search': search.value = ''; break
+    case 'accion': accion.value = ''; break
+    case 'coleccion': coleccion.value = ''; break
+    case 'desde': desde.value = ''; break
+    case 'hasta': hasta.value = ''; break
+    case 'soloErrores': soloErrores.value = false; break
+  }
+  reload()
 }
 
 const limpiarFiltros = () => {
@@ -678,40 +914,62 @@ const limpiarFiltros = () => {
   cargar()
 }
 
-const cargar = async () => {
-  loading.value = true
-  try {
-    const params = new URLSearchParams()
-    params.set('page', page.value)
-    params.set('limit', limit.value)
-    if (search.value) params.set('search', search.value)
-    if (accion.value) params.set('accion', accion.value)
-    if (coleccion.value) params.set('coleccion', coleccion.value)
-    if (desde.value) params.set('desde', desde.value)
-    if (hasta.value) params.set('hasta', hasta.value)
-    if (soloErrores.value) params.set('soloErrores', 'true')
+const construirParams = (pagina = page.value, limite = limit.value) => {
+  const params = new URLSearchParams()
+  params.set('page', pagina)
+  params.set('limit', limite)
+  if (search.value) params.set('search', search.value)
+  if (accion.value) params.set('accion', accion.value)
+  if (coleccion.value) params.set('coleccion', coleccion.value)
+  if (desde.value) params.set('desde', desde.value)
+  if (hasta.value) params.set('hasta', hasta.value)
+  if (soloErrores.value) params.set('soloErrores', 'true')
+  return params
+}
 
+const cargar = async () => {
+  // 🆕 Request ID: descartar respuestas obsoletas
+  const requestId = ++currentRequestId
+  loading.value = true
+
+  try {
+    const params = construirParams()
     const response = await api.request(`/auditoria?${params.toString()}`, {
       method: 'GET',
       skipLoader: true
     })
 
-    registros.value = response.data || []
-    total.value = response.total || 0
-    totalPages.value = response.totalPages || 1
+    // 🐛 BUG FIX: si hay una request más nueva, ignorar esta respuesta
+    if (requestId !== currentRequestId || unmounted) return
+
+    const data = Array.isArray(response?.data) ? response.data : []
+    const totalResp = Number(response?.total) || 0
+    const totalPagesResp = Number(response?.totalPages) || 1
+
+    registros.value = data
+    total.value = totalResp
+    totalPages.value = totalPagesResp
+
+    // 🐛 BUG FIX: si la página actual excede totalPages, retroceder
+    if (page.value > totalPagesResp && totalPagesResp > 0) {
+      page.value = totalPagesResp
+      return cargar()
+    }
   } catch (e) {
+    if (requestId !== currentRequestId || unmounted) return
     console.error('Error cargando auditoría:', e)
     toast.error('Error al cargar auditoría: ' + e.message)
   } finally {
-    loading.value = false
+    if (requestId === currentRequestId && !unmounted) loading.value = false
   }
 }
 
 const cargarStats = async () => {
   try {
-    stats.value = await api.request('/auditoria/stats', { method: 'GET', skipLoader: true })
+    const res = await api.request('/auditoria/stats', { method: 'GET', skipLoader: true })
+    if (!unmounted) stats.value = res
   } catch (e) {
-    console.error('Error cargando stats:', e)
+    if (!unmounted) console.error('Error cargando stats:', e)
   }
 }
 
@@ -725,10 +983,69 @@ const exportarCSV = () => {
     toast.warning('No hay datos para exportar')
     return
   }
+  if (!modalExport) {
+    modalExport = new Modal(document.getElementById('modalExportCsv'), { backdrop: 'static' })
+  }
+  modalExport.show()
+}
 
-  const headers = ['Fecha', 'Acción', 'Módulo', 'Usuario', 'Email', 'Rol', 'Documento', 'Detalle', 'IP']
+const cancelarExport = () => {
+  modalExport?.hide()
+}
 
-  const rows = registros.value.map(r => [
+const exportarPaginaActual = () => {
+  modalExport?.hide()
+  ejecutarDescargaCSV(registros.value, 'pagina')
+}
+
+const exportarTodoFiltrado = async () => {
+  modalExport?.hide()
+  exportando.value = true
+
+  try {
+    // Traemos todos los registros filtrados en un solo request (hasta el cap).
+    const params = construirParams(1, EXPORT_MAX_ROWS)
+    const response = await api.request(`/auditoria?${params.toString()}`, {
+      method: 'GET',
+      loaderMessage: 'Exportando registros...'
+    })
+    if (unmounted) return
+
+    const data = Array.isArray(response?.data) ? response.data : []
+    if (data.length === 0) {
+      toast.warning('No hay registros con los filtros actuales')
+      return
+    }
+    if (total.value > EXPORT_MAX_ROWS) {
+      toast.warning(
+        `Se exportaron los primeros ${EXPORT_MAX_ROWS} de ${total.value} registros. ` +
+          'Refiná los filtros para exportar todos.'
+      )
+    }
+    ejecutarDescargaCSV(data, 'filtrado')
+  } catch (e) {
+    if (!unmounted) toast.error('Error al exportar: ' + e.message)
+  } finally {
+    if (!unmounted) exportando.value = false
+  }
+}
+
+const ejecutarDescargaCSV = (filas, sufijo) => {
+  const headers = [
+    'Fecha',
+    'Acción',
+    'Módulo',
+    'Usuario',
+    'Email',
+    'Rol',
+    'Documento',
+    'Detalle',
+    'IP'
+  ]
+
+  const escapar = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`
+
+  const rows = filas.map(r => [
     formatFechaHora(r.fecha),
     r.accion || '',
     r.coleccion || '',
@@ -740,8 +1057,6 @@ const exportarCSV = () => {
     r.ip || ''
   ])
 
-  const escapar = (val) => `"${String(val).replace(/"/g, '""')}"`
-
   const csv = [
     headers.map(escapar).join(','),
     ...rows.map(row => row.map(escapar).join(','))
@@ -752,13 +1067,13 @@ const exportarCSV = () => {
   const a = document.createElement('a')
   a.href = url
   const fecha = new Date().toISOString().slice(0, 10)
-  a.download = `auditoria_${fecha}.csv`
+  a.download = `auditoria_${sufijo}_${fecha}.csv`
   document.body.appendChild(a)
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
 
-  toast.success(`CSV exportado (${registros.value.length} registros)`)
+  toast.success(`CSV exportado (${filas.length} registros)`)
 }
 
 // ===== DETALLE =====
@@ -771,42 +1086,102 @@ const verDetalle = (reg) => {
   modalInstance.value.show()
 }
 
-// ===== COPIAR =====
+// ===== COPIAR (con fallback para HTTP) =====
 const copiarJson = async (obj) => {
+  const texto = prettyJson(obj)
+
+  // 🐛 BUG FIX: fallback si navigator.clipboard no está disponible (HTTP sin HTTPS)
   try {
-    await navigator.clipboard.writeText(prettyJson(obj))
-    toast.success('Copiado al portapapeles')
-  } catch (e) {
-    toast.error('No se pudo copiar')
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(texto)
+      toast.success('Copiado al portapapeles')
+      return
+    }
+    throw new Error('clipboard no disponible')
+  } catch {
+    // Fallback: crear textarea temporal y usar execCommand
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = texto
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      if (ok) toast.success('Copiado al portapapeles')
+      else toast.error('No se pudo copiar')
+    } catch {
+      toast.error('No se pudo copiar')
+    }
   }
 }
 
 // ===== ATAJOS DE TECLADO =====
-const handleKeyboard = (e) => {
-  // '/' para buscar (solo si no está en un input)
-  if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'SELECT') {
-    e.preventDefault()
-    searchInput.value?.focus()
-  }
-  // 'r' para refrescar (si no está en input)
-  if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey &&
-      document.activeElement?.tagName !== 'INPUT' &&
-      document.activeElement?.tagName !== 'TEXTAREA') {
-    cargarTodo()
-  }
-  // Flechas para paginación
-  if (e.altKey && e.key === 'ArrowLeft') goToPage(page.value - 1)
-  if (e.altKey && e.key === 'ArrowRight') goToPage(page.value + 1)
+/** 🐛 BUG FIX: respetar contenteditable */
+const estaEscribiendo = () => {
+  const el = document.activeElement
+  if (!el) return false
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (el.isContentEditable) return true
+  return false
 }
 
+const handleKeyboard = (e) => {
+  // '/' → focus búsqueda
+  if (e.key === '/' && !estaEscribiendo()) {
+    e.preventDefault()
+    searchInput.value?.focus()
+    return
+  }
+  // 'r' → refresh
+  if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey && !estaEscribiendo()) {
+    e.preventDefault()
+    cargarTodo()
+    return
+  }
+  // Alt+← / Alt+→ → paginación
+  if (e.altKey && e.key === 'ArrowLeft') {
+    e.preventDefault()
+    goToPage(page.value - 1)
+    return
+  }
+  if (e.altKey && e.key === 'ArrowRight') {
+    e.preventDefault()
+    goToPage(page.value + 1)
+    return
+  }
+  // Esc → cerrar modales abiertos
+  if (e.key === 'Escape') {
+    try { modalInstance.value?.hide() } catch { /* noop */ }
+    try { modalExport?.hide() } catch { /* noop */ }
+  }
+}
+
+// ===== LIFECYCLE =====
 onMounted(() => {
   cargarTodo()
   document.addEventListener('keydown', handleKeyboard)
 })
 
 onBeforeUnmount(() => {
+  unmounted = true
   document.removeEventListener('keydown', handleKeyboard)
-  if (searchTimer) clearTimeout(searchTimer)
+
+  // 🐛 BUG FIX: limpiar timers
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+
+  // 🐛 BUG FIX: cerrar modales
+  try { modalInstance.value?.hide() } catch { /* noop */ }
+  try { modalExport?.hide() } catch { /* noop */ }
+
+  // Liberar referencias
+  registroActual.value = null
+  currentRequestId = 0
 })
 </script>
 
@@ -895,8 +1270,26 @@ onBeforeUnmount(() => {
 .audit-row:hover { background: var(--bg-table-stripe); }
 .empty-row { text-align: center; padding: 50px 20px !important; color: var(--text-muted); }
 .empty-row i { font-size: 3rem; opacity: 0.3; display: block; margin-bottom: 12px; }
-.spinner-sm { width: 28px; height: 28px; border: 3px solid var(--border-color); border-top-color: #8e44ad; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
-@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 🆕 Skeleton */
+.skeleton-row td { padding: 14px 12px; }
+.skeleton-line {
+  height: 12px;
+  background: linear-gradient(90deg, var(--bg-table-stripe) 25%, var(--border-color) 50%, var(--bg-table-stripe) 75%);
+  background-size: 200% 100%;
+  border-radius: 6px;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-line.w-40 { width: 40%; }
+.skeleton-line.w-60 { width: 60%; }
+.skeleton-line.w-80 { width: 80%; }
+.skeleton-line.w-100 { width: 100%; }
+.skeleton-circle { width: 34px; height: 34px; border-radius: 50%; background: var(--bg-table-stripe); flex-shrink: 0; }
+.skeleton-usuario { display: flex; align-items: center; gap: 10px; }
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 
 .cell-fecha .fecha-main { font-weight: 600; font-size: 0.82rem; color: var(--text-primary); }
 .cell-fecha .fecha-sub { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; font-family: var(--font-mono, monospace); }

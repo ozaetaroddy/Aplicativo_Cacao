@@ -18,13 +18,13 @@
       >
         <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
         {{ cargando ? 'Guardando...' : 'Guardar cambios' }}
-        <span v-if="hayCambios" class="dot-cambios"></span>
+        <span v-if="hayCambios" class="dot-cambios" aria-label="Cambios sin guardar"></span>
       </button>
     </div>
 
     <!-- ADVERTENCIA CAMBIOS SIN GUARDAR -->
     <transition name="slide-down">
-      <div v-if="hayCambios" class="alert alert-warning sticky-warn">
+      <div v-if="hayCambios" class="alert alert-warning sticky-warn" role="alert">
         <i class="fas fa-exclamation-triangle"></i>
         <span>Tienes cambios sin guardar. No cierres la página o los perderás.</span>
       </div>
@@ -44,9 +44,11 @@
           Modo {{ form.ambiente === '2' ? 'PRODUCCIÓN' : 'PRUEBAS' }}
         </div>
         <div class="ambiente-desc">
-          {{ form.ambiente === '2'
-            ? 'Los documentos electrónicos tendrán validez legal ante el SRI real.'
-            : 'Los documentos se enviarán al ambiente de pruebas del SRI. No tienen validez legal.' }}
+          {{
+            form.ambiente === '2'
+              ? 'Los documentos electrónicos tendrán validez legal ante el SRI real.'
+              : 'Los documentos se enviarán al ambiente de pruebas del SRI. No tienen validez legal.'
+          }}
         </div>
       </div>
       <span class="ambiente-pill" :class="form.ambiente === '2' ? 'pill-prod' : 'pill-test'">
@@ -67,56 +69,75 @@
           <div class="card-body">
             <div class="form-grid">
               <div class="form-field">
-                <label class="form-label">
+                <label class="form-label" for="cfg-ruc">
                   <span class="required">*</span> RUC
                 </label>
                 <input
+                  id="cfg-ruc"
                   type="text"
                   class="form-control"
-                  :class="{ 'is-invalid': errores.ruc }"
+                  :class="{ 'is-invalid': mostrarError('ruc') }"
                   v-model="form.ruc"
                   maxlength="13"
+                  inputmode="numeric"
                   placeholder="13 dígitos"
-                  @input="validarRuc"
+                  :disabled="cargando"
+                  :aria-describedby="mostrarError('ruc') ? 'err-ruc' : undefined"
+                  @input="onRucInput"
+                  @blur="touched.ruc = true"
                 />
-                <div v-if="errores.ruc" class="field-error">
+                <div v-if="mostrarError('ruc')" id="err-ruc" class="field-error">
                   <i class="fas fa-exclamation-circle"></i> {{ errores.ruc }}
                 </div>
-                <div v-else-if="form.ruc && form.ruc.length === 13" class="field-ok">
+                <div
+                  v-else-if="form.ruc && form.ruc.length === 13 && !errores.ruc"
+                  class="field-ok"
+                >
                   <i class="fas fa-check-circle"></i> RUC válido
                 </div>
               </div>
 
               <div class="form-field">
-                <label class="form-label">
+                <label class="form-label" for="cfg-razon">
                   <span class="required">*</span> Razón Social
                 </label>
                 <input
+                  id="cfg-razon"
                   type="text"
                   class="form-control"
-                  :class="{ 'is-invalid': errores.razon_social }"
+                  :class="{ 'is-invalid': mostrarError('razon_social') }"
                   v-model="form.razon_social"
-                  @input="validarRazonSocial"
                   placeholder="Nombre legal de la empresa"
+                  :disabled="cargando"
+                  :aria-describedby="mostrarError('razon_social') ? 'err-razon' : undefined"
+                  @input="onRazonSocialInput"
+                  @blur="touched.razon_social = true"
                 />
-                <div v-if="errores.razon_social" class="field-error">
+                <div v-if="mostrarError('razon_social')" id="err-razon" class="field-error">
                   <i class="fas fa-exclamation-circle"></i> {{ errores.razon_social }}
                 </div>
               </div>
 
               <div class="form-field">
-                <label class="form-label">Nombre Comercial</label>
+                <label class="form-label" for="cfg-nombre-comercial">Nombre Comercial</label>
                 <input
+                  id="cfg-nombre-comercial"
                   type="text"
                   class="form-control"
                   v-model="form.nombre_comercial"
                   placeholder="Nombre con el que se conoce al negocio"
+                  :disabled="cargando"
                 />
               </div>
 
               <div class="form-field">
-                <label class="form-label">Régimen</label>
-                <select class="form-control" v-model="form.regimen">
+                <label class="form-label" for="cfg-regimen">Régimen</label>
+                <select
+                  id="cfg-regimen"
+                  class="form-control"
+                  v-model="form.regimen"
+                  :disabled="cargando"
+                >
                   <option value="RIMPE">RIMPE - Emprendedor</option>
                   <option value="RIMPE_NEGOCIO">RIMPE - Negocio Popular</option>
                   <option value="GENERAL">Régimen General</option>
@@ -125,77 +146,104 @@
               </div>
 
               <div class="form-field full">
-                <label class="form-label">Dirección Matriz</label>
+                <label class="form-label" for="cfg-dir-matriz">Dirección Matriz</label>
                 <input
+                  id="cfg-dir-matriz"
                   type="text"
                   class="form-control"
                   v-model="form.direccion_matriz"
                   placeholder="Dirección principal de la empresa"
+                  :disabled="cargando"
                 />
               </div>
 
               <div class="form-field full">
-                <label class="form-label">Dirección del Establecimiento</label>
+                <label class="form-label" for="cfg-dir-estab">
+                  Dirección del Establecimiento
+                </label>
                 <input
+                  id="cfg-dir-estab"
                   type="text"
                   class="form-control"
                   v-model="form.direccion_establecimiento"
                   placeholder="Si es diferente a la matriz"
+                  :disabled="cargando"
                 />
               </div>
 
               <div class="form-field">
-                <label class="form-label">Teléfono</label>
+                <label class="form-label" for="cfg-telefono">Teléfono</label>
                 <input
+                  id="cfg-telefono"
                   type="text"
                   class="form-control"
                   v-model="form.telefono"
                   placeholder="09XXXXXXXX"
+                  :disabled="cargando"
                 />
               </div>
 
               <div class="form-field">
-                <label class="form-label">Email</label>
+                <label class="form-label" for="cfg-email">Email</label>
                 <input
+                  id="cfg-email"
                   type="email"
                   class="form-control"
-                  :class="{ 'is-invalid': errores.email }"
+                  :class="{ 'is-invalid': mostrarError('email') }"
                   v-model="form.email"
                   placeholder="contacto@empresa.com"
-                  @input="validarEmail"
+                  :disabled="cargando"
+                  :aria-describedby="mostrarError('email') ? 'err-email' : undefined"
+                  @input="onEmailInput"
+                  @blur="touched.email = true"
                 />
-                <div v-if="errores.email" class="field-error">
+                <div v-if="mostrarError('email')" id="err-email" class="field-error">
                   <i class="fas fa-exclamation-circle"></i> {{ errores.email }}
                 </div>
               </div>
 
               <div class="form-field">
-                <label class="form-label">Contribuyente Especial</label>
+                <label class="form-label" for="cfg-contribuyente">
+                  Contribuyente Especial
+                </label>
                 <input
+                  id="cfg-contribuyente"
                   type="text"
                   class="form-control"
                   v-model="form.contribuyente_especial"
                   placeholder="Nº resolución (si aplica)"
+                  maxlength="10"
+                  :disabled="cargando"
                 />
               </div>
 
               <div class="form-field">
-                <label class="form-label">Agente de Retención</label>
+                <label class="form-label" for="cfg-agente">Agente de Retención</label>
                 <input
+                  id="cfg-agente"
                   type="text"
                   class="form-control"
                   v-model="form.agente_retencion"
                   placeholder="Nº resolución (si aplica)"
+                  maxlength="10"
+                  :disabled="cargando"
                 />
               </div>
 
               <div class="form-field full">
                 <div class="toggle-row">
                   <label class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" v-model="form.obligado_contabilidad" />
+                    <input
+                      class="form-check-input"
+                      type="checkbox"
+                      v-model="form.obligado_contabilidad"
+                      :disabled="cargando"
+                    />
                     <span class="form-check-label">
                       <strong>Obligado a llevar contabilidad</strong>
-                      <div class="small text-muted">Afecta la presentación del RIDE y formularios SRI</div>
+                      <div class="small text-muted">
+                        Afecta la presentación del RIDE y formularios SRI
+                      </div>
                     </span>
                   </label>
                 </div>
@@ -214,19 +262,44 @@
           </div>
           <div class="card-body">
             <div class="form-field mb-3">
-              <label class="form-label">
+              <label class="form-label" for="cfg-ambiente">
                 <span class="required">*</span> Ambiente
               </label>
-              <select class="form-control" v-model="form.ambiente">
+              <select
+                id="cfg-ambiente"
+                class="form-control"
+                v-model="form.ambiente"
+                :disabled="cargando"
+              >
                 <option value="1">1 - Pruebas</option>
                 <option value="2">2 - Producción</option>
               </select>
               <small class="form-hint">
                 Pruebas: simulaciones. Producción: validez legal.
               </small>
-              <div v-if="form.ambiente === '2' && !certificadoOk" class="field-error mt-2">
+
+              <!-- 🆕 Alerta de certificado con 3 estados claros -->
+              <div
+                v-if="form.ambiente === '2' && certificadoChecked && !certificadoOk"
+                class="field-error mt-2"
+              >
                 <i class="fas fa-exclamation-triangle"></i>
                 No tienes certificado vigente. Cárgalo antes de pasar a producción.
+              </div>
+              <div
+                v-else-if="form.ambiente === '2' && !certificadoChecked"
+                class="field-warn mt-2"
+              >
+                <i class="fas fa-question-circle"></i>
+                No se pudo verificar el certificado.
+                <button
+                  type="button"
+                  class="btn-link"
+                  @click="cargarEstadoCertificado"
+                  :disabled="cargando"
+                >
+                  Reintentar
+                </button>
               </div>
             </div>
 
@@ -237,30 +310,42 @@
             </div>
             <div class="serie-grid">
               <div class="form-field">
-                <label class="form-label small">Establecimiento</label>
+                <label class="form-label small" for="cfg-estab">Establecimiento</label>
                 <input
+                  id="cfg-estab"
                   type="text"
                   class="form-control"
-                  :class="{ 'is-invalid': errores.establecimiento }"
+                  :class="{ 'is-invalid': mostrarError('establecimiento') }"
                   v-model="form.establecimiento"
                   maxlength="3"
+                  inputmode="numeric"
                   placeholder="001"
-                  @input="validarEstablecimiento"
+                  :disabled="cargando"
+                  @input="onEstablecimientoInput"
+                  @blur="touched.establecimiento = true"
                 />
-                <div v-if="errores.establecimiento" class="field-error small">{{ errores.establecimiento }}</div>
+                <div v-if="mostrarError('establecimiento')" class="field-error small">
+                  {{ errores.establecimiento }}
+                </div>
               </div>
               <div class="form-field">
-                <label class="form-label small">Punto Emisión</label>
+                <label class="form-label small" for="cfg-pe">Punto Emisión</label>
                 <input
+                  id="cfg-pe"
                   type="text"
                   class="form-control"
-                  :class="{ 'is-invalid': errores.punto_emision }"
+                  :class="{ 'is-invalid': mostrarError('punto_emision') }"
                   v-model="form.punto_emision"
                   maxlength="3"
+                  inputmode="numeric"
                   placeholder="001"
-                  @input="validarPuntoEmision"
+                  :disabled="cargando"
+                  @input="onPuntoEmisionInput"
+                  @blur="touched.punto_emision = true"
                 />
-                <div v-if="errores.punto_emision" class="field-error small">{{ errores.punto_emision }}</div>
+                <div v-if="mostrarError('punto_emision')" class="field-error small">
+                  {{ errores.punto_emision }}
+                </div>
               </div>
             </div>
 
@@ -272,8 +357,13 @@
             <hr />
 
             <div class="form-field">
-              <label class="form-label small">Tipo de emisión</label>
-              <select class="form-control" v-model="form.tipo_emision">
+              <label class="form-label small" for="cfg-tipo-emision">Tipo de emisión</label>
+              <select
+                id="cfg-tipo-emision"
+                class="form-control"
+                v-model="form.tipo_emision"
+                :disabled="cargando"
+              >
                 <option value="1">1 - Normal</option>
                 <option value="2">2 - Contingencia</option>
               </select>
@@ -294,7 +384,7 @@
             <div class="clave-info">
               <div class="clave-info-item">
                 <span>Longitud:</span>
-                <strong>49 dígitos</strong>
+                <strong>{{ ejemploClave.length }} dígitos</strong>
               </div>
               <div class="clave-info-item">
                 <span>DV (módulo 11):</span>
@@ -340,16 +430,67 @@
         </div>
       </div>
     </div>
+
+    <!-- 🆕 MODAL CONFIRMACIÓN CAMBIO A PRODUCCIÓN -->
+    <div
+      class="modal fade"
+      id="modalConfirmProduccion"
+      tabindex="-1"
+      aria-hidden="true"
+      data-bs-backdrop="static"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content modal-content-clean">
+          <div class="modal-header bg-warning">
+            <h5 class="modal-title text-dark">
+              <i class="fas fa-exclamation-triangle me-2"></i>
+              Activar modo PRODUCCIÓN
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="cancelarConfirm"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-3">
+              ¿Confirmas el cambio a modo <strong>PRODUCCIÓN</strong>?
+            </p>
+            <div class="alert alert-warning small mb-0">
+              <i class="fas fa-exclamation-triangle me-2"></i>
+              <strong>A partir de este momento:</strong>
+              <ul class="mb-0 mt-2">
+                <li>Los documentos electrónicos serán enviados al SRI real</li>
+                <li>Tendrán validez legal y fiscal</li>
+                <li>No podrán eliminarse (solo anularse con Nota de Crédito)</li>
+                <li>Esta acción queda registrada en auditoría</li>
+              </ul>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
+              Cancelar
+            </button>
+            <button type="button" class="btn btn-warning" @click="aceptarConfirm">
+              <i class="fas fa-check"></i> Sí, activar Producción
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 
 const toast = useToast()
 
+// ===== STATE =====
 const form = ref({
   ruc: '',
   razon_social: '',
@@ -370,10 +511,39 @@ const form = ref({
 })
 
 const formOriginal = ref(null)
-const errores = ref({ ruc: '', razon_social: '', email: '', establecimiento: '', punto_emision: '' })
+
+// 🆕 Trackear qué campos tocó el usuario para mostrar errores solo después
+const touched = reactive({
+  ruc: false,
+  razon_social: false,
+  email: false,
+  establecimiento: false,
+  punto_emision: false
+})
+
+const errores = ref({
+  ruc: '',
+  razon_social: '',
+  email: '',
+  establecimiento: '',
+  punto_emision: ''
+})
+
 const cargando = ref(false)
 const certificadoOk = ref(false)
+// 🆕 Distinguir "no hay cert" de "no se pudo verificar"
+const certificadoChecked = ref(false)
 const ultimaActualizacion = ref(null)
+
+// Modales
+let modalConfirm = null
+
+// 🆕 Confirm state
+const confirmState = reactive({ resolve: null })
+
+// 🆕 Timers para debounce y cleanup
+const debounceTimers = {}
+let unmounted = false
 
 // ===== COMPUTED =====
 const hayCambios = computed(() => {
@@ -382,46 +552,91 @@ const hayCambios = computed(() => {
 })
 
 const serieFormateada = computed(() => {
-  const est = (form.value.establecimiento || '001').padStart(3, '0')
-  const pe = (form.value.punto_emision || '001').padStart(3, '0')
+  const est = String(form.value.establecimiento || '001').padStart(3, '0')
+  const pe = String(form.value.punto_emision || '001').padStart(3, '0')
   return `${est}-${pe}`
 })
 
 const ejemploClave = computed(() => {
   const hoy = new Date()
-  const fechaStr = String(hoy.getDate()).padStart(2, '0') +
-                   String(hoy.getMonth() + 1).padStart(2, '0') +
-                   hoy.getFullYear()
+  const fechaStr =
+    String(hoy.getDate()).padStart(2, '0') +
+    String(hoy.getMonth() + 1).padStart(2, '0') +
+    hoy.getFullYear()
+
   const tipo = '01'
-  const ruc = (form.value.ruc || '0000000000001').padStart(13, '0')
-  const ambiente = form.value.ambiente || '1'
+
+  // 🐛 BUG FIX: slice antes de padStart para no exceder 13
+  const rucRaw = String(form.value.ruc || '').replace(/\D/g, '')
+  const ruc = rucRaw.slice(0, 13).padStart(13, '0')
+
+  const ambiente = String(form.value.ambiente || '1').charAt(0) || '1'
   const serie = serieFormateada.value.replace('-', '')
   const secuencial = '000000001'
   const codNum = '12345678'
-  const tipoEm = form.value.tipo_emision || '1'
+  const tipoEm = String(form.value.tipo_emision || '1').charAt(0) || '1'
+
   const base = `${fechaStr}${tipo}${ruc}${ambiente}${serie}${secuencial}${codNum}${tipoEm}`
   const dv = calcularDV(base)
   return `${base}${dv}`
 })
 
 const formularioValido = computed(() => {
-  return !errores.value.ruc
-    && !errores.value.razon_social
-    && !errores.value.email
-    && !errores.value.establecimiento
-    && !errores.value.punto_emision
-    && form.value.ruc.length === 13
-    && form.value.razon_social.trim().length >= 3
-    && /^\d{3}$/.test(form.value.establecimiento)
-    && /^\d{3}$/.test(form.value.punto_emision)
+  // 🐛 BUG FIX: incluir email y usar String() defensivo
+  return (
+    !errores.value.ruc &&
+    !errores.value.razon_social &&
+    !errores.value.email &&
+    !errores.value.establecimiento &&
+    !errores.value.punto_emision &&
+    String(form.value.ruc || '').length === 13 &&
+    String(form.value.razon_social || '').trim().length >= 3 &&
+    /^\d{3}$/.test(String(form.value.establecimiento || '')) &&
+    /^\d{3}$/.test(String(form.value.punto_emision || ''))
+  )
 })
+
+// ===== HELPERS =====
+/**
+ * 🆕 Muestra el error de un campo solo si:
+ *  - El usuario lo tocó (blur)
+ *  - O el usuario ya intentó guardar
+ */
+const mostrarError = (campo) => {
+  return Boolean(touched[campo] && errores.value[campo])
+}
+
+const formatFechaHora = (f) => {
+  if (!f) return ''
+  try {
+    return new Date(f).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' })
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 🆕 Debounce helper.
+ * Limpia timers anteriores para la misma key.
+ */
+const debounce = (key, fn, ms = 300) => {
+  if (debounceTimers[key]) clearTimeout(debounceTimers[key])
+  debounceTimers[key] = setTimeout(() => {
+    delete debounceTimers[key]
+    fn()
+  }, ms)
+}
 
 // ===== VALIDACIONES =====
 const calcularDV = (cadena) => {
+  // 🐛 BUG FIX: guard de longitud
+  if (typeof cadena !== 'string' || cadena.length !== 48) return 0
   const pesos = [2, 3, 4, 5, 6, 7]
   let suma = 0
   for (let i = cadena.length - 1, j = 0; i >= 0; i--, j++) {
-    suma += parseInt(cadena[i]) * pesos[j % 6]
+    const d = cadena.charCodeAt(i) - 48
+    if (d < 0 || d > 9) return 0
+    suma += d * pesos[j % 6]
   }
   const resto = suma % 11
   let dv = 11 - resto
@@ -430,7 +645,10 @@ const calcularDV = (cadena) => {
   return dv
 }
 
-// Validación de RUC con módulo 11
+/**
+ * Valida RUC ecuatoriano con módulo 11.
+ * Acepta RUC de persona natural (3er dígito < 6), jurídica privada (9) o pública (6).
+ */
 const validarRucModulo11 = (ruc) => {
   if (!ruc || ruc.length !== 13) return false
   if (!/^\d+$/.test(ruc)) return false
@@ -442,7 +660,7 @@ const validarRucModulo11 = (ruc) => {
   const base = ruc.substring(0, 10)
 
   if (tercerDigito < 6) {
-    // Persona natural: validar como cédula
+    // Persona natural → validar como cédula
     const coef = [2, 1, 2, 1, 2, 1, 2, 1, 2]
     let suma = 0
     for (let i = 0; i < 9; i++) {
@@ -452,7 +670,7 @@ const validarRucModulo11 = (ruc) => {
     }
     const dv = parseInt(base.charAt(9), 10)
     const dec = Math.ceil(suma / 10) * 10
-    return (dec - suma) === dv
+    return dec - suma === dv
   }
   if (tercerDigito === 9) {
     const coef = [4, 3, 2, 7, 6, 5, 4, 3, 2]
@@ -476,10 +694,19 @@ const validarRucModulo11 = (ruc) => {
 }
 
 const validarRuc = () => {
-  const ruc = form.value.ruc?.trim() || ''
-  if (!ruc) { errores.value.ruc = 'El RUC es obligatorio'; return false }
-  if (ruc.length !== 13) { errores.value.ruc = `Debe tener 13 dígitos (tiene ${ruc.length})`; return false }
-  if (!/^\d+$/.test(ruc)) { errores.value.ruc = 'Solo se permiten números'; return false }
+  const ruc = String(form.value.ruc || '').trim()
+  if (!ruc) {
+    errores.value.ruc = 'El RUC es obligatorio'
+    return false
+  }
+  if (ruc.length !== 13) {
+    errores.value.ruc = `Debe tener 13 dígitos (tiene ${ruc.length})`
+    return false
+  }
+  if (!/^\d+$/.test(ruc)) {
+    errores.value.ruc = 'Solo se permiten números'
+    return false
+  }
   if (!validarRucModulo11(ruc)) {
     errores.value.ruc = 'RUC inválido (verifique el dígito verificador)'
     return false
@@ -489,16 +716,33 @@ const validarRuc = () => {
 }
 
 const validarRazonSocial = () => {
-  const r = form.value.razon_social?.trim() || ''
-  if (!r) { errores.value.razon_social = 'La razón social es obligatoria'; return false }
-  if (r.length < 3) { errores.value.razon_social = 'Mínimo 3 caracteres'; return false }
+  const r = String(form.value.razon_social || '').trim()
+  if (!r) {
+    errores.value.razon_social = 'La razón social es obligatoria'
+    return false
+  }
+  if (r.length < 3) {
+    errores.value.razon_social = 'Mínimo 3 caracteres'
+    return false
+  }
+  if (r.length > 300) {
+    errores.value.razon_social = 'Máximo 300 caracteres'
+    return false
+  }
   errores.value.razon_social = ''
   return true
 }
 
 const validarEmail = () => {
-  const e = form.value.email?.trim() || ''
-  if (!e) { errores.value.email = ''; return true } // opcional
+  const e = String(form.value.email || '').trim()
+  if (!e) {
+    errores.value.email = ''
+    return true // opcional
+  }
+  if (e.length > 200) {
+    errores.value.email = 'Email demasiado largo'
+    return false
+  }
   if (!/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(e)) {
     errores.value.email = 'Email inválido'
     return false
@@ -508,7 +752,7 @@ const validarEmail = () => {
 }
 
 const validarEstablecimiento = () => {
-  const e = form.value.establecimiento || ''
+  const e = String(form.value.establecimiento || '')
   if (!/^\d{3}$/.test(e)) {
     errores.value.establecimiento = 'Debe tener 3 dígitos'
     return false
@@ -518,7 +762,7 @@ const validarEstablecimiento = () => {
 }
 
 const validarPuntoEmision = () => {
-  const p = form.value.punto_emision || ''
+  const p = String(form.value.punto_emision || '')
   if (!/^\d{3}$/.test(p)) {
     errores.value.punto_emision = 'Debe tener 3 dígitos'
     return false
@@ -527,49 +771,105 @@ const validarPuntoEmision = () => {
   return true
 }
 
-// ===== HELPERS =====
-const formatFechaHora = (f) => {
-  if (!f) return ''
-  return new Date(f).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' })
+// ===== INPUT HANDLERS (con debounce) =====
+const onRucInput = () => {
+  // Solo dígitos
+  form.value.ruc = String(form.value.ruc || '').replace(/\D/g, '').slice(0, 13)
+  debounce('ruc', validarRuc, 400)
+}
+const onRazonSocialInput = () => debounce('razon_social', validarRazonSocial, 400)
+const onEmailInput = () => debounce('email', validarEmail, 400)
+const onEstablecimientoInput = () => {
+  form.value.establecimiento = String(form.value.establecimiento || '').replace(/\D/g, '').slice(0, 3)
+  debounce('establecimiento', validarEstablecimiento, 200)
+}
+const onPuntoEmisionInput = () => {
+  form.value.punto_emision = String(form.value.punto_emision || '').replace(/\D/g, '').slice(0, 3)
+  debounce('punto_emision', validarPuntoEmision, 200)
 }
 
 // ===== CARGA =====
 const cargar = async () => {
   try {
     const data = await api.request('/configuracion/empresa', { method: 'GET' })
-    Object.keys(form.value).forEach(key => {
-      if (data[key] !== undefined) form.value[key] = data[key]
-    })
+    if (unmounted) return
+
+    // Mapear solo claves conocidas
+    for (const key of Object.keys(form.value)) {
+      if (data[key] !== undefined && data[key] !== null) {
+        form.value[key] = data[key]
+      }
+    }
+
+    // Normalizar a strings
     form.value.ambiente = String(form.value.ambiente || '1')
     form.value.tipo_emision = String(form.value.tipo_emision || '1')
+    form.value.obligado_contabilidad = Boolean(form.value.obligado_contabilidad)
+    form.value.establecimiento = String(form.value.establecimiento || '001').padStart(3, '0').slice(-3)
+    form.value.punto_emision = String(form.value.punto_emision || '001').padStart(3, '0').slice(-3)
+
     ultimaActualizacion.value = data.updatedAt || data.createdAt
 
     // Snapshot para detectar cambios
     formOriginal.value = JSON.parse(JSON.stringify(form.value))
 
-    // Validar en limpio
+    // Validar en limpio sin mostrar errores
     if (form.value.ruc) validarRuc()
     if (form.value.razon_social) validarRazonSocial()
     if (form.value.email) validarEmail()
     validarEstablecimiento()
     validarPuntoEmision()
   } catch (e) {
-    toast.error('Error al cargar configuración: ' + e.message)
+    if (!unmounted) toast.error('Error al cargar configuración: ' + e.message)
   }
 }
 
 const cargarEstadoCertificado = async () => {
   try {
     const info = await api.request('/certificado/info', { method: 'GET', skipLoader: true })
-    certificadoOk.value = !!(info.cargado && !info.vencido)
+    if (unmounted) return
+    certificadoOk.value = Boolean(info?.cargado && !info?.vencido)
+    certificadoChecked.value = true
   } catch (e) {
+    if (unmounted) return
+    // 🆕 Distinguir error de red de "no hay cert"
     certificadoOk.value = false
+    certificadoChecked.value = false
   }
+}
+
+// ===== 🆕 CONFIRMACIÓN MODAL =====
+const pedirConfirmacionProduccion = () => {
+  return new Promise((resolve) => {
+    confirmState.resolve = resolve
+    if (!modalConfirm) {
+      modalConfirm = new Modal(document.getElementById('modalConfirmProduccion'), {
+        backdrop: 'static'
+      })
+    }
+    modalConfirm.show()
+  })
+}
+
+const aceptarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(true)
+}
+
+const cancelarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(false)
 }
 
 // ===== GUARDAR =====
 const guardar = async () => {
-  // Validar todo antes de guardar
+  // Validar todo antes de guardar (marcamos todos los campos como tocados)
+  for (const k of Object.keys(touched)) touched[k] = true
+
   const okRuc = validarRuc()
   const okRazon = validarRazonSocial()
   const okEmail = validarEmail()
@@ -582,20 +882,13 @@ const guardar = async () => {
   }
 
   // Confirmación si cambia a producción
-  if (form.value.ambiente === '2' && formOriginal.value.ambiente !== '2') {
+  if (form.value.ambiente === '2' && formOriginal.value?.ambiente !== '2') {
     if (!certificadoOk.value) {
       toast.error('No puedes pasar a Producción sin un certificado vigente')
       return
     }
-    const confirmar = confirm(
-      '¿Confirmas el cambio a modo PRODUCCIÓN?\n\n' +
-      'A partir de ahora, los documentos electrónicos:\n' +
-      '• Serán enviados al SRI real\n' +
-      '• Tendrán validez legal y fiscal\n' +
-      '• No podrán eliminarse (solo anularse con Nota de Crédito)\n\n' +
-      'Esta acción queda registrada en auditoría.'
-    )
-    if (!confirmar) return
+    const confirmado = await pedirConfirmacionProduccion()
+    if (!confirmado) return
   }
 
   cargando.value = true
@@ -605,6 +898,7 @@ const guardar = async () => {
       body: JSON.stringify(form.value),
       loaderMessage: 'Guardando configuración...'
     })
+    if (unmounted) return
 
     // Actualizar snapshot
     formOriginal.value = JSON.parse(JSON.stringify(form.value))
@@ -617,20 +911,22 @@ const guardar = async () => {
       toast.warning(res._advertencia, { timeout: 8000 })
     }
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
   } finally {
-    cargando.value = false
+    if (!unmounted) cargando.value = false
   }
 }
 
 // ===== PREVENIR SALIDA CON CAMBIOS =====
 const beforeUnloadHandler = (e) => {
+  // 🐛 BUG FIX: no bloquear si estamos guardando (el usuario no puede hacer nada)
   if (hayCambios.value && !cargando.value) {
     e.preventDefault()
     e.returnValue = ''
   }
 }
 
+// ===== LIFECYCLE =====
 onMounted(async () => {
   await cargar()
   await cargarEstadoCertificado()
@@ -638,7 +934,23 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  unmounted = true
   window.removeEventListener('beforeunload', beforeUnloadHandler)
+
+  // 🆕 Limpiar timers de debounce
+  for (const k of Object.keys(debounceTimers)) {
+    clearTimeout(debounceTimers[k])
+    delete debounceTimers[k]
+  }
+
+  // 🆕 Cerrar modal si quedó abierto
+  try { modalConfirm?.hide() } catch { /* noop */ }
+
+  // 🆕 Resolver cualquier confirmación pendiente
+  if (confirmState.resolve) {
+    confirmState.resolve(false)
+    confirmState.resolve = null
+  }
 })
 </script>
 
@@ -749,16 +1061,22 @@ onBeforeUnmount(() => {
 .form-control:focus { border-color: #e67e22; box-shadow: 0 0 0 4px rgba(230,126,34,0.15); background: var(--bg-card); }
 .form-control.is-invalid { border-color: #e74c3c; }
 .form-control.is-invalid:focus { box-shadow: 0 0 0 4px rgba(231,76,60,0.15); }
+.form-control:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .field-error { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #e74c3c; font-weight: 500; margin-top: 2px; }
 .field-error.small { font-size: 0.7rem; }
 .field-ok { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #27ae60; font-weight: 500; margin-top: 2px; }
+.field-warn { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #d68910; font-weight: 500; margin-top: 2px; flex-wrap: wrap; }
+.btn-link { background: none; border: none; color: #2980b9; font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit; padding: 0; font-family: inherit; }
+.btn-link:hover { color: #1c5980; }
+.btn-link:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .form-hint { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; }
 
 .toggle-row { padding: 14px; background: var(--bg-table-stripe); border-radius: var(--radius-md); border: 1px solid var(--border-color); }
 .form-check.form-switch { display: flex; align-items: center; gap: 12px; margin: 0; }
 .form-check-input { margin: 0; cursor: pointer; }
+.form-check-input:disabled { cursor: not-allowed; }
 .form-check-label { font-size: 0.88rem; cursor: pointer; }
 .form-check-label .small { font-size: 0.75rem; margin-top: 2px; }
 
@@ -837,6 +1155,9 @@ onBeforeUnmount(() => {
 /* TRANSICIONES */
 .slide-down-enter-active, .slide-down-leave-active { transition: all 0.3s ease; }
 .slide-down-enter-from, .slide-down-leave-to { opacity: 0; transform: translateY(-12px); }
+
+/* MODAL */
+.modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
 
 @media (max-width: 900px) {
   .form-grid { grid-template-columns: 1fr; }

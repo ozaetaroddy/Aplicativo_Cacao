@@ -4,30 +4,45 @@
     <div class="table-toolbar">
       <div class="toolbar-row">
         <div class="toolbar-search">
-          <i class="fas fa-search"></i>
+          <i class="fas fa-search" aria-hidden="true"></i>
           <input
             type="text"
             class="search-input"
             v-model="searchInput"
             @input="onSearchInput"
-            placeholder="Buscar..."
+            placeholder="Buscar…"
+            aria-label="Buscar"
           />
-          <button v-if="searchInput" class="clear-search" @click="searchInput = ''; onSearchInput()" title="Limpiar">
+          <button
+            v-if="searchInput"
+            class="clear-search"
+            type="button"
+            @click="limpiarBusqueda"
+            title="Limpiar búsqueda"
+            aria-label="Limpiar búsqueda"
+          >
             <i class="fas fa-times-circle"></i>
           </button>
         </div>
-        <div class="toolbar-dates">
+
+        <div class="toolbar-dates" v-if="showDateFilters">
           <div class="date-field">
-            <label>Desde</label>
-            <input type="date" v-model="desde" @change="reload" />
+            <label for="dtp-desde">Desde</label>
+            <input id="dtp-desde" type="date" v-model="desde" @change="reload" />
           </div>
           <div class="date-field">
-            <label>Hasta</label>
-            <input type="date" v-model="hasta" @change="reload" />
+            <label for="dtp-hasta">Hasta</label>
+            <input id="dtp-hasta" type="date" v-model="hasta" @change="reload" />
           </div>
         </div>
-        <button class="btn-clear" @click="clearFilters" title="Limpiar filtros">
-          <i class="fas fa-undo"></i>
+
+        <button
+          class="btn-clear"
+          type="button"
+          @click="clearFilters"
+          title="Limpiar filtros"
+        >
+          <i class="fas fa-undo" aria-hidden="true"></i>
           <span>Limpiar</span>
         </button>
       </div>
@@ -42,21 +57,30 @@
               v-for="col in columns"
               :key="col.key"
               :style="col.width ? `width: ${col.width}` : ''"
-              :class="{ 'sortable': col.sortable }"
-              @click="col.sortable && sortBy(col.key)"
+              :class="{ sortable: col.sortable !== false }"
+              :aria-sort="getAriaSort(col)"
+              :tabindex="col.sortable !== false ? 0 : -1"
+              @click="onHeaderClick(col)"
+              @keydown.enter.prevent="onHeaderClick(col)"
+              @keydown.space.prevent="onHeaderClick(col)"
             >
               <div class="th-content">
                 <span>{{ col.label }}</span>
-                <span v-if="col.sortable" class="sort-indicator">
-                  <i v-if="sortField === col.key" :class="sortDir === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down'"></i>
-                  <i v-else class="fas fa-sort"></i>
+                <span v-if="col.sortable !== false" class="sort-indicator" aria-hidden="true">
+                  <i
+                    :class="
+                      sortField === col.key
+                        ? (sortDir === 'asc' ? 'fas fa-sort-up active' : 'fas fa-sort-down active')
+                        : 'fas fa-sort'
+                    "
+                  ></i>
                 </span>
               </div>
             </th>
             <th v-if="actions.length" style="width: 140px;">Acciones</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody aria-live="polite" aria-busy="{{ loading ? 'true' : 'false' }}">
           <!-- Skeleton -->
           <template v-if="loading">
             <tr v-for="n in 5" :key="`sk-${n}`" class="skeleton-row">
@@ -74,19 +98,29 @@
             <td :colspan="columns.length + (actions.length ? 1 : 0)" class="empty-cell">
               <div class="empty-state">
                 <div class="empty-icon">
-                  <i class="fas fa-inbox"></i>
+                  <i class="fas fa-inbox" aria-hidden="true"></i>
                 </div>
                 <div class="empty-title">No hay datos para mostrar</div>
-                <div class="empty-text">Intenta ajustar los filtros o agrega un nuevo registro</div>
+                <div class="empty-text">
+                  Intenta ajustar los filtros o agrega un nuevo registro
+                </div>
               </div>
             </td>
           </tr>
 
           <!-- Datos -->
-          <tr v-else v-for="row in data" :key="row._id">
-            <td v-for="col in columns" :key="col.key">
+          <tr
+            v-else
+            v-for="(row, idx) in data"
+            :key="getRowKey(row, idx)"
+          >
+            <td
+              v-for="col in columns"
+              :key="col.key"
+              :style="col.align ? `text-align: ${col.align}` : ''"
+            >
               <slot :name="col.key" :row="row" :value="row[col.key]">
-                {{ formatValue(row[col.key]) }}
+                {{ formatValue(row[col.key], col) }}
               </slot>
             </td>
             <td v-if="actions.length">
@@ -94,12 +128,14 @@
                 <button
                   v-for="action in actionsVisibles(row)"
                   :key="action.key"
+                  type="button"
                   class="action-btn"
                   :class="action.class || 'btn-outline-primary'"
-                  @click="action.handler(row)"
                   :title="action.title || ''"
+                  :aria-label="action.title || 'Acción'"
+                  @click="action.handler(row)"
                 >
-                  <i :class="action.icon"></i>
+                  <i :class="action.icon" aria-hidden="true"></i>
                 </button>
               </div>
             </td>
@@ -115,24 +151,53 @@
         <span class="pagination-total">de {{ total }} registros</span>
       </div>
       <div class="pagination-controls">
-        <select class="limit-select" v-model.number="limit" @change="reload">
+        <select
+          class="limit-select"
+          v-model.number="limit"
+          @change="reload"
+          aria-label="Registros por página"
+        >
           <option :value="10">10</option>
           <option :value="20">20</option>
           <option :value="50">50</option>
           <option :value="100">100</option>
         </select>
         <div class="pagination-buttons">
-          <button class="page-btn" :disabled="page === 1" @click="goToPage(1)" title="Primera">
+          <button
+            class="page-btn"
+            :disabled="page === 1"
+            @click="goToPage(1)"
+            title="Primera"
+            aria-label="Primera página"
+          >
             <i class="fas fa-angle-double-left"></i>
           </button>
-          <button class="page-btn" :disabled="page === 1" @click="goToPage(page - 1)" title="Anterior">
+          <button
+            class="page-btn"
+            :disabled="page === 1"
+            @click="goToPage(page - 1)"
+            title="Anterior"
+            aria-label="Página anterior"
+          >
             <i class="fas fa-angle-left"></i>
           </button>
           <span class="page-info">{{ page }} / {{ totalPages || 1 }}</span>
-          <button class="page-btn" :disabled="page >= totalPages" @click="goToPage(page + 1)" title="Siguiente">
+          <button
+            class="page-btn"
+            :disabled="page >= totalPages"
+            @click="goToPage(page + 1)"
+            title="Siguiente"
+            aria-label="Página siguiente"
+          >
             <i class="fas fa-angle-right"></i>
           </button>
-          <button class="page-btn" :disabled="page >= totalPages" @click="goToPage(totalPages)" title="Última">
+          <button
+            class="page-btn"
+            :disabled="page >= totalPages"
+            @click="goToPage(totalPages)"
+            title="Última"
+            aria-label="Última página"
+          >
             <i class="fas fa-angle-double-right"></i>
           </button>
         </div>
@@ -142,7 +207,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 
@@ -153,12 +218,17 @@ const props = defineProps({
   defaultLimit: { type: Number, default: 20 },
   defaultSort: { type: String, default: '' },
   defaultSortDir: { type: String, default: 'desc' },
-  extraQuery: { type: Object, default: () => ({}) }
+  extraQuery: { type: Object, default: () => ({}) },
+  rowKey: { type: String, default: '_id' },
+  showDateFilters: { type: Boolean, default: true },
+  searchDebounceMs: { type: Number, default: 400 }
 })
 
-const emit = defineEmits(['loaded'])
+const emit = defineEmits(['loaded', 'error'])
+
 const toast = useToast()
 
+// ===== STATE =====
 const data = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -173,37 +243,141 @@ const hasta = ref('')
 const sortField = ref(props.defaultSort)
 const sortDir = ref(props.defaultSortDir)
 
+// ===== GUARDS =====
 let searchTimer = null
+let unmounted = false
+let abortController = null
+let requestSeq = 0
 
-const startIndex = computed(() => total.value === 0 ? 0 : (page.value - 1) * limit.value + 1)
+// ===== COMPUTED =====
+const startIndex = computed(() =>
+  total.value === 0 ? 0 : (page.value - 1) * limit.value + 1
+)
 const endIndex = computed(() => Math.min(page.value * limit.value, total.value))
 
+// ===== BÚSQUEDA CON DEBOUNCE =====
 const onSearchInput = () => {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    if (unmounted) return
     search.value = searchInput.value
     page.value = 1
     cargar()
-  }, 400)
+  }, Math.max(0, props.searchDebounceMs))
 }
 
-const sortBy = (field) => {
-  if (sortField.value === field) {
+const limpiarBusqueda = () => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  searchInput.value = ''
+  search.value = ''
+  page.value = 1
+  cargar()
+}
+
+// ===== SORT =====
+const onHeaderClick = (col) => {
+  if (col.sortable === false) return
+  if (sortField.value === col.key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   } else {
-    sortField.value = field
+    sortField.value = col.key
     sortDir.value = 'asc'
   }
   cargar()
 }
 
+const getAriaSort = (col) => {
+  if (col.sortable === false) return undefined
+  if (sortField.value !== col.key) return 'none'
+  return sortDir.value === 'asc' ? 'ascending' : 'descending'
+}
+
+// ===== PAGINACIÓN =====
 const goToPage = (p) => {
-  if (p < 1 || p > totalPages.value || p === page.value) return
-  page.value = p
+  const next = Math.min(Math.max(1, p), totalPages.value)
+  if (next === page.value) return
+  page.value = next
   cargar()
 }
 
+const reload = () => {
+  page.value = 1
+  cargar()
+}
+
+// ===== CARGA =====
+const cargar = async () => {
+  // Cancelar request anterior (evita race conditions)
+  if (abortController) {
+    try { abortController.abort() } catch { /* noop */ }
+  }
+  abortController = new AbortController()
+  const mySeq = ++requestSeq
+
+  loading.value = true
+  try {
+    const params = new URLSearchParams()
+    params.set('page', String(page.value))
+    params.set('limit', String(limit.value))
+    if (search.value) params.set('search', search.value)
+    if (desde.value) params.set('desde', desde.value)
+    if (hasta.value) params.set('hasta', hasta.value)
+    if (sortField.value) {
+      params.set('sortBy', sortField.value)
+      params.set('sortDir', sortDir.value)
+    }
+    Object.entries(props.extraQuery || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') params.set(k, v)
+    })
+
+    const url = `${props.endpoint}?${params.toString()}`
+    const response = await api.request(url, {
+      method: 'GET',
+      signal: abortController.signal
+    })
+
+    // Respuesta vieja: ignorar
+    if (unmounted || mySeq !== requestSeq) return
+
+    if (Array.isArray(response)) {
+      data.value = response
+      total.value = response.length
+      totalPages.value = 1
+    } else {
+      data.value = Array.isArray(response?.data) ? response.data : []
+      total.value = Number(response?.total) || 0
+      totalPages.value = Math.max(1, Number(response?.totalPages) || 1)
+      // Clamp por si el backend redujo páginas
+      if (page.value > totalPages.value) {
+        page.value = totalPages.value
+      }
+    }
+    emit('loaded', data.value)
+  } catch (e) {
+    // Ignorar errores de abort o de requests obsoletos
+    const esAbort = e?.name === 'AbortError' || /aborted/i.test(e?.message || '')
+    if (unmounted || esAbort || mySeq !== requestSeq) return
+
+    console.error('Error cargando datos:', e)
+    toast.error('Error al cargar datos: ' + (e?.message || 'desconocido'))
+    emit('error', e)
+    // Nota: NO limpiamos `data` para no perder la última vista buena
+  } finally {
+    if (!unmounted && mySeq === requestSeq) {
+      loading.value = false
+    }
+  }
+}
+
+// ===== LIMPIAR FILTROS =====
 const clearFilters = () => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
   searchInput.value = ''
   search.value = ''
   desde.value = ''
@@ -212,61 +386,83 @@ const clearFilters = () => {
   cargar()
 }
 
-const cargar = async () => {
-  loading.value = true
-  try {
-    const params = new URLSearchParams()
-    params.set('page', page.value)
-    params.set('limit', limit.value)
-    if (search.value) params.set('search', search.value)
-    if (desde.value) params.set('desde', desde.value)
-    if (hasta.value) params.set('hasta', hasta.value)
-    if (sortField.value) {
-      params.set('sortBy', sortField.value)
-      params.set('sortDir', sortDir.value)
-    }
-    Object.entries(props.extraQuery).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== '') params.set(k, v)
-    })
+// ===== FORMATO =====
+/**
+ * Formato por defecto (compatible con el comportamiento previo).
+ *
+ * Personalización por columna:
+ *   col.formatter(val) → string
+ *   col.format = 'currency' | 'integer' | 'raw'
+ */
+const formatValue = (val, col = {}) => {
+  if (val === null || val === undefined) return ''
 
-    const url = `${props.endpoint}?${params.toString()}`
-    const response = await api.request(url, { method: 'GET' })
-
-    if (Array.isArray(response)) {
-      data.value = response
-      total.value = response.length
-      totalPages.value = 1
-    } else {
-      data.value = response.data || []
-      total.value = response.total || 0
-      totalPages.value = response.totalPages || 1
-    }
-    emit('loaded', data.value)
-  } catch (e) {
-    console.error('Error cargando datos:', e)
-    toast.error('Error al cargar datos: ' + e.message)
-  } finally {
-    loading.value = false
+  if (typeof col.formatter === 'function') {
+    try {
+      const r = col.formatter(val)
+      return r === null || r === undefined ? '' : String(r)
+    } catch { /* fallback */ }
   }
+
+  if (val instanceof Date) return val.toLocaleDateString('es-EC')
+  if (Array.isArray(val)) return val.join(', ')
+
+  if (typeof val === 'object') {
+    const escalares = Object.values(val).filter(
+      v => v !== null && v !== undefined && typeof v !== 'object'
+    )
+    return escalares.join(' ') || '[objeto]'
+  }
+
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return ''
+    switch (col.format) {
+      case 'integer': return String(Math.trunc(val))
+      case 'raw': return String(val)
+      case 'currency': return val.toFixed(2)
+      default: return val.toFixed(2)
+    }
+  }
+
+  return String(val)
 }
 
-const reload = () => {
-  page.value = 1
-  cargar()
+// ===== HELPERS =====
+const actionsVisibles = (row) =>
+  (props.actions || []).filter(a => !a.condition || a.condition(row))
+
+const getRowKey = (row, idx) => {
+  const k = row?.[props.rowKey]
+  if (k !== undefined && k !== null) return String(k)
+  return `__row-${idx}`
 }
 
-const formatValue = (val) => {
-  if (val === undefined || val === null) return ''
-  if (typeof val === 'object') return Object.values(val).join(' ') || '[Object]'
-  if (typeof val === 'number') return val.toFixed(2)
-  return val
-}
+// ===== WATCH =====
+// Reload si cambian los extraQuery externos
+watch(
+  () => props.extraQuery,
+  () => reload(),
+  { deep: true }
+)
 
-const actionsVisibles = (row) => {
-  return props.actions.filter(a => !a.condition || a.condition(row))
-}
-
+// ===== LIFECYCLE =====
 onMounted(cargar)
+
+onBeforeUnmount(() => {
+  unmounted = true
+
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+
+  if (abortController) {
+    try { abortController.abort() } catch { /* noop */ }
+    abortController = null
+  }
+})
+
+// ===== EXPOSE =====
 defineExpose({ reload, cargar })
 </script>
 
@@ -335,14 +531,9 @@ defineExpose({ reload, cargar })
   padding: 4px;
   transition: color var(--transition-fast);
 }
-.clear-search:hover {
-  color: var(--danger);
-}
+.clear-search:hover { color: var(--danger); }
 
-.toolbar-dates {
-  display: flex;
-  gap: 10px;
-}
+.toolbar-dates { display: flex; gap: 10px; }
 
 .date-field {
   display: flex;
@@ -431,8 +622,10 @@ defineExpose({ reload, cargar })
   user-select: none;
   transition: color var(--transition-fast);
 }
-.table-modern th.sortable:hover {
+.table-modern th.sortable:hover,
+.table-modern th.sortable:focus-visible {
   color: var(--primary-color);
+  outline: none;
 }
 
 .th-content {
@@ -447,7 +640,7 @@ defineExpose({ reload, cargar })
   transition: color var(--transition-fast);
 }
 .table-modern th.sortable:hover .sort-indicator,
-.table-modern th.sortable .sort-indicator i:not(.fa-sort) {
+.table-modern th.sortable .sort-indicator i.active {
   color: var(--primary-color);
 }
 
@@ -468,9 +661,7 @@ defineExpose({ reload, cargar })
 }
 
 /* ===== SKELETON ===== */
-.skeleton-row td {
-  padding: 16px 14px;
-}
+.skeleton-row td { padding: 16px 14px; }
 .skeleton-line {
   height: 14px;
   background: linear-gradient(90deg, var(--border-light) 25%, var(--bg-table-stripe) 50%, var(--border-light) 75%);
@@ -478,18 +669,14 @@ defineExpose({ reload, cargar })
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-xs);
 }
-.skeleton-line.short {
-  width: 60%;
-}
+.skeleton-line.short { width: 60%; }
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 
 /* ===== EMPTY ===== */
-.empty-cell {
-  padding: 0 !important;
-}
+.empty-cell { padding: 0 !important; }
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -565,13 +752,8 @@ defineExpose({ reload, cargar })
   gap: 6px;
   font-size: 0.82rem;
 }
-.pagination-count {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.pagination-total {
-  color: var(--text-muted);
-}
+.pagination-count { font-weight: 700; color: var(--text-primary); }
+.pagination-total { color: var(--text-muted); }
 
 .pagination-controls {
   display: flex;
@@ -637,32 +819,13 @@ defineExpose({ reload, cargar })
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
-  .toolbar-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .toolbar-search {
-    max-width: 100%;
-  }
-  .toolbar-dates {
-    flex-direction: column;
-  }
-  .btn-clear {
-    justify-content: center;
-  }
-  .table-modern {
-    font-size: 0.78rem;
-  }
-  .table-modern th,
-  .table-modern td {
-    padding: 10px 8px;
-  }
-  .table-pagination {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .pagination-controls {
-    justify-content: space-between;
-  }
+  .toolbar-row { flex-direction: column; align-items: stretch; }
+  .toolbar-search { max-width: 100%; }
+  .toolbar-dates { flex-direction: column; }
+  .btn-clear { justify-content: center; }
+  .table-modern { font-size: 0.78rem; }
+  .table-modern th, .table-modern td { padding: 10px 8px; }
+  .table-pagination { flex-direction: column; align-items: stretch; }
+  .pagination-controls { justify-content: space-between; }
 }
 </style>

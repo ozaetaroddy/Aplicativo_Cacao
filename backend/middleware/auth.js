@@ -1,203 +1,308 @@
 // backend/middleware/auth.js
-// Middleware de autenticación.
-// - Lee el access token desde cookie httpOnly `sc_at` o desde `Authorization: Bearer`.
-// - Valida contra BD (usuario activo, password_changed_at).
-// - Cache LRU acotado para evitar hits a Mongo en cada request.
+// ============================================================
+// Middleware de autenticación
+// ------------------------------------------------------------
+// - Lee el access token desde:
+//     1) Cookie httpOnly `sc_at` (recomendado)
+//     2) Header `Authorization: Bearer <token>` (case-insensitive)
+// - Verifica JWT (HS256) y valida contra BD:
+//     * usuario existente y activo
+//     * token emitido DESPUÉS del último cambio de contraseña
+// - Cache LRU en memoria:
+//     * acotada por usuarios y por tokens/usuario
+//     * TTL corto (default 30 s) para no servir datos obsoletos
+//     * limpieza periódica de entradas expiradas (unref)
+// - Respuestas de error con códigos estables (`codigo`) y headers
+//   HTTP correctos (`WWW-Authenticate`, `Cache-Control: no-store`).
+// ============================================================
+'use strict';
 
 const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
 const crypto = require('crypto');
 const { ACCESS_COOKIE } = require('../utils/cookies');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET no está definido en el entorno');
-  process.exit(1);
+// ------------------------------------------------------------
+// Configuración (env-driven con defaults sensatos)
+// ------------------------------------------------------------
+function numeroDesdeEnv(nombre, fallback) {
+  const raw = process.env[nombre];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-const CACHE_TTL_MS = 30 * 1000;
-const MAX_USUARIOS_CACHE = 500;
-const MAX_TOKENS_POR_USUARIO = 10;
+const CONFIG = Object.freeze({
+  jwtSecret: process.env.JWT_SECRET || null,
+  jwtAlgorithms: Object.freeze(['HS256']),
+  cacheTtlMs:           numeroDesdeEnv('AUTH_CACHE_TTL_MS',   30_000),
+  maxUsuariosCache:     numeroDesdeEnv('AUTH_MAX_USERS',      500),
+  maxTokensPorUsuario:  numeroDesdeEnv('AUTH_MAX_TOKENS_USER', 10),
+  cleanupIntervalMs:    numeroDesdeEnv('AUTH_CLEANUP_MS',     2 * 60_000),
+  userCollection:       process.env.AUTH_USER_COLLECTION || 'usuarios'
+});
 
+// Fail-fast si falta el secreto JWT (excepto en tests, donde se permite inyectar).
+if (!CONFIG.jwtSecret) {
+  console.error('❌ FATAL: JWT_SECRET no está definido en el entorno');
+  if (process.env.NODE_ENV !== 'test') process.exit(1);
+}
+
+// ------------------------------------------------------------
+// Errores tipados (códigos estables para el frontend)
+// ------------------------------------------------------------
+const AUTH_ERRORS = Object.freeze({
+  NO_TOKEN:         Object.freeze({ status: 401, codigo: 'NO_TOKEN',         mensaje: 'Token no proporcionado' }),
+  TOKEN_EXPIRED:    Object.freeze({ status: 401, codigo: 'TOKEN_EXPIRED',    mensaje: 'Sesión expirada' }),
+  TOKEN_INVALID:    Object.freeze({ status: 401, codigo: 'TOKEN_INVALID',    mensaje: 'Token inválido' }),
+  TOKEN_MALFORMED:  Object.freeze({ status: 401, codigo: 'TOKEN_MALFORMED',  mensaje: 'Token malformado' }),
+  PASSWORD_CHANGED: Object.freeze({ status: 401, codigo: 'PASSWORD_CHANGED', mensaje: 'Sesión invalidada por cambio de contraseña' }),
+  USER_NOT_FOUND:   Object.freeze({ status: 401, codigo: 'USER_NOT_FOUND',   mensaje: 'Usuario no existe' }),
+  USER_INACTIVE:    Object.freeze({ status: 401, codigo: 'USER_INACTIVE',    mensaje: 'Usuario desactivado' }),
+  DB_UNAVAILABLE:   Object.freeze({ status: 503, codigo: 'DB_UNAVAILABLE',   mensaje: 'Base de datos no disponible' }),
+  INTERNAL:         Object.freeze({ status: 500, codigo: 'INTERNAL',         mensaje: 'Error interno de autenticación' })
+});
+
+function responderError(res, err) {
+  // Nunca cachear respuestas de auth (ni éxito ni error).
+  res.set('Cache-Control', 'no-store');
+  // Estándar HTTP para 401.
+  if (err.status === 401) res.set('WWW-Authenticate', 'Bearer');
+  return res.status(err.status).json({ error: err.mensaje, codigo: err.codigo });
+}
+
+// ------------------------------------------------------------
+// Cache LRU
+// ------------------------------------------------------------
+// Estructura: Map<userIdStr, Map<tokenHash, { user, expiresAt }>>
+//  - El Map externo es LRU por usuario (se re-inserta al tocar).
+//  - El Map interno es LRU por token  (se re-inserta al tocar).
+// ------------------------------------------------------------
 const cacheUsuarios = new Map();
 
+/** Hash determinista y truncado para usar como clave de cache. */
 function hashToken(token) {
-  return crypto.createHash('sha256').update(token).digest('hex').slice(0, 24);
-}
-
-function tokenEsAnteriorAlCambio(decoded, user) {
-  if (!user?.password_changed_at) return false;
-  const changed = Math.floor(new Date(user.password_changed_at).getTime() / 1000);
-  const iat = Number(decoded.iat) || 0;
-  return iat < changed;
+  return crypto.createHash('sha256').update(token).digest('hex').slice(0, 32);
 }
 
 function tocarUsuario(userIdStr) {
-  if (cacheUsuarios.has(userIdStr)) {
-    const val = cacheUsuarios.get(userIdStr);
-    cacheUsuarios.delete(userIdStr);
-    cacheUsuarios.set(userIdStr, val);
+  if (!cacheUsuarios.has(userIdStr)) return;
+  const val = cacheUsuarios.get(userIdStr);
+  cacheUsuarios.delete(userIdStr);
+  cacheUsuarios.set(userIdStr, val);
+}
+
+function evictUsuariosSiExcede() {
+  while (cacheUsuarios.size > CONFIG.maxUsuariosCache) {
+    const primera = cacheUsuarios.keys().next().value;
+    if (primera === undefined) break;
+    cacheUsuarios.delete(primera);
   }
 }
 
-function evictUsuarios() {
-  while (cacheUsuarios.size > MAX_USUARIOS_CACHE) {
-    const primeraKey = cacheUsuarios.keys().next().value;
-    cacheUsuarios.delete(primeraKey);
+function evictTokensSiExcede(tokensMap) {
+  while (tokensMap.size > CONFIG.maxTokensPorUsuario) {
+    const primera = tokensMap.keys().next().value;
+    if (primera === undefined) break;
+    tokensMap.delete(primera);
   }
 }
 
-function evictTokens(tokensMap) {
-  while (tokensMap.size > MAX_TOKENS_POR_USUARIO) {
-    const primeraKey = tokensMap.keys().next().value;
-    tokensMap.delete(primeraKey);
-  }
-}
-
-const limpiezaInterval = setInterval(() => {
+function limpiarCacheExpirado() {
   const ahora = Date.now();
-  for (const [userId, tokens] of cacheUsuarios.entries()) {
-    for (const [hash, entry] of tokens.entries()) {
-      if (entry.expiresAt < ahora) tokens.delete(hash);
+  for (const [userId, tokens] of cacheUsuarios) {
+    for (const [hash, entry] of tokens) {
+      if (!entry || entry.expiresAt <= ahora) tokens.delete(hash);
     }
     if (tokens.size === 0) cacheUsuarios.delete(userId);
   }
-}, 2 * 60 * 1000);
+}
+
+const limpiezaInterval = setInterval(limpiarCacheExpirado, CONFIG.cleanupIntervalMs);
 limpiezaInterval.unref?.();
 
-/**
- * Extrae el token de la request (cookie primero, luego header).
- */
+// ------------------------------------------------------------
+// Utilidades de token
+// ------------------------------------------------------------
+/** Extrae el token: cookie httpOnly primero, luego `Authorization: Bearer`. */
 function extraerToken(req) {
   // 1. Cookie httpOnly (recomendado)
-  if (req.cookies && req.cookies[ACCESS_COOKIE]) {
-    return req.cookies[ACCESS_COOKIE];
-  }
-  // 2. Header Authorization: Bearer (compatibilidad)
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    return authHeader.slice(7).trim();
+  const cookieToken = req.cookies && req.cookies[ACCESS_COOKIE];
+  if (typeof cookieToken === 'string' && cookieToken.length > 0) return cookieToken;
+
+  // 2. Header `Authorization: Bearer <token>` (case-insensitive)
+  const authHeader = req.headers && req.headers.authorization;
+  if (typeof authHeader === 'string') {
+    const match = /^Bearer\s+(\S+)\s*$/i.exec(authHeader.trim());
+    if (match) return match[1];
   }
   return null;
 }
 
-module.exports = async (req, res, next) => {
+/** `true` si el token se emitió antes del último cambio de contraseña. */
+function tokenEsAnteriorAlCambio(decoded, user) {
+  if (!user || !user.password_changed_at) return false;
+  const changed = Math.floor(new Date(user.password_changed_at).getTime() / 1000);
+  const iat = Number(decoded && decoded.iat) || 0;
+  return iat > 0 && iat < changed;
+}
+
+/** Proyección de usuario que se adjunta a `req.user`. */
+function construirUsuarioPublico(doc) {
+  return {
+    userId: doc._id,
+    email: doc.email,
+    rol: doc.rol,
+    nombre: doc.nombre || doc.email,
+    password_changed_at: doc.password_changed_at || null
+  };
+}
+
+// ------------------------------------------------------------
+// Middleware principal
+// ------------------------------------------------------------
+async function authMiddleware(req, res, next) {
   try {
     const token = extraerToken(req);
-    if (!token) {
-      return res.status(401).json({ error: 'Token no proporcionado', codigo: 'NO_TOKEN' });
-    }
+    if (!token) return responderError(res, AUTH_ERRORS.NO_TOKEN);
 
+    if (!CONFIG.jwtSecret) return responderError(res, AUTH_ERRORS.INTERNAL);
+
+    // ---- 1. Verificar firma y expiración del JWT
     let decoded;
     try {
-      decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+      decoded = jwt.verify(token, CONFIG.jwtSecret, { algorithms: [...CONFIG.jwtAlgorithms] });
     } catch (err) {
-      if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ error: 'Sesión expirada', codigo: 'TOKEN_EXPIRED' });
-      }
-      return res.status(401).json({ error: 'Token inválido', codigo: 'TOKEN_INVALID' });
+      if (err && err.name === 'TokenExpiredError') return responderError(res, AUTH_ERRORS.TOKEN_EXPIRED);
+      return responderError(res, AUTH_ERRORS.TOKEN_INVALID);
     }
 
-    if (!decoded.userId || !decoded.email) {
-      return res.status(401).json({ error: 'Token malformado', codigo: 'TOKEN_MALFORMED' });
+    if (!decoded || !decoded.userId || !decoded.email) {
+      return responderError(res, AUTH_ERRORS.TOKEN_MALFORMED);
     }
 
     const userIdStr = String(decoded.userId);
     const tokenHash = hashToken(token);
 
-    // Fast path: cache hit
+    // ---- 2. Fast path: cache hit
     const tokensDeUsuario = cacheUsuarios.get(userIdStr);
     if (tokensDeUsuario) {
       const cached = tokensDeUsuario.get(tokenHash);
       if (cached && cached.expiresAt > Date.now()) {
         if (tokenEsAnteriorAlCambio(decoded, cached.user)) {
           tokensDeUsuario.delete(tokenHash);
-          return res.status(401).json({
-            error: 'Sesión invalidada por cambio de contraseña',
-            codigo: 'PASSWORD_CHANGED'
-          });
+          if (tokensDeUsuario.size === 0) cacheUsuarios.delete(userIdStr);
+          return responderError(res, AUTH_ERRORS.PASSWORD_CHANGED);
         }
+        // LRU touch (token)
         tokensDeUsuario.delete(tokenHash);
         tokensDeUsuario.set(tokenHash, cached);
+        // LRU touch (usuario)
         tocarUsuario(userIdStr);
         req.user = cached.user;
         return next();
       }
+      // Entrada expirada: purgarla para no acumular basura.
+      if (cached) {
+        tokensDeUsuario.delete(tokenHash);
+        if (tokensDeUsuario.size === 0) cacheUsuarios.delete(userIdStr);
+      }
     }
 
-    // Slow path: validar contra BD
-    if (!req.db) {
-      return res.status(503).json({ error: 'Base de datos no disponible' });
-    }
+    // ---- 3. Slow path: validar contra BD
+    if (!req.db) return responderError(res, AUTH_ERRORS.DB_UNAVAILABLE);
+
     if (!ObjectId.isValid(decoded.userId)) {
-      return res.status(401).json({ error: 'ID de usuario inválido' });
+      // Mismo código que TOKEN_INVALID para no filtrar información.
+      return responderError(res, AUTH_ERRORS.TOKEN_INVALID);
     }
 
-    const usuario = await req.db.collection('usuarios').findOne(
+    const usuario = await req.db.collection(CONFIG.userCollection).findOne(
       { _id: new ObjectId(decoded.userId) },
       { projection: { password: 0 } }
     );
 
-    if (!usuario) {
-      return res.status(401).json({ error: 'Usuario no existe', codigo: 'USER_NOT_FOUND' });
-    }
-    if (!usuario.activo) {
-      return res.status(401).json({ error: 'Usuario desactivado', codigo: 'USER_INACTIVE' });
-    }
+    if (!usuario) return responderError(res, AUTH_ERRORS.USER_NOT_FOUND);
+    if (!usuario.activo) return responderError(res, AUTH_ERRORS.USER_INACTIVE);
 
-    const userFinal = {
-      userId: usuario._id,
-      email: usuario.email,
-      rol: usuario.rol,
-      nombre: usuario.nombre || usuario.email,
-      password_changed_at: usuario.password_changed_at || null
-    };
+    const userFinal = construirUsuarioPublico(usuario);
 
     if (tokenEsAnteriorAlCambio(decoded, userFinal)) {
-      return res.status(401).json({
-        error: 'Sesión invalidada por cambio de contraseña',
-        codigo: 'PASSWORD_CHANGED'
-      });
+      return responderError(res, AUTH_ERRORS.PASSWORD_CHANGED);
     }
 
-    if (!cacheUsuarios.has(userIdStr)) cacheUsuarios.set(userIdStr, new Map());
-    const tokensMap = cacheUsuarios.get(userIdStr);
+    // ---- 4. Guardar en cache
+    let tokensMap = cacheUsuarios.get(userIdStr);
+    if (!tokensMap) {
+      tokensMap = new Map();
+      cacheUsuarios.set(userIdStr, tokensMap);
+    }
     tokensMap.set(tokenHash, {
       user: userFinal,
-      expiresAt: Date.now() + CACHE_TTL_MS
+      expiresAt: Date.now() + CONFIG.cacheTtlMs
     });
-    evictTokens(tokensMap);
-    evictUsuarios();
+    evictTokensSiExcede(tokensMap);
+    evictUsuariosSiExcede();
     tocarUsuario(userIdStr);
 
     req.user = userFinal;
-    next();
+    return next();
   } catch (err) {
-    console.error('❌ Error en auth middleware:', err);
-    return res.status(500).json({ error: 'Error interno de autenticación' });
+    // Nunca logear el token completo.
+    console.error('❌ Error en auth middleware:', err && err.message ? err.message : err);
+    return responderError(res, AUTH_ERRORS.INTERNAL);
   }
-};
+}
 
+// ------------------------------------------------------------
+// API pública
+// ------------------------------------------------------------
+module.exports = authMiddleware;
+module.exports.AUTH_ERRORS = AUTH_ERRORS;
+module.exports.CONFIG = CONFIG;
+
+/** Invalida el cache de un token concreto. Devuelve cuántas entradas borró. */
 module.exports.invalidarCache = (token) => {
-  if (!token) return;
+  if (!token) return 0;
   const h = hashToken(token);
-  for (const tokens of cacheUsuarios.values()) tokens.delete(h);
+  let eliminados = 0;
+  for (const [userId, tokens] of cacheUsuarios) {
+    if (tokens.delete(h)) eliminados++;
+    if (tokens.size === 0) cacheUsuarios.delete(userId);
+  }
+  return eliminados;
 };
 
+/** Invalida TODO el cache de un usuario (p. ej. al cambiar contraseña o rol). */
 module.exports.invalidarCachePorUsuario = (userId) => {
-  if (!userId) return;
-  cacheUsuarios.delete(String(userId));
+  if (!userId) return false;
+  return cacheUsuarios.delete(String(userId));
 };
 
+/** Limpia el cache completo (p. ej. al desplegar cambios de schema). */
 module.exports.invalidarTodoElCache = () => cacheUsuarios.clear();
 
+/** Snapshot del estado del cache (para `/health` o `/metrics`). */
 module.exports.stats = () => {
   let totalTokens = 0;
-  for (const tokens of cacheUsuarios.values()) totalTokens += tokens.size;
+  let tokensExpirados = 0;
+  const ahora = Date.now();
+  for (const tokens of cacheUsuarios.values()) {
+    totalTokens += tokens.size;
+    for (const entry of tokens.values()) {
+      if (!entry || entry.expiresAt <= ahora) tokensExpirados++;
+    }
+  }
   return {
     usuarios: cacheUsuarios.size,
     tokens: totalTokens,
-    limite_usuarios: MAX_USUARIOS_CACHE,
-    limite_tokens_por_usuario: MAX_TOKENS_POR_USUARIO
+    tokensExpirados,
+    limiteUsuarios: CONFIG.maxUsuariosCache,
+    limiteTokensPorUsuario: CONFIG.maxTokensPorUsuario,
+    ttlMs: CONFIG.cacheTtlMs
   };
 };
+
+// ---- Solo para tests ----
+module.exports._forzarLimpieza = limpiarCacheExpirado;
+module.exports._detenerLimpieza = () => clearInterval(limpiezaInterval);

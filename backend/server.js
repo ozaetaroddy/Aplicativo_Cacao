@@ -1,215 +1,252 @@
 // backend/server.js
+// ============================================================
+// Servidor HTTP + WebSocket del sistema
+// ------------------------------------------------------------
+// Orden de arranque:
+//   1. Validar env → si falla, exit(1).
+//   2. Setup de Express (helmet, cors, body, rate limit).
+//   3. Conexión a Mongo.
+//   4. En background: asegurar índices, arrancar scheduler.
+//   5. Listen en `PORT`.
+//   6. Montar rutas protegidas (ya con `req.db` disponible).
+//
+// Shutdown (SIGTERM/SIGINT):
+//   1. Cerrar aceptación de nuevas conexiones HTTP.
+//   2. Cerrar sockets WebSocket.
+//   3. Cerrar scheduler.
+//   4. Cerrar Mongo.
+//   5. Si tarda >10 s, forzar exit(1).
+//
+// Health checks:
+//   GET /api/health          → liveness (siempre 200)
+//   GET /healthz             → alias liveness
+//   GET /api/health/detailed → readiness (503 si Mongo no responde)
+//   GET /readyz              → alias readiness
+// ============================================================
+'use strict';
+
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const compression = require('compression');
-const { MongoClient, ObjectId } = require('mongodb');
+const cookieParser = require('cookie-parser');
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
+const { MongoClient, ObjectId } = require('mongodb');
 
 const log = require('./utils/logger');
-
-// ============================================================
-// VALIDACIÓN DE VARIABLES DE ENTORNO
-// ============================================================
-const PLACEHOLDERS = ['cambia-esto', 'otra-clave-larga', 'tu-app-password', 'tu-correo@'];
-for (const key of ['JWT_SECRET', 'CERT_ENCRYPTION_KEY']) {
-  const val = process.env[key] || '';
-  if (!val) {
-    log.error(`❌ FATAL: ${key} no está definido en el entorno`);
-    process.exit(1);
-  }
-  if (PLACEHOLDERS.some(p => val.toLowerCase().includes(p))) {
-    log.error(`❌ FATAL: ${key} sigue con valor de ejemplo`);
-    process.exit(1);
-  }
-}
-if ((process.env.JWT_SECRET || '').length < 32) {
-  log.error('❌ FATAL: JWT_SECRET debe tener al menos 32 caracteres');
-  process.exit(1);
-}
-
-// ============================================================
-// IMPORTS DE ROUTERS
-// ============================================================
-const authRoutes = require('./routes/auth');
-const productosRoutes = require('./routes/productos');
-const categoriasRoutes = require('./routes/categorias');
-const clientesRoutes = require('./routes/clientes');
-const proveedoresRoutes = require('./routes/proveedores');
-const comprasRoutes = require('./routes/compras');
-const ventasRoutes = require('./routes/ventas');
-const kardexRoutes = require('./routes/kardex');
-const reportesRoutes = require('./routes/reportes');
-const reportesMensualesRoutes = require('./routes/reportesMensuales');
-const consultasRoutes = require('./routes/consultas');
-const secuenciasRoutes = require('./routes/secuencias');
-const contadoresRoutes = require('./routes/contadores');
-const retencionesRoutes = require('./routes/retenciones');
-const catalogosRoutes = require('./routes/catalogos');
-const auditoriaRoutes = require('./routes/auditoria');
-const usuariosRoutes = require('./routes/usuarios');
-const periodosRoutes = require('./routes/periodos');
-const backupsRoutes = require('./routes/backups');
-const estadoCuentaRoutes = require('./routes/estadoCuenta');
-const estadosFinancierosRoutes = require('./routes/estadosFinancieros');
-const anexosRoutes = require('./routes/anexos');
-const configuracionRoutes = require('./routes/configuracion');
-const certificadoRoutes = require('./routes/certificado');
-const sriRoutes = require('./routes/sri');
-const emailRoutes = require('./routes/email');
-const diagnosticoRoutes = require('./routes/diagnostico');
-const estadisticasRoutes = require('./routes/estadisticas');
-const pagosRoutes = require('./routes/pagos');
-const cookieParser = require('cookie-parser');
+const authMiddleware = require('./middleware/auth');
 const csrfProtection = require('./middleware/csrf');
-
+const errorHandler = require('./middleware/errorHandler');
 const { iniciarScheduler, detenerScheduler } = require('./utils/backupScheduler');
 const { asegurarIndices } = require('./utils/indices');
 const { mountSwagger } = require('./utils/swagger');
-const authMiddleware = require('./middleware/auth');
-const errorHandler = require('./middleware/errorHandler');
-
 const { version: VERSION } = require('./package.json');
 
-const app = express();
-const port = process.env.PORT || 5000;
+// ============================================================
+// CONFIGURACIÓN DE ENTORNO
+// ============================================================
+const PORT = Number(process.env.PORT) || 5000;
 const IS_PROD = process.env.NODE_ENV === 'production';
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.DB_NAME;
 
-// ===== SEGURIDAD =====
+// Placeholders que indican config incompleta.
+const PLACEHOLDERS = [
+  'cambia-esto', 'otra-clave-larga', 'tu-app-password', 'tu-correo@',
+  'minimo-32-chars', 'aleatoria-para-cifrar'
+];
+
+/**
+ * Valida las env vars críticas. NUNCA mata el proceso — devuelve la lista
+ * de errores para que el bootstrap decida.
+ * @returns {{ ok: boolean, errores: string[] }}
+ */
+function validarEnv() {
+  const errores = [];
+
+  if (!MONGODB_URI) errores.push('MONGODB_URI no está definida');
+
+  for (const key of ['JWT_SECRET', 'CERT_ENCRYPTION_KEY']) {
+    const val = process.env[key] || '';
+    if (!val) {
+      errores.push(`${key} no está definido`);
+      continue;
+    }
+    if (PLACEHOLDERS.some(p => val.toLowerCase().includes(p))) {
+      errores.push(`${key} todavía tiene un valor de ejemplo`);
+    }
+  }
+
+  const jwt = process.env.JWT_SECRET || '';
+  if (jwt && jwt.length < 32) {
+    errores.push('JWT_SECRET debe tener al menos 32 caracteres');
+  }
+
+  return { ok: errores.length === 0, errores };
+}
+
+// ============================================================
+// EXPRESS — SETUP
+// ============================================================
+const app = express();
+
+// ---- Seguridad básica ----
 app.disable('x-powered-by');
 
-// trust proxy configurable; por defecto 1 hop en producción, 0 en dev
 const TRUST_PROXY = process.env.TRUST_PROXY_HOPS !== undefined
-  ? parseInt(process.env.TRUST_PROXY_HOPS, 10)
+  ? Number(process.env.TRUST_PROXY_HOPS)
   : (IS_PROD ? 1 : 0);
-app.set('trust proxy', TRUST_PROXY);
+app.set('trust proxy', Number.isFinite(TRUST_PROXY) ? TRUST_PROXY : 0);
 app.set('query parser', 'simple');
 
+// ---- Helmet ----
+// CSP deshabilitada porque la sirve el frontend (Vercel/Netlify).
+// crossOriginResourcePolicy abierto para permitir carga de recursos.
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: false
 }));
+
 app.use(compression());
 
-// ===== CORS =====
-const corsOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
-  : (IS_PROD ? false : true);
+// ---- CORS ----
+function parseOrigins(raw) {
+  if (!raw) return null;
+  return String(raw).split(',').map(s => s.trim()).filter(Boolean);
+}
 
-const socketCorsOrigins = process.env.SOCKET_CORS_ORIGINS
-  ? process.env.SOCKET_CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
-  : corsOrigins;
+const corsOriginsList = parseOrigins(process.env.CORS_ORIGINS);
+const corsOrigins = corsOriginsList !== null ? corsOriginsList : (IS_PROD ? false : true);
+
+const socketOriginsList = parseOrigins(process.env.SOCKET_CORS_ORIGINS);
+const socketCorsOrigins = socketOriginsList !== null ? socketOriginsList : corsOrigins;
 
 app.use(cors({
   origin: corsOrigins === true ? true : corsOrigins,
   credentials: true,
-  exposedHeaders: ['Content-Disposition', 'Content-Length']
+  exposedHeaders: ['Content-Disposition', 'Content-Length', 'X-Request-Id']
 }));
 
-app.use(express.json({ limit: '20mb' }));
+// ---- Body parsers ----
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '20mb' }));
+app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 app.use(cookieParser());
 
-// ===== REQUEST ID + LATENCIA (para logs correlacionados) =====
+// ============================================================
+// MIDDLEWARE — Request ID + Latencia
+// ============================================================
 app.use((req, res, next) => {
-  const start = Date.now();
-  req.reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  res.setHeader('X-Request-Id', req.reqId);
+  const inicio = Date.now();
+  const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  req.reqId = rid;
+  if (!res.headersSent) res.setHeader('X-Request-Id', rid);
 
   res.on('finish', () => {
-    if (res.statusCode >= 500) {
-      log.error({
-        reqId: req.reqId,
-        metodo: req.method,
-        ruta: req.originalUrl,
-        status: res.statusCode,
-        ms: Date.now() - start
-      }, 'request');
-    } else if (res.statusCode >= 400) {
-      log.warn({
-        reqId: req.reqId,
-        metodo: req.method,
-        ruta: req.originalUrl,
-        status: res.statusCode,
-        ms: Date.now() - start
-      }, 'request');
-    }
+    const status = res.statusCode;
+    if (status < 400) return; // Solo loggear errores.
+    const payload = {
+      reqId: rid,
+      metodo: req.method,
+      ruta: req.originalUrl || req.url,
+      status,
+      ms: Date.now() - inicio,
+      userId: req.user?.userId ? String(req.user.userId) : undefined
+    };
+    if (status >= 500) log.error(payload, 'request');
+    else log.warn(payload, 'request');
   });
+
   next();
 });
 
-// ===== RATE LIMIT GLOBAL (endurecido) =====
+// ============================================================
+// MIDDLEWARE — Rate limit global
+// ============================================================
+const rateLimitMax = Number(process.env.RATE_LIMIT_MAX) || 200;
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
+  max: Number.isFinite(rateLimitMax) && rateLimitMax > 0 ? rateLimitMax : 200,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Demasiadas peticiones, intente más tarde' }
+  message: {
+    error: 'Demasiadas peticiones, intente más tarde',
+    codigo: 'RATE_LIMIT'
+  }
 }));
 
-// ===== MONGODB =====
-const uri = process.env.MONGODB_URI;
-const dbName = process.env.DB_NAME;
-let db;
+// ============================================================
+// MONGODB — Conexión + estado
+// ============================================================
+let db = null;
 let mongoClient = null;
 let schedulerActivo = false;
-
-if (!uri) {
-  log.error('❌ MONGODB_URI no está definida en .env');
-  process.exit(1);
-}
-
-mongoClient = new MongoClient(uri, {
-  maxPoolSize: parseInt(process.env.MONGO_POOL_MAX || '20', 10),
-  minPoolSize: parseInt(process.env.MONGO_POOL_MIN || '2', 10),
-  serverSelectionTimeoutMS: 8000,
-  socketTimeoutMS: 45000
-});
+let mongoConectado = false;
 
 async function inicializarMongo() {
+  mongoClient = new MongoClient(MONGODB_URI, {
+    maxPoolSize: Number(process.env.MONGO_POOL_MAX) || 20,
+    minPoolSize: Number(process.env.MONGO_POOL_MIN) || 2,
+    serverSelectionTimeoutMS: Number(process.env.MONGO_SELECTION_TIMEOUT_MS) || 8000,
+    socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45000
+  });
+
+  await mongoClient.connect();
+  db = DB_NAME ? mongoClient.db(DB_NAME) : mongoClient.db();
+  mongoConectado = true;
+  log.info({ db: db.databaseName }, '✅ Conectado a MongoDB');
+}
+
+/**
+ * Trabajo post-arranque que NO debe bloquear el `listen`:
+ * crear índices, arrancar scheduler. Best-effort.
+ */
+async function trabajoPostArranque() {
+  // 1. Índices.
   try {
-    await mongoClient.connect();
-    db = dbName ? mongoClient.db(dbName) : mongoClient.db();
-    log.info({ db: db.databaseName }, '✅ Conectado a MongoDB');
+    const r = await asegurarIndices(db);
+    if (r.salteado) log.info({ version: r.version }, '⏭️  Índices sin cambios');
+    else log.info({ total: r.total, creados: r.creados, fallidos: r.fallidos?.length || 0 }, '✅ Índices verificados');
+  } catch (e) {
+    log.warn({ err: e.message }, '⚠️  Error creando índices (el server sigue activo)');
+  }
 
-    try {
-      const r = await asegurarIndices(db);
-      if (r.salteado) log.info({ version: r.version }, '⏭️  Índices sin cambios');
-      else log.info({ total: r.total, fallidos: r.fallidos?.length || 0 }, '✅ Índices verificados');
-    } catch (e) {
-      log.warn({ err: e.message }, '⚠️  Error creando índices');
-    }
-
-    try {
-      await iniciarScheduler(db);
-      schedulerActivo = true;
-    } catch (e) {
-      log.error({ err: e.message }, 'Error iniciando scheduler');
-    }
-
-    return true;
-  } catch (err) {
-    log.error({ err: err.message }, '❌ Error conectando a MongoDB');
-    return false;
+  // 2. Scheduler.
+  try {
+    await iniciarScheduler(db);
+    schedulerActivo = true;
+    log.info('⏰ Scheduler de backups iniciado');
+  } catch (e) {
+    log.error({ err: e.message }, 'Error iniciando scheduler de backups');
   }
 }
 
-// ===== MIDDLEWARE: inyectar db =====
+// ============================================================
+// MIDDLEWARE — Inyección de DB
+// ============================================================
 app.use((req, res, next) => {
   if (!db) {
-    return res.status(503).json({ error: 'Base de datos no disponible. Reintente en unos segundos.' });
+    return res.status(503).json({
+      error: 'Base de datos no disponible. Reintente en unos segundos.',
+      codigo: 'DB_NO_DISPONIBLE'
+    });
   }
   req.db = db;
   next();
 });
 
-// ===== SWAGGER (solo si explícitamente habilitado) =====
+// ============================================================
+// SWAGGER (opcional — controlado por env)
+// ============================================================
 mountSwagger(app);
 
-// ===== HTTP + SOCKET.IO =====
+// ============================================================
+// HTTP + SOCKET.IO
+// ============================================================
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
@@ -218,32 +255,60 @@ const io = socketIo(server, {
   },
   transports: ['websocket', 'polling'],
   pingTimeout: 25000,
-  pingInterval: 20000
+  pingInterval: 20000,
+  maxHttpBufferSize: 1e6 // 1 MB — evita payloads abusivos por WebSocket.
 });
 
-// Parser de cookies para handshake de Socket.IO
+/** Parsea cookies de forma defensiva. NUNCA lanza. */
 function parseCookies(header) {
-  if (!header) return {};
-  return Object.fromEntries(
-    header.split(';').map(c => {
-      const [k, ...v] = c.trim().split('=');
-      return [k, decodeURIComponent(v.join('='))];
-    })
-  );
+  if (!header || typeof header !== 'string') return {};
+  const out = {};
+  for (const parte of header.split(';')) {
+    const trimmed = parte.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const k = trimmed.slice(0, eq).trim();
+    const rawV = trimmed.slice(eq + 1);
+    if (!k) continue;
+    try {
+      out[k] = decodeURIComponent(rawV);
+    } catch {
+      out[k] = rawV; // Cookie con encoding inválido: guardamos raw.
+    }
+  }
+  return out;
 }
 
-io.use(async (socket, next) => {
-  try {
-    // 1. Preferir cookie httpOnly
-    const cookies = parseCookies(socket.handshake.headers.cookie);
-    let token = cookies['sc_at'];
+// ---- Rate limit simple por IP para handshake Socket.IO ----
+const intentosHandshake = new Map(); // ip → { count, resetAt }
+const HANDSHAKE_LIMIT = 30;
+const HANDSHAKE_WINDOW_MS = 60_000;
 
-    // 2. Fallback a socket.handshake.auth.token (apps móviles)
+io.use(async (socket, next) => {
+  // ---- Rate limit de handshake ----
+  const ip = socket.handshake.address || 'desconocido';
+  const ahora = Date.now();
+  const entry = intentosHandshake.get(ip);
+  if (!entry || entry.resetAt < ahora) {
+    intentosHandshake.set(ip, { count: 1, resetAt: ahora + HANDSHAKE_WINDOW_MS });
+  } else {
+    entry.count++;
+    if (entry.count > HANDSHAKE_LIMIT) {
+      return next(new Error('Demasiados intentos de conexión'));
+    }
+  }
+
+  try {
+    const cookies = parseCookies(socket.handshake.headers.cookie);
+    let token = cookies.sc_at;
+
     if (!token && socket.handshake.auth?.token) {
       token = socket.handshake.auth.token;
     }
-
-    if (!token) return next(new Error('Autenticación requerida'));
+    if (!token || typeof token !== 'string') {
+      return next(new Error('Autenticación requerida'));
+    }
 
     const secret = process.env.JWT_SECRET;
     if (!secret) return next(new Error('Servidor mal configurado'));
@@ -251,25 +316,24 @@ io.use(async (socket, next) => {
     let decoded;
     try {
       decoded = jwt.verify(token, secret, { algorithms: ['HS256'] });
-    } catch (_err) {
+    } catch {
       return next(new Error('Token inválido'));
     }
 
-    if (!decoded.userId || !db) return next(new Error('Token malformado o DB no disponible'));
+    if (!decoded.userId || !db) return next(new Error('Token malformado'));
     if (!ObjectId.isValid(decoded.userId)) return next(new Error('ID de usuario inválido'));
 
     const usuario = await db.collection('usuarios').findOne(
       { _id: new ObjectId(decoded.userId) },
       { projection: { password: 0 } }
     );
-
     if (!usuario) return next(new Error('Usuario no existe'));
     if (!usuario.activo) return next(new Error('Usuario desactivado'));
 
     if (usuario.password_changed_at) {
       const changed = Math.floor(new Date(usuario.password_changed_at).getTime() / 1000);
       const iat = Number(decoded.iat) || 0;
-      if (iat < changed) return next(new Error('Sesión invalidada por cambio de contraseña'));
+      if (iat < changed) return next(new Error('Sesión invalidada'));
     }
 
     socket.user = {
@@ -278,66 +342,86 @@ io.use(async (socket, next) => {
       rol: usuario.rol,
       nombre: usuario.nombre || usuario.email
     };
-    next();
+    return next();
   } catch (err) {
     log.error({ err: err.message }, 'Error en auth de socket');
-    next(new Error('Error de autenticación'));
+    return next(new Error('Error de autenticación'));
   }
 });
 
 io.on('connection', (socket) => {
   log.info({ socketId: socket.id, email: socket.user?.email }, '🟢 Cliente conectado');
   if (socket.user?.rol) socket.join(`rol:${socket.user.rol}`);
-  if (socket.user?.userId) socket.join(`user:${socket.user.userId}`);
-  socket.on('disconnect', () => {
-    log.info({ socketId: socket.id }, '🔴 Cliente desconectado');
+  if (socket.user?.userId) socket.join(`user:${String(socket.user.userId)}`);
+
+  socket.on('disconnect', (reason) => {
+    log.debug({ socketId: socket.id, reason }, '🔴 Cliente desconectado');
+  });
+
+  socket.on('error', (err) => {
+    log.warn({ socketId: socket.id, err: err?.message }, 'Error de socket');
   });
 });
 
+// ---- Exponer `io` y `emitir` a las rutas ----
 app.use((req, res, next) => {
   req.io = io;
   req.emitir = (evento, data) => io.emit(evento, data);
   next();
 });
 
-// ===== RUTAS PÚBLICAS =====
+// ============================================================
+// RUTAS PÚBLICAS
+// ============================================================
+const authRoutes = require('./routes/auth');
 app.use('/api/auth', authRoutes);
 
-// Liveness: siempre 200 si el proceso responde.
+// ---- Liveness (siempre 200 si el proceso responde) ----
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date(), version: VERSION });
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: Math.round(process.uptime()),
+    version: VERSION
+  });
 });
-// Alias para orquestadores
 app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
 
-// Readiness: chequea DB y devuelve 503 si no está lista.
+// ---- Readiness (depende de la DB) ----
 app.get('/api/health/detailed', async (req, res) => {
   const health = {
     status: 'OK',
-    timestamp: new Date(),
-    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    uptimeSec: Math.round(process.uptime()),
     version: VERSION,
+    env: process.env.NODE_ENV || 'development',
     db: 'unknown',
-    scheduler: schedulerActivo
+    dbLatencyMs: null,
+    scheduler: schedulerActivo,
+    socketConnections: io.engine?.clientsCount ?? null
   };
+
   try {
-    if (!db) throw new Error('DB no inicializada');
+    if (!db || !mongoConectado) throw new Error('DB no inicializada');
     const t0 = Date.now();
     await db.command({ ping: 1 });
     health.db = 'ok';
-    health.db_latency_ms = Date.now() - t0;
-    try { health.auth_cache = authMiddleware.stats(); } catch (_) { /* opcional */ }
+    health.dbLatencyMs = Date.now() - t0;
+
+    try { health.authCache = authMiddleware.stats(); } catch { /* opcional */ }
+
     res.json(health);
   } catch (e) {
     health.status = 'DEGRADED';
     health.db = 'error';
-    health.db_error = e.message;
+    health.dbError = e.message;
     res.status(503).json(health);
   }
 });
+
 app.get('/readyz', async (req, res) => {
   try {
-    if (!db) throw new Error('sin DB');
+    if (!db || !mongoConectado) throw new Error('sin DB');
     await db.command({ ping: 1 });
     res.json({ status: 'ready' });
   } catch (e) {
@@ -345,68 +429,108 @@ app.get('/readyz', async (req, res) => {
   }
 });
 
-// ===== RUTAS PROTEGIDAS =====
+// ============================================================
+// RUTAS PROTEGIDAS (requieren auth + CSRF)
+// ============================================================
 app.use('/api', csrfProtection);
 app.use('/api', authMiddleware);
 
-app.use('/api/productos', productosRoutes);
-app.use('/api/categorias', categoriasRoutes);
-app.use('/api/clientes', clientesRoutes);
-app.use('/api/proveedores', proveedoresRoutes);
-app.use('/api/compras', comprasRoutes);
-app.use('/api/ventas', ventasRoutes);
-app.use('/api/kardex', kardexRoutes);
-app.use('/api/reportes', reportesRoutes);
-app.use('/api/reportes', reportesMensualesRoutes);
-app.use('/api/consultas', consultasRoutes);
-app.use('/api/secuencias', secuenciasRoutes);
-app.use('/api/contadores', contadoresRoutes);
-app.use('/api/retenciones', retencionesRoutes);
-app.use('/api/catalogos', catalogosRoutes);
-app.use('/api/auditoria', auditoriaRoutes);
-app.use('/api/usuarios', usuariosRoutes);
-app.use('/api/periodos', periodosRoutes);
-app.use('/api/backups', backupsRoutes);
-app.use('/api/estado-cuenta', estadoCuentaRoutes);
-app.use('/api/estados-financieros', estadosFinancierosRoutes);
-app.use('/api/configuracion', configuracionRoutes);
-app.use('/api/anexos', anexosRoutes);
-app.use('/api/certificado', certificadoRoutes);
-app.use('/api/sri', sriRoutes);
-app.use('/api/email', emailRoutes);
-app.use('/api/diagnostico', diagnosticoRoutes);
-app.use('/api/estadisticas', estadisticasRoutes);
-app.use('/api/pagos', pagosRoutes);
+// ---- Dominio contable ----
+app.use('/api/clientes', require('./routes/clientes'));
+app.use('/api/proveedores', require('./routes/proveedores'));
+app.use('/api/productos', require('./routes/productos'));
+app.use('/api/categorias', require('./routes/categorias'));
+app.use('/api/ventas', require('./routes/ventas'));
+app.use('/api/compras', require('./routes/compras'));
+app.use('/api/pagos', require('./routes/pagos'));
+app.use('/api/retenciones', require('./routes/retenciones'));
+app.use('/api/kardex', require('./routes/kardex'));
+app.use('/api/contadores', require('./routes/contadores'));
+app.use('/api/secuencias', require('./routes/secuencias'));
+app.use('/api/inventario', require('./routes/inventario')); // 🆕 NUEVO
 
+// ---- Dominio fiscal / SRI ----
+app.use('/api/sri', require('./routes/sri'));
+app.use('/api/anexos', require('./routes/anexos'));
+app.use('/api/certificado', require('./routes/certificado'));
+app.use('/api/catalogos', require('./routes/catalogos'));
+
+// ---- Reportes y análisis ----
+app.use('/api/reportes', require('./routes/reportes'));
+app.use('/api/reportes', require('./routes/reportesMensuales'));
+app.use('/api/estadisticas', require('./routes/estadisticas'));
+app.use('/api/estado-cuenta', require('./routes/estadoCuenta'));
+app.use('/api/estados-financieros', require('./routes/estadosFinancieros'));
+
+// ---- Administración ----
+app.use('/api/usuarios', require('./routes/usuarios'));
+app.use('/api/configuracion', require('./routes/configuracion'));
+app.use('/api/periodos', require('./routes/periodos'));
+app.use('/api/auditoria', require('./routes/auditoria'));
+app.use('/api/backups', require('./routes/backups'));
+app.use('/api/diagnostico', require('./routes/diagnostico'));
+
+// ---- Integraciones ----
+app.use('/api/email', require('./routes/email'));
+app.use('/api/consultas', require('./routes/consultas'));
+
+// ---- Endpoint puntual de permisos del usuario actual ----
 app.get('/api/auth/permisos', (req, res) => {
-  const { PERMISOS } = require('./utils/permisos');
+  const { getPermisosDeRol } = require('./utils/permisos');
   const rol = req.user?.rol || 'vendedor';
-  res.json({ rol, permisos: PERMISOS[rol] || {} });
+  res.json({ rol, permisos: getPermisosDeRol(rol) || {} });
 });
 
+// ---- 404 dentro de /api (deja pasar /api/docs*) ----
 app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'Ruta no encontrada', ruta: req.originalUrl });
+  res.status(404).json({
+    error: 'Ruta no encontrada',
+    codigo: 'RUTA_NO_ENCONTRADA',
+    ruta: req.originalUrl
+  });
 });
 
+// ---- Error handler central ----
 app.use(errorHandler);
 
-// ===== ARRANQUE =====
-(async () => {
-  const mongoOk = await inicializarMongo();
-  if (!mongoOk) {
-    log.error('❌ No se pudo inicializar MongoDB. Cerrando.');
+// ============================================================
+// BOOTSTRAP
+// ============================================================
+let serverInstancia = null;
+
+async function bootstrap() {
+  // ---- 1. Validar env ----
+  const check = validarEnv();
+  if (!check.ok) {
+    for (const e of check.errores) log.error(`❌ FATAL: ${e}`);
     process.exit(1);
   }
 
-  server.listen(port, () => {
+  // ---- 2. Mongo (crítico: si falla, no arranca) ----
+  try {
+    await inicializarMongo();
+  } catch (err) {
+    log.error({ err: err.message }, '❌ No se pudo conectar a MongoDB');
+    process.exit(1);
+  }
+
+  // ---- 3. Listen ----
+  serverInstancia = server.listen(PORT, () => {
     log.info({
-      port, env: process.env.NODE_ENV || 'desarrollo', version: VERSION,
+      port: PORT,
+      env: process.env.NODE_ENV || 'development',
+      version: VERSION,
       cors: corsOrigins === true ? 'todos (dev)' : corsOrigins,
       db: db.databaseName,
-      scheduler: schedulerActivo,
       trustProxy: TRUST_PROXY
     }, '🚀 Servidor backend listo');
 
+    // ---- 4. Trabajo post-arranque (background, best-effort) ----
+    trabajoPostArranque().catch(err => {
+      log.error({ err: err.message }, 'Error en trabajo post-arranque');
+    });
+
+    // ---- 5. Warnings útiles ----
     if (!process.env.SMTP_FROM) {
       log.warn('⚠️  SMTP_FROM no definido. Se usará SMTP_USER como remitente.');
     }
@@ -414,62 +538,137 @@ app.use(errorHandler);
       log.warn('⚠️  CORS_ORIGINS no definido en producción — CORS cerrado por defecto.');
     }
   });
-})();
 
-// ===== GRACEFUL SHUTDOWN =====
+  serverInstancia.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      log.error({ port: PORT }, '❌ Puerto ya en uso');
+    } else {
+      log.error({ err: err.message }, '❌ Error en el servidor HTTP');
+    }
+    process.exit(1);
+  });
+}
+
+// ============================================================
+// GRACEFUL SHUTDOWN
+// ============================================================
 let cerrando = false;
-const shutdown = async (signal) => {
+
+function conTimeout(promesa, ms, mensaje) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(mensaje || 'timeout')), ms);
+    if (timer.unref) timer.unref();
+    Promise.resolve(promesa).then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+async function shutdown(signal) {
   if (cerrando) return;
   cerrando = true;
-  log.info({ signal }, `\n${signal} recibido. Cerrando servidor...`);
 
-  try { detenerScheduler(); } catch (_) { /* noop */ }
-  try { await new Promise(resolve => io.close(resolve)); } catch (_) { /* noop */ }
+  log.info({ signal }, `Señal ${signal} recibida. Cerrando servidor...`);
 
-  server.close(async () => {
-    try {
-      if (mongoClient) {
-        await mongoClient.close();
-        log.info('✅ MongoDB cerrado');
-      }
-    } catch (e) {
-      log.error({ err: e.message }, 'Error cerrando Mongo');
+  // ---- 1. Scheduler ----
+  try { detenerScheduler(); } catch { /* noop */ }
+
+  // ---- 2. WebSocket server ----
+  try {
+    await conTimeout(
+      new Promise(resolve => io.close(resolve)),
+      3000,
+      'io.close timeout'
+    );
+  } catch (e) {
+    log.warn({ err: e.message }, 'No se pudo cerrar Socket.IO limpiamente');
+  }
+
+  // ---- 3. HTTP server ----
+  try {
+    if (serverInstancia) {
+      await conTimeout(
+        new Promise(resolve => serverInstancia.close(resolve)),
+        5000,
+        'server.close timeout'
+      );
     }
-    log.info('✅ Servidor HTTP cerrado');
-    process.exit(0);
-  });
+  } catch (e) {
+    log.warn({ err: e.message }, 'No se pudo cerrar el servidor HTTP limpiamente');
+  }
 
-  setTimeout(() => {
-    log.error('⚠️  Forzando salida por timeout');
-    process.exit(1);
-  }, 10000).unref();
-};
+  // ---- 4. Mongo ----
+  try {
+    if (mongoClient) {
+      await conTimeout(mongoClient.close(), 3000, 'mongo.close timeout');
+      log.info('✅ MongoDB cerrado');
+    }
+  } catch (e) {
+    log.warn({ err: e.message }, 'Error cerrando Mongo');
+  }
+
+  log.info('✅ Servidor cerrado limpiamente');
+  process.exit(0);
+}
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-// ✅ FIX: unhandledRejection SOLO loggea. No mata el proceso.
-// En producción, matar por cada promesa rechazada genera restart loops en Render.
-let rechazosConsecutivos = 0;
-process.on('unhandledRejection', (reason) => {
-  rechazosConsecutivos++;
-  log.error({
-    reason: reason?.stack || reason,
-    count: rechazosConsecutivos
-  }, '❌ unhandledRejection');
+// Timeout duro: si algo se cuelga, salir a la fuerza.
+setTimeout(() => {
+  if (cerrando) {
+    log.error('⚠️  Shutdown excedió 10 s, forzando salida');
+    process.exit(1);
+  }
+}, 10_000).unref();
 
-  // Solo cerrar si son MUCHOS seguidos (indica problema sistémico)
-  if (rechazosConsecutivos >= 20) {
-    log.error('❌ Demasiados unhandledRejection consecutivos. Cerrando...');
+// ============================================================
+// PROCESO — Manejo de errores no capturados
+// ============================================================
+
+/**
+ * Racha de rechazos: si llegan más de N en T ms, consideramos
+ * el proceso en estado inconsistente y cerramos.
+ */
+const RACHA_MAX = 20;
+const RACHA_VENTANA_MS = 60_000;
+let rachaRechazos = [];
+
+process.on('unhandledRejection', (reason) => {
+  const ahora = Date.now();
+  rachaRechazos = rachaRechazos.filter(t => ahora - t < RACHA_VENTANA_MS);
+  rachaRechazos.push(ahora);
+
+  log.error(
+    { reason: reason?.stack || String(reason), racha: rachaRechazos.length },
+    '❌ unhandledRejection'
+  );
+
+  if (rachaRechazos.length >= RACHA_MAX) {
+    log.error(
+      { racha: rachaRechazos.length, ventanaMs: RACHA_VENTANA_MS },
+      'Demasiados rechazos no capturados en poco tiempo. Cerrando...'
+    );
     shutdown('unhandledRejection');
   }
 });
 
-// ✅ uncaughtException sí cierra: el estado del proceso es indefinido
 process.on('uncaughtException', (err) => {
   log.error({ err: err.stack || err.message }, '❌ uncaughtException');
+  // Estado del proceso indefinido → cerrar siempre.
   shutdown('uncaughtException');
 });
 
-// Resetear contador cada 5 min
-setInterval(() => { rechazosConsecutivos = 0; }, 5 * 60 * 1000).unref();
+// ============================================================
+// ARRANQUE
+// ============================================================
+bootstrap().catch(err => {
+  log.error({ err: err.message }, '❌ Error en bootstrap');
+  process.exit(1);
+});
+
+// ---- Solo para tests ----
+module.exports = app;
+module.exports._io = io;
+module.exports._server = server;

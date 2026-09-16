@@ -1,54 +1,313 @@
 // backend/utils/emailService.js
-const nodemailer = require('nodemailer');
+// ============================================================
+// Envío de comprobantes por email
+// ------------------------------------------------------------
+// API pública:
+//   enviarComprobantePorEmail(opts)  → { success, messageId, ... }
+//   verificarConexion(opts)          → { ok, error?, cached? }
+//   crearTransporter()               → Transporter | null
+//   escHtml(str)                     → string seguro para HTML
+//
+// Extensiones:
+//   limpiarTransporter()             → libera el pool SMTP
+//   getMetricas()                    → snapshot de contadores
+//   validarEmail(str)                → bool
+//
+// Configuración por variables de entorno:
+//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+//   SMTP_TLS_REJECT_UNAUTHORIZED=false   → acepta cert autofirmado
+//   EMAIL_MAX_ATTACHMENT_MB              → límite por adjunto
+//   EMAIL_MAX_TOTAL_ATTACHMENT_MB        → límite total
+//   EMAIL_TIMEOUT_MS                     → timeout global del send
+//   EMAIL_RETRY_MAX                      → reintentos (default 3)
+//   EMAIL_VERIFY_TTL_MS                  → caché de verificarConexion
+// ============================================================
+'use strict';
 
-let transporterGlobal = null;
+const log = require('./logger');
 
-// 🔒 Escape HTML: previene inyección en el correo
+// ============================================================
+// CONFIGURACIÓN (env-driven)
+// ============================================================
+function envNum(nombre, fallback) {
+  const raw = process.env[nombre];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function envBool(nombre, fallback = false) {
+  const raw = process.env[nombre];
+  if (raw === undefined || raw === '') return fallback;
+  return String(raw).trim().toLowerCase() === 'true';
+}
+
+const CONFIG = Object.freeze({
+  /** Puerto SMTP por defecto. */
+  puertoDefault: 587,
+
+  /** Timeouts de red (ms). */
+  connectionTimeoutMs: envNum('EMAIL_CONN_TIMEOUT_MS', 10_000),
+  greetingTimeoutMs: envNum('EMAIL_GREET_TIMEOUT_MS', 10_000),
+  socketTimeoutMs: envNum('EMAIL_SOCKET_TIMEOUT_MS', 20_000),
+
+  /** Timeout del `sendMail` completo (promesa). */
+  sendTimeoutMs: envNum('EMAIL_TIMEOUT_MS', 30_000),
+
+  /** Pool SMTP. */
+  maxConnections: envNum('EMAIL_POOL_MAX', 3),
+  maxMessages: envNum('EMAIL_POOL_MAX_MSG', 50),
+
+  /** Reintentos con backoff exponencial. */
+  reintentosMax: envNum('EMAIL_RETRY_MAX', 3),
+  retryBaseMs: envNum('EMAIL_RETRY_BASE_MS', 1500),
+
+  /** Límite de adjuntos. */
+  maxAttachmentBytes: envNum('EMAIL_MAX_ATTACHMENT_MB', 15) * 1024 * 1024,
+  maxTotalAttachmentBytes: envNum('EMAIL_MAX_TOTAL_ATTACHMENT_MB', 20) * 1024 * 1024,
+
+  /** Largo máximo del nombre del remitente. */
+  maxNombreRemitente: 100,
+  maxAsunto: 200,
+  maxEmail: 254,
+
+  /** TTL del cache de verificarConexion. */
+  verifyTtlMs: envNum('EMAIL_VERIFY_TTL_MS', 30_000),
+
+  /** Prefijos de archivo temporales (multipart). */
+  tempPrefix: 'tmp-'
+});
+
+// ============================================================
+// ERRORES TIPADOS
+// ============================================================
+function errorTipado(mensaje, codigo, status = 500) {
+  const err = new Error(mensaje);
+  err.codigo = codigo;
+  err.status = status;
+  return err;
+}
+
+// ============================================================
+// CARGA LAZY DE NODEMAILER
+// ============================================================
+let _nodemailer = null;
+function cargarNodemailer() {
+  if (_nodemailer) return _nodemailer;
+  try {
+    // eslint-disable-next-line global-require
+    _nodemailer = require('nodemailer');
+    return _nodemailer;
+  } catch (err) {
+    log.error({ err: err.message }, 'nodemailer no está instalado');
+    return null;
+  }
+}
+
+// ============================================================
+// HELPERS DE SANEO
+// ============================================================
+/**
+ * Elimina caracteres de control y trunca a `max`.
+ * Útil para asuntos, nombres y cualquier valor que vaya a headers.
+ *
+ * @param {*} s
+ * @param {number} [max=200]
+ * @returns {string}
+ */
+function sanitizarTexto(s, max = CONFIG.maxAsunto) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/[\r\n\0\u2028\u2029]/g, ' ')  // CRLF + line separators Unicode
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+/**
+ * Escapa caracteres peligrosos para HTML.
+ * Mantiene la firma original (`escHtml(str)`).
+ *
+ * @param {*} s
+ * @returns {string}
+ */
 function escHtml(s) {
   if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, c => ({
+  return String(s).replace(/[&<>"'`]/g, c => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
     '"': '&quot;',
-    "'": '&#39;'
+    "'": '&#39;',
+    '`': '&#96;'
   }[c]));
 }
 
+/**
+ * Sanitiza un nombre de remitente para el header `From:`.
+ * - Quita comillas, angle brackets, backslashes y CRLF.
+ * - Trunca a `maxNombreRemitente`.
+ * @param {*} s
+ * @returns {string}
+ */
+function sanitizarNombreRemitente(s) {
+  return String(s || '')
+    // Primero: CRLF y controles → espacio.
+    .replace(/[\r\n\0\t]+/g, ' ')
+    // Luego: quitar chars prohibidos en header.
+    .replace(/["<>\\,;:]/g, '')
+    // Colapsar espacios múltiples.
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CONFIG.maxNombreRemitente)
+    || 'Sistema Contable';
+}
+
+/**
+ * Sanitiza un nombre de archivo para adjuntos.
+ * Conserva puntos, guiones, guiones bajos y alfanuméricos.
+ * @param {*} s
+ * @param {string} [fallback='archivo']
+ * @returns {string}
+ */
+function sanitizarNombreArchivo(s, fallback = 'archivo') {
+  const limpio = String(s || '')
+    .replace(/[\r\n\0/\\]/g, '_')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .slice(0, 120)
+    .replace(/^[._-]+/, '');
+  return limpio || fallback;
+}
+
+/**
+ * Formatea un monto como string con 2 decimales.
+ * NUNCA devuelve `"NaN"`; si es inválido, devuelve `"0.00"`.
+ * @param {*} n
+ * @returns {string}
+ */
+function formatearMonto(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '0.00';
+  return v.toFixed(2);
+}
+
+/**
+ * Valida un email con regex simple.
+ * @param {*} email
+ * @returns {boolean}
+ */
+function validarEmail(email) {
+  if (typeof email !== 'string' || email.length === 0) return false;
+  if (email.length > CONFIG.maxEmail) return false;
+  if (/[\r\n\0]/.test(email)) return false;
+  return /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(email);
+}
+
+// ============================================================
+// TRANSPORTER (singleton con reset)
+// ============================================================
+let transporterGlobal = null;
+let transporterCreadoEn = 0;
+
+/** Convierte un puerto a número válido, con fallback. */
+function validarPuerto(raw) {
+  const n = parseInt(String(raw ?? CONFIG.puertoDefault), 10);
+  if (!Number.isInteger(n) || n < 1 || n > 65_535) {
+    log.warn({ raw }, 'SMTP_PORT inválido, usando default');
+    return CONFIG.puertoDefault;
+  }
+  return n;
+}
+
+/**
+ * Crea un transporter SMTP nuevo.
+ * Devuelve `null` si falta configuración o nodemailer.
+ * @returns {object|null}
+ */
 function crearTransporter() {
-  const host = process.env.SMTP_HOST;
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const nodemailer = cargarNodemailer();
+  if (!nodemailer) return null;
+
+  const host = String(process.env.SMTP_HOST || '').trim();
+  const user = String(process.env.SMTP_USER || '').trim();
+  const pass = process.env.SMTP_PASS || '';
 
   if (!host || !user || !pass) return null;
 
-  // 🔒 TLS estricto por defecto. Activar solo si hay cert autofirmado en el SMTP.
+  const port = validarPuerto(process.env.SMTP_PORT);
+  const secure = port === 465;
   const rejectUnauthorized = process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false';
+
+  if (!rejectUnauthorized && process.env.NODE_ENV === 'production') {
+    log.warn(
+      'SMTP_TLS_REJECT_UNAUTHORIZED=false en producción: acepta certificados no confiables'
+    );
+  }
 
   return nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure,
     auth: { user, pass },
     pool: true,
-    maxConnections: 3,
-    maxMessages: 50,
+    maxConnections: CONFIG.maxConnections,
+    maxMessages: CONFIG.maxMessages,
     tls: { rejectUnauthorized },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 20000
+    connectionTimeout: CONFIG.connectionTimeoutMs,
+    greetingTimeout: CONFIG.greetingTimeoutMs,
+    socketTimeout: CONFIG.socketTimeoutMs
   });
 }
 
+/**
+ * Devuelve el transporter global (o lo crea).
+ * @returns {object|null}
+ */
 function obtenerTransporter() {
-  if (!transporterGlobal) transporterGlobal = crearTransporter();
+  if (!transporterGlobal) {
+    transporterGlobal = crearTransporter();
+    transporterCreadoEn = Date.now();
+  }
   return transporterGlobal;
 }
 
+/**
+ * Libera el pool del transporter global.
+ * Útil en shutdown y tras cambios de config.
+ */
+function limpiarTransporter() {
+  if (transporterGlobal && typeof transporterGlobal.close === 'function') {
+    try { transporterGlobal.close(); } catch { /* noop */ }
+  }
+  transporterGlobal = null;
+  transporterCreadoEn = 0;
+}
+
 // ============================================================
-// HTML del email (todos los valores escapados)
+// MÉTRICAS
 // ============================================================
+const METRICAS = {
+  enviados: 0,
+  fallidos: 0,
+  reintentos: 0,
+  verificaciones: 0,
+  verificacionesOk: 0
+};
+
+/** Snapshot de contadores. */
+function getMetricas() {
+  return { ...METRICAS };
+}
+
+// ============================================================
+// GENERACIÓN DE HTML
+// ============================================================
+/**
+ * Genera el HTML del correo con todos los valores escapados.
+ * @param {object} options
+ * @returns {string}
+ */
 function generarHTML(options) {
   const {
     razonSocialEmisor, rucEmisor, nombreCliente,
@@ -131,56 +390,241 @@ function generarHTML(options) {
 </html>`.trim();
 }
 
-async function enviarComprobantePorEmail(options) {
+// ============================================================
+// ENVÍO CON REINTENTOS
+// ============================================================
+/** Sleep con `.unref()` para no retener el proceso. */
+function dormir(ms) {
+  return new Promise(resolve => {
+    const t = setTimeout(resolve, ms);
+    if (t.unref) t.unref();
+  });
+}
+
+/** Envuelve una promesa con timeout. */
+function conTimeout(promesa, ms, mensaje) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(errorTipado(mensaje || `Timeout después de ${ms}ms`, 'EMAIL_TIMEOUT', 504));
+    }, ms);
+    if (timer.unref) timer.unref();
+
+    Promise.resolve(promesa).then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+/**
+ * Determina si un error de SMTP es transitorio (vale reintentar).
+ * Los códigos 4xx son transitorios; 5xx son permanentes.
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function esErrorTransitorioSMTP(err) {
+  if (!err) return false;
+
+  // Códigos de respuesta SMTP: 4xx = transitorio, 5xx = permanente.
+  if (typeof err.responseCode === 'number') {
+    return err.responseCode >= 400 && err.responseCode < 500;
+  }
+
+  // Códigos de nodemailer para errores de red.
+  const codigosTransitorios = new Set([
+    'ECONNECTION', 'ECONNRESET', 'ETIMEDOUT',
+    'ESOCKET', 'EDNS', 'EPROTOCOL', 'EAUTH'
+  ]);
+  if (err.code && codigosTransitorios.has(err.code)) return true;
+
+  // Otros errores (validación, etc.) → no reintentar.
+  return false;
+}
+
+/**
+ * Ejecuta `sendMail` con reintentos exponenciales + jitter.
+ * @param {object} transporter
+ * @param {object} mailOptions
+ * @returns {Promise<object>}
+ */
+async function enviarConReintentos(transporter, mailOptions) {
+  const max = CONFIG.reintentosMax;
+  let ultimoError = null;
+
+  for (let intento = 1; intento <= max; intento++) {
+    try {
+      // Timeout global del sendMail (defensa contra SMTP lento).
+      const info = await conTimeout(
+        transporter.sendMail(mailOptions),
+        CONFIG.sendTimeoutMs,
+        `sendMail excedió ${CONFIG.sendTimeoutMs}ms`
+      );
+      return info;
+    } catch (err) {
+      ultimoError = err;
+
+      const transitorio = esErrorTransitorioSMTP(err);
+      const esUltimo = intento >= max;
+
+      log.warn(
+        { intento, max, transitorio, err: err.message },
+        `Intento ${intento}/${max} de envío falló`
+      );
+
+      if (esUltimo || !transitorio) break;
+
+      METRICAS.reintentos++;
+
+      // Backoff exponencial con jitter (0.5 - 1.5 del valor esperado).
+      const base = CONFIG.retryBaseMs * Math.pow(2, intento - 1);
+      const delay = Math.round(base * (0.5 + Math.random()));
+      await dormir(delay);
+    }
+  }
+
+  throw errorTipado(
+    `No se pudo enviar el email: ${ultimoError?.message || 'error desconocido'}`,
+    'EMAIL_SEND_FAILED',
+    502
+  );
+}
+
+// ============================================================
+// ENVÍO PRINCIPAL
+// ============================================================
+/**
+ * Envía un comprobante por email con PDF y/o XML adjuntos.
+ *
+ * @param {object} options
+ * @param {object} [options.config]      Configuración de empresa
+ * @param {object} options.documento    Documento (venta, guía, etc.)
+ * @param {object} options.cliente      Cliente (puede ser null)
+ * @param {Buffer} [options.pdfBuffer]  PDF del RIDE
+ * @param {Buffer} [options.xmlBuffer]  XML firmado
+ * @param {string} options.emailDestino
+ * @param {string} [options.asunto]
+ * @param {string} [options.mensaje]
+ * @param {string|string[]} [options.cc]
+ * @param {string|string[]} [options.bcc]
+ * @param {string} [options.replyTo]
+ * @param {'high'|'normal'|'low'} [options.priority]
+ * @param {object} [options.headers]
+ * @returns {Promise<{success: true, messageId: string, destinatario: string, adjuntos: number}>}
+ */
+async function enviarComprobantePorEmail(options = {}) {
   const {
     config, documento, cliente, pdfBuffer, xmlBuffer,
-    emailDestino, asunto, mensaje
+    emailDestino, asunto, mensaje,
+    cc, bcc, replyTo, priority, headers
   } = options;
 
+  // ---- Validaciones ----
   const transporter = obtenerTransporter();
-  if (!transporter) throw new Error('Servicio de email no configurado. Contacte al administrador.');
-  if (!emailDestino) throw new Error('No se especificó un email de destino');
+  if (!transporter) {
+    throw errorTipado(
+      'Servicio de email no configurado. Contacte al administrador.',
+      'EMAIL_NO_CONFIGURADO',
+      503
+    );
+  }
+  if (!validarEmail(emailDestino)) {
+    throw errorTipado(
+      `Email de destino inválido: "${emailDestino}"`,
+      'EMAIL_DESTINO_INVALIDO',
+      400
+    );
+  }
 
+  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
+  if (!validarEmail(fromAddress)) {
+    throw errorTipado(
+      'SMTP_FROM / SMTP_USER no configurado o inválido',
+      'EMAIL_FROM_INVALIDO',
+      500
+    );
+  }
+
+  // ---- Preparar datos para el template ----
   const razonSocialEmisor = config?.razon_social || 'Sistema Contable';
   const rucEmisor = config?.ruc || '';
   const nombreCliente = cliente?.nombre || 'Estimado cliente';
   const numeroDoc = documento?.numero_factura || documento?.numero_guia || 'N/A';
-  const tipoDoc = (documento?.tipo_documento || 'factura').toUpperCase();
-  const total = parseFloat(documento?.total || 0).toFixed(2);
+  const tipoDoc = String(documento?.tipo_documento || 'factura').toUpperCase();
+  const total = formatearMonto(documento?.total);
   const fecha = documento?.fecha_emision
     ? new Date(documento.fecha_emision).toLocaleDateString('es-EC')
     : '';
   const numeroAutorizacion = documento?.numero_autorizacion || '';
   const claveAcceso = documento?.clave_acceso || '';
 
-  const asuntoFinal = asunto || `Comprobante Electrónico ${tipoDoc} Nº ${numeroDoc} - ${razonSocialEmisor}`;
-  const mensajeFinal = mensaje || `Estimado(a) ${nombreCliente},\n\nAdjuntamos su comprobante electrónico ${tipoDoc} Nº ${numeroDoc}, emitido el ${fecha} por un valor total de $${total}.\n\n${razonSocialEmisor}`;
+  // ---- Sanitizar subject y texto plano ----
+  const asuntoFinal = sanitizarTexto(
+    asunto || `Comprobante Electrónico ${tipoDoc} Nº ${numeroDoc} - ${razonSocialEmisor}`,
+    CONFIG.maxAsunto
+  );
+  const mensajeFinal = typeof mensaje === 'string' && mensaje.trim()
+    ? mensaje.trim().slice(0, 10_000)
+    : `Estimado(a) ${nombreCliente},\n\nAdjuntamos su comprobante electrónico ${tipoDoc} Nº ${numeroDoc}, emitido el ${fecha} por un valor total de $${total}.\n\n${razonSocialEmisor}`;
 
+  // ---- HTML ----
   const htmlBody = generarHTML({
     razonSocialEmisor, rucEmisor, nombreCliente,
     tipoDoc, numeroDoc, fecha, total,
     numeroAutorizacion, claveAcceso, xmlBuffer
   });
 
+  // ---- Adjuntos (con validación de tamaño) ----
   const attachments = [];
+  let totalBytes = 0;
+
   if (pdfBuffer) {
+    if (!Buffer.isBuffer(pdfBuffer)) {
+      throw errorTipado('pdfBuffer debe ser un Buffer', 'ADJUNTO_INVALIDO', 400);
+    }
+    if (pdfBuffer.length > CONFIG.maxAttachmentBytes) {
+      throw errorTipado(
+        `El PDF excede el límite permitido (${(CONFIG.maxAttachmentBytes / 1024 / 1024).toFixed(0)} MB)`,
+        'ADJUNTO_DEMASIADO_GRANDE',
+        413
+      );
+    }
+    totalBytes += pdfBuffer.length;
     attachments.push({
-      filename: `RIDE_${numeroDoc}.pdf`,
+      filename: `RIDE_${sanitizarNombreArchivo(numeroDoc, 'comprobante')}.pdf`,
       content: pdfBuffer,
       contentType: 'application/pdf'
     });
   }
+
   if (xmlBuffer) {
+    if (!Buffer.isBuffer(xmlBuffer)) {
+      throw errorTipado('xmlBuffer debe ser un Buffer', 'ADJUNTO_INVALIDO', 400);
+    }
+    if (xmlBuffer.length > CONFIG.maxAttachmentBytes) {
+      throw errorTipado(
+        `El XML excede el límite permitido (${(CONFIG.maxAttachmentBytes / 1024 / 1024).toFixed(0)} MB)`,
+        'ADJUNTO_DEMASIADO_GRANDE',
+        413
+      );
+    }
+    totalBytes += xmlBuffer.length;
     attachments.push({
-      filename: `${claveAcceso || numeroDoc}.xml`,
+      filename: `${sanitizarNombreArchivo(claveAcceso || numeroDoc, 'comprobante')}.xml`,
       content: xmlBuffer,
       contentType: 'application/xml'
     });
   }
 
-  // ✅ Sanitiza razonSocial y remitente para evitar romper el header From.
-  const safeFrom = String(razonSocialEmisor).replace(/["<>\\\r\n]/g, '').slice(0, 100);
-  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
+  if (totalBytes > CONFIG.maxTotalAttachmentBytes) {
+    throw errorTipado(
+      `Los adjuntos superan el límite total (${(CONFIG.maxTotalAttachmentBytes / 1024 / 1024).toFixed(0)} MB)`,
+      'ADJUNTOS_DEMASIADO_GRANDES',
+      413
+    );
+  }
+
+  // ---- Opciones finales ----
+  const safeFrom = sanitizarNombreRemitente(razonSocialEmisor);
 
   const mailOptions = {
     from: `"${safeFrom}" <${fromAddress}>`,
@@ -191,37 +635,116 @@ async function enviarComprobantePorEmail(options) {
     attachments
   };
 
-  let ultimoError = null;
-  for (let intento = 1; intento <= 3; intento++) {
-    try {
-      const info = await transporter.sendMail(mailOptions);
-      return {
-        success: true,
-        messageId: info.messageId,
-        destinatario: emailDestino,
-        adjuntos: attachments.length
-      };
-    } catch (err) {
-      ultimoError = err;
-      console.warn(`Intento ${intento}/3 de envío falló: ${err.message}`);
-      if (intento < 3) await new Promise(r => setTimeout(r, 1500 * intento));
-    }
+  // Opcionales.
+  if (cc) mailOptions.cc = Array.isArray(cc) ? cc.join(', ') : cc;
+  if (bcc) mailOptions.bcc = Array.isArray(bcc) ? bcc.join(', ') : bcc;
+  if (replyTo && validarEmail(replyTo)) mailOptions.replyTo = replyTo;
+  if (priority && ['high', 'normal', 'low'].includes(priority)) {
+    mailOptions.priority = priority;
+  }
+  if (headers && typeof headers === 'object') {
+    mailOptions.headers = headers;
   }
 
-  throw new Error('No se pudo enviar el email: ' + ultimoError.message);
+  // ---- Envío con reintentos ----
+  try {
+    const info = await enviarConReintentos(transporter, mailOptions);
+    METRICAS.enviados++;
+
+    return {
+      success: true,
+      messageId: info.messageId,
+      destinatario: emailDestino,
+      adjuntos: attachments.length
+    };
+  } catch (err) {
+    METRICAS.fallidos++;
+    throw err;
+  }
 }
 
-async function verificarConexion() {
+// ============================================================
+// VERIFICACIÓN DE CONEXIÓN (con caché)
+// ============================================================
+let _verifyCache = null; // { ok, error, expiresAt }
+
+/**
+ * Verifica la conexión SMTP.
+ * Cachea el resultado durante `EMAIL_VERIFY_TTL_MS`.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.forzar=false]  Ignora la caché.
+ * @returns {Promise<{ok: boolean, error?: string, cached?: boolean}>}
+ */
+async function verificarConexion(opts = {}) {
+  const { forzar = false } = opts;
+
+  if (!forzar && _verifyCache && _verifyCache.expiresAt > Date.now()) {
+    return { ..._verifyCache.result, cached: true };
+  }
+
   const transporter = obtenerTransporter();
   if (!transporter) {
-    return { ok: false, error: 'SMTP no configurado (faltan variables de entorno)' };
+    const result = { ok: false, error: 'SMTP no configurado (faltan variables de entorno)' };
+    _verifyCache = { result, expiresAt: Date.now() + CONFIG.verifyTtlMs };
+    return result;
   }
+
+  METRICAS.verificaciones++;
   try {
     await transporter.verify();
-    return { ok: true };
+    METRICAS.verificacionesOk++;
+    const result = { ok: true };
+    _verifyCache = { result, expiresAt: Date.now() + CONFIG.verifyTtlMs };
+    return result;
   } catch (err) {
-    return { ok: false, error: err.message };
+    const result = { ok: false, error: err.message };
+    _verifyCache = { result, expiresAt: Date.now() + CONFIG.verifyTtlMs };
+    return result;
   }
 }
 
-module.exports = { enviarComprobantePorEmail, verificarConexion, crearTransporter, escHtml };
+/** Invalida la caché de `verificarConexion`. */
+function invalidarCacheVerify() {
+  _verifyCache = null;
+}
+
+// ============================================================
+// EXPORTS
+// ============================================================
+module.exports = {
+  // ---- API original ----
+  enviarComprobantePorEmail,
+  verificarConexion,
+  crearTransporter,
+  escHtml,
+
+  // ---- Extensiones ----
+  limpiarTransporter,
+  getMetricas,
+  validarEmail,
+  invalidarCacheVerify,
+  sanitizarNombreRemitente,
+  sanitizarNombreArchivo,
+  sanitizarTexto,
+  formatearMonto,
+
+  // ---- Constantes ----
+  CONFIG
+};
+
+// ---- Solo para tests ----
+module.exports._generarHTML = generarHTML;
+module.exports._esErrorTransitorioSMTP = esErrorTransitorioSMTP;
+module.exports._conTimeout = conTimeout;
+module.exports._enviarConReintentos = enviarConReintentos;
+module.exports._validarPuerto = validarPuerto;
+module.exports._errorTipado = errorTipado;
+module.exports._resetMetricas = () => {
+  METRICAS.enviados = 0;
+  METRICAS.fallidos = 0;
+  METRICAS.reintentos = 0;
+  METRICAS.verificaciones = 0;
+  METRICAS.verificacionesOk = 0;
+};
+module.exports._setTransporter = (t) => { transporterGlobal = t; transporterCreadoEn = Date.now(); };

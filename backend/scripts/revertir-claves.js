@@ -1,56 +1,130 @@
 // backend/scripts/revertir-claves.js
+// ============================================================
 // Revierte las claves generadas por migrate:claves.
-// Deja los documentos sin clave para que puedas reintentar.
+// Deja los documentos sin clave para reintentar.
+// ------------------------------------------------------------
+// Uso:
+//   node scripts/revertir-claves.js
+//   node scripts/revertir-claves.js --dry-run
+//   node scripts/revertir-claves.js --confirm
+//   node scripts/revertir-claves.js --tipo=factura          (solo un tipo)
+//   node scripts/revertir-claves.js --limit=100
+//
+// 💡 Restaura el contador `factura` al máximo secuencial que
+//    queda en BD (evita secuenciales saltados).
+// ============================================================
+'use strict';
 
-require('dotenv').config();
-const { MongoClient } = require('mongodb');
+const { run, log, ok, warn, confirmar, auditar, pad } = require('./_utils');
 
-async function main() {
-  const uri = process.env.MONGODB_URI;
-  const dbName = process.env.DB_NAME;
-  if (!uri) { console.error('❌ Falta MONGODB_URI'); process.exit(1); }
+const TIPOS_VALIDOS = [
+  'factura', 'liquidacion', 'nota_credito', 'nota_debito',
+  'guia_remision', 'retencion', 'exportacion', 'reembolso'
+];
 
-  const client = new MongoClient(uri);
-  try {
-    await client.connect();
-    const db = dbName ? client.db(dbName) : client.db();
+// ============================================================
+// HELPERS
+// ============================================================
+async function recalcularMaximoSecuencial(db, tipoFiltro) {
+  const TIPOS = tipoFiltro ? [tipoFiltro] : TIPOS_VALIDOS;
+  let maxGlobal = 0;
 
-    const TIPOS = ['factura', 'liquidacion', 'nota_credito', 'nota_debito',
-                   'guia_remision', 'retencion', 'exportacion', 'reembolso'];
+  for (const tipo of TIPOS) {
+    const [r] = await db.collection('ventas_v2').aggregate([
+      { $match: { tipo_documento: tipo, secuencial_sri: { $ne: '' } } },
+      {
+        $project: {
+          num: { $toInt: { $ifNull: ['$secuencial_sri', 0] } }
+        }
+      },
+      { $group: { _id: null, max: { $max: '$num' } } }
+    ]).toArray();
 
-    const filtro = {
-      tipo_documento: { $in: TIPOS },
-      estado_sri: 'PENDIENTE',  // solo los que acabamos de tocar
-      clave_acceso: { $ne: '' }
-    };
+    const max = Number(r?.max) || 0;
+    if (max > maxGlobal) maxGlobal = max;
+  }
+  return maxGlobal;
+}
 
-    const docs = await db.collection('ventas_v2').find(filtro, {
-      projection: { numero_factura: 1, clave_acceso: 1, fecha_emision: 1 }
-    }).toArray();
+// ============================================================
+// MAIN
+// ============================================================
+async function main({ db, args }) {
+  const { dryRun, confirmado, limit, kv } = args;
+  const tipoFiltro = kv.tipo && TIPOS_VALIDOS.includes(kv.tipo) ? kv.tipo : null;
 
-    console.log(`Documentos con clave y estado PENDIENTE: ${docs.length}`);
-    docs.forEach(d => console.log(`  ${JSON.stringify(d.numero_factura)} → ${d.clave_acceso.slice(0,20)}...`));
-    console.log('');
+  const filtro = {
+    tipo_documento: tipoFiltro ? tipoFiltro : { $in: TIPOS_VALIDOS },
+    estado_sri: 'PENDIENTE',
+    clave_acceso: { $ne: '' }
+  };
 
-    const r = await db.collection('ventas_v2').updateMany(
-      filtro,
-      { $set: {
+  // Vista previa
+  let cursor = db.collection('ventas_v2')
+    .find(filtro, { projection: { numero_factura: 1, clave_acceso: 1, fecha_emision: 1 } })
+    .sort({ _id: 1 });
+  if (limit) cursor = cursor.limit(limit);
+
+  const docs = await cursor.toArray();
+  log(`📋 Documentos con clave y estado PENDIENTE: ${docs.length}`);
+
+  if (docs.length === 0) {
+    ok('Nada por revertir');
+    return;
+  }
+
+  log('');
+  for (const d of docs.slice(0, 20)) {
+    log(`  ${pad(d.numero_factura || '(sin nº)', 24)} ${String(d.clave_acceso).slice(0, 24)}…`);
+  }
+  if (docs.length > 20) log(`  … y ${docs.length - 20} más`);
+
+  if (dryRun) {
+    warn('');
+    warn('Dry-run: no se escribió nada');
+    return;
+  }
+
+  const ok = await confirmar(`¿Revertir ${docs.length} documentos?`, { confirmado });
+  if (!ok) {
+    warn('Cancelado');
+    return;
+  }
+
+  // Revertir
+  const r = await db.collection('ventas_v2').updateMany(
+    filtro,
+    {
+      $set: {
         clave_acceso: '',
         serie: '',
         secuencial_sri: '',
         xml_generado: '',
         xml_firmado: '',
-        estado_sri: 'NO_APLICA'
-      }}
-    );
+        estado_sri: 'NO_APLICA',
+        updatedAt: new Date()
+      }
+    }
+  );
 
-    console.log(`✅ ${r.modifiedCount} documentos revertidos a sin-clave`);
-  } catch (err) {
-    console.error('❌ Error:', err.message);
-    process.exit(1);
-  } finally {
-    await client.close();
+  ok(`🎉 ${r.modifiedCount} documentos revertidos a sin-clave`);
+
+  // 💡 Restaurar contador al máximo real (evita saltos)
+  const maxReal = await recalcularMaximoSecuencial(db, tipoFiltro);
+  if (maxReal > 0) {
+    await db.collection('contadores').updateOne(
+      { _id: tipoFiltro || 'factura' },
+      { $set: { valor: maxReal, updatedAt: new Date() } },
+      { upsert: true }
+    );
+    ok(`🔢 Contador '${tipoFiltro || 'factura'}' restaurado a ${maxReal}`);
   }
+
+  await auditar(db, {
+    accion: 'revertir-claves',
+    detalle: `${r.modifiedCount} documentos revertidos`,
+    meta: { total: docs.length, modificados: r.modifiedCount, tipoFiltro, maxReal }
+  });
 }
 
-main();
+run(main).catch(e => { console.error('❌ Error fatal:', e); process.exit(1); });

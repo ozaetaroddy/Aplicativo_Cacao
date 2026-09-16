@@ -1,76 +1,133 @@
 <template>
-  <footer class="footer-modern">
-    <div class="footer-bg-pattern"></div>
+  <footer class="footer-modern" role="contentinfo">
+    <div class="footer-bg-pattern" aria-hidden="true"></div>
 
     <div class="container">
       <div class="footer-main">
         <!-- Columna 1: Brand -->
         <div class="footer-col footer-col-brand">
           <div class="footer-logo">
-            <div class="logo-icon">
+            <div class="logo-icon" aria-hidden="true">
               <i class="fas fa-calculator"></i>
             </div>
-            <div>
+            <div class="logo-text">
               <div class="logo-title">System Ozaet's Electronics</div>
-              <div class="logo-sub">Sistema Contable v2.0</div>
+              <div class="logo-sub">Sistema Contable v3.0</div>
             </div>
           </div>
           <p class="footer-description">
-            Plataforma integral para gestión contable con facturación electrónica certificada por el SRI Ecuador.
+            Plataforma integral para gestión contable con facturación electrónica
+            certificada por el SRI Ecuador.
           </p>
           <div class="footer-badges">
             <span class="badge-pill">
-              <i class="fas fa-shield-alt"></i> SRI Certified
+              <i class="fas fa-shield-alt" aria-hidden="true"></i>
+              SRI Certified
             </span>
             <span class="badge-pill">
-              <i class="fas fa-lock"></i> Seguro
+              <i class="fas fa-lock" aria-hidden="true"></i>
+              Seguro
             </span>
           </div>
         </div>
 
         <!-- Columna 2: Enlaces rápidos -->
-        <div class="footer-col">
+        <nav class="footer-col" aria-label="Enlaces rápidos">
           <h4 class="footer-heading">Enlaces Rápidos</h4>
           <ul class="footer-links">
-            <li><router-link to="/"><i class="fas fa-chevron-right"></i> Inicio</router-link></li>
-            <li><router-link to="/ventas"><i class="fas fa-chevron-right"></i> Ventas</router-link></li>
-            <li><router-link to="/compras"><i class="fas fa-chevron-right"></i> Compras</router-link></li>
-            <li><router-link to="/reportes/ventas"><i class="fas fa-chevron-right"></i> Reportes</router-link></li>
+            <li>
+              <router-link to="/">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Inicio</span>
+              </router-link>
+            </li>
+            <li>
+              <router-link to="/ventas">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Ventas</span>
+              </router-link>
+            </li>
+            <li>
+              <router-link to="/compras">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Compras</span>
+              </router-link>
+            </li>
+            <li>
+              <router-link to="/reportes/ventas">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Reportes</span>
+              </router-link>
+            </li>
           </ul>
-        </div>
+        </nav>
 
         <!-- Columna 3: Módulos -->
-        <div class="footer-col">
+        <nav class="footer-col" aria-label="Módulos">
           <h4 class="footer-heading">Módulos</h4>
           <ul class="footer-links">
-            <li><router-link to="/inventario/stock"><i class="fas fa-chevron-right"></i> Inventario</router-link></li>
-            <li><router-link to="/reportes/ats"><i class="fas fa-chevron-right"></i> Anexo ATS</router-link></li>
-            <li><router-link to="/retenciones"><i class="fas fa-chevron-right"></i> Retenciones</router-link></li>
-            <li><router-link to="/auditoria"><i class="fas fa-chevron-right"></i> Auditoría</router-link></li>
+            <li>
+              <router-link to="/inventario/stock">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Inventario</span>
+              </router-link>
+            </li>
+            <li>
+              <router-link to="/reportes/ats">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Anexo ATS</span>
+              </router-link>
+            </li>
+            <li>
+              <router-link to="/retenciones">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Retenciones</span>
+              </router-link>
+            </li>
+            <li>
+              <router-link to="/auditoria">
+                <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                <span>Auditoría</span>
+              </router-link>
+            </li>
           </ul>
-        </div>
+        </nav>
 
         <!-- Columna 4: Contacto -->
         <div class="footer-col">
           <h4 class="footer-heading">Contacto</h4>
           <ul class="footer-contact">
             <li>
-              <div class="contact-icon"><i class="fas fa-user"></i></div>
-              <div>
+              <div class="contact-icon" aria-hidden="true">
+                <i class="fas fa-user"></i>
+              </div>
+              <div class="contact-info">
                 <div class="contact-name">Roddy Ismael Ozaeta Cedeño</div>
                 <div class="contact-role">Desarrollador</div>
               </div>
             </li>
             <li>
-              <a href="tel:+593996434076" class="contact-link">
-                <div class="contact-icon"><i class="fas fa-phone-alt"></i></div>
-                <span>+593 996 434 076</span>
+              <a
+                :href="`tel:${telefonoE164}`"
+                class="contact-link"
+                :aria-label="`Llamar a ${telefonoDisplay}`"
+              >
+                <div class="contact-icon" aria-hidden="true">
+                  <i class="fas fa-phone-alt"></i>
+                </div>
+                <span>{{ telefonoDisplay }}</span>
               </a>
             </li>
             <li>
-              <a href="mailto:ozaetaroddy@gmail.com" class="contact-link">
-                <div class="contact-icon"><i class="fas fa-envelope"></i></div>
-                <span>ozaetaroddy@gmail.com</span>
+              <a
+                :href="`mailto:${EMAIL}`"
+                class="contact-link"
+                :aria-label="`Enviar correo a ${EMAIL}`"
+              >
+                <div class="contact-icon" aria-hidden="true">
+                  <i class="fas fa-envelope"></i>
+                </div>
+                <span>{{ EMAIL }}</span>
               </a>
             </li>
           </ul>
@@ -78,16 +135,16 @@
       </div>
 
       <!-- Divider -->
-      <div class="footer-divider"></div>
+      <div class="footer-divider" aria-hidden="true"></div>
 
       <!-- Footer bottom -->
       <div class="footer-bottom">
         <div class="footer-copy">
-          <i class="far fa-copyright"></i>
+          <i class="far fa-copyright" aria-hidden="true"></i>
           {{ year }} <strong>System Ozaet's Electronics</strong>. Todos los derechos reservados.
         </div>
         <div class="footer-location">
-          <i class="fas fa-map-marker-alt"></i>
+          <i class="fas fa-map-marker-alt" aria-hidden="true"></i>
           Sistema de Gestión Empresarial — Ecuador
         </div>
       </div>
@@ -98,7 +155,23 @@
 <script setup>
 import { computed } from 'vue'
 
-const year = computed(() => new Date().getFullYear())
+// ===== CONSTANTES =====
+const EMAIL = 'ozaetaroddy@gmail.com'
+const TELEFONO_DISPLAY = '+593 996 434 076'
+const TELEFONO_E164 = '+593996434076'
+
+const telefonoDisplay = TELEFONO_DISPLAY
+const telefonoE164 = TELEFONO_E164
+
+// ===== AÑO (con Intl, evita problemas de TZ) =====
+const year = computed(() => {
+  try {
+    return new Intl.DateTimeFormat('es-EC', { year: 'numeric' })
+      .format(new Date())
+  } catch {
+    return String(new Date().getFullYear())
+  }
+})
 </script>
 
 <style scoped>
@@ -109,7 +182,7 @@ const year = computed(() => new Date().getFullYear())
   margin-top: 80px;
   position: relative;
   overflow: hidden;
-  border-top: 4px solid var(--accent-color);
+  border-top: 4px solid var(--accent-color, #f1c40f);
 }
 
 .footer-bg-pattern {
@@ -134,6 +207,7 @@ const year = computed(() => new Date().getFullYear())
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 .footer-col-brand {
@@ -145,6 +219,7 @@ const year = computed(() => new Date().getFullYear())
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 .logo-icon {
   width: 52px;
@@ -159,11 +234,15 @@ const year = computed(() => new Date().getFullYear())
   box-shadow: 0 8px 20px rgba(52, 152, 219, 0.3);
   flex-shrink: 0;
 }
+.logo-text {
+  min-width: 0;
+}
 .logo-title {
   font-size: 1rem;
   font-weight: 800;
   color: #f1c40f;
   letter-spacing: 0.3px;
+  overflow-wrap: break-word;
 }
 .logo-sub {
   font-size: 0.75rem;
@@ -187,7 +266,7 @@ const year = computed(() => new Date().getFullYear())
   padding: 5px 12px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-full);
+  border-radius: 20px;
   font-size: 0.7rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.8);
@@ -207,7 +286,7 @@ const year = computed(() => new Date().getFullYear())
   color: #fff;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  margin-bottom: 4px;
+  margin: 0 0 4px;
   padding-bottom: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -227,20 +306,23 @@ const year = computed(() => new Date().getFullYear())
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.65);
   text-decoration: none;
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
 }
 .footer-links li a i {
   font-size: 0.65rem;
   color: #f1c40f;
   opacity: 0;
   transform: translateX(-4px);
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
 }
-.footer-links li a:hover {
+.footer-links li a:hover,
+.footer-links li a:focus-visible {
   color: #fff;
   padding-left: 4px;
+  outline: none;
 }
-.footer-links li a:hover i {
+.footer-links li a:hover i,
+.footer-links li a:focus-visible i {
   opacity: 1;
   transform: translateX(0);
 }
@@ -258,6 +340,7 @@ const year = computed(() => new Date().getFullYear())
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  min-width: 0;
 }
 .contact-icon {
   width: 32px;
@@ -271,10 +354,14 @@ const year = computed(() => new Date().getFullYear())
   font-size: 0.8rem;
   flex-shrink: 0;
 }
+.contact-info {
+  min-width: 0;
+}
 .contact-name {
   font-size: 0.85rem;
   font-weight: 600;
   color: #fff;
+  overflow-wrap: break-word;
 }
 .contact-role {
   font-size: 0.7rem;
@@ -288,16 +375,25 @@ const year = computed(() => new Date().getFullYear())
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.85rem;
   text-decoration: none;
-  transition: color var(--transition-fast);
+  transition: color 0.2s ease;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
-.contact-link:hover {
+.contact-link:hover,
+.contact-link:focus-visible {
   color: #f1c40f;
+  outline: none;
 }
 
 /* ===== DIVIDER Y BOTTOM ===== */
 .footer-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
   margin: 40px 0 20px;
 }
 
@@ -342,6 +438,15 @@ const year = computed(() => new Date().getFullYear())
   .footer-bottom {
     flex-direction: column;
     text-align: center;
+  }
+}
+
+/* ===== ACCESIBILIDAD ===== */
+@media (prefers-reduced-motion: reduce) {
+  .footer-links li a,
+  .footer-links li a i,
+  .contact-link {
+    transition: none;
   }
 }
 </style>

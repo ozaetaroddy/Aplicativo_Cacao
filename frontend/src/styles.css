@@ -1,12 +1,60 @@
 /* ============================================================
-   SISTEMA CONTABLE — DESIGN SYSTEM v3
-   Paleta refinada, tipografía profesional, elevación sutil
+   SISTEMA CONTABLE — DESIGN SYSTEM v4
+   ------------------------------------------------------------
+   Mejoras v4:
+     · `color-scheme` → controles nativos del SO en dark mode.
+     · `@property`    → animaciones suaves de custom properties.
+     · `scrollbar-gutter: stable` → evita CLS al aparecer scroll.
+     · `text-wrap: balance/pretty` → tipografía profesional.
+     · Escala de `z-index` centralizada en variables.
+     · `@supports`    → fallbacks para backdrop-filter.
+     · `forced-colors` → soporte modo alto contraste (Windows).
+     · `prefers-contrast: more` → contraste reforzado.
+     · Print styles más completos.
    ============================================================ */
+
+/* ============================================================
+   @PROPERTY (animaciones suaves de custom properties)
+   ------------------------------------------------------------
+   Permite transicionar colores y sombras sin “saltos”.
+   ============================================================ */
+@property --primary-color {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #2563eb;
+}
+
+@property --bg-card {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #ffffff;
+}
+
+@property --text-primary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #0f172a;
+}
 
 /* ============================================================
    DESIGN TOKENS
    ============================================================ */
 :root {
+  /* ---------- Color scheme (controles nativos) ---------- */
+  color-scheme: light;
+
+  /* ---------- Z-INDEX SCALE ---------- */
+  --z-base: 1;
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1050;
+  --z-modal: 1060;
+  --z-popover: 1070;
+  --z-tooltip: 1080;
+  --z-tour: 9000;
+  --z-toast: 10000;
+
   /* ---------- Marca ---------- */
   --primary-color: #2563eb;
   --primary-hover: #1d4ed8;
@@ -154,6 +202,8 @@
    DARK MODE
    ============================================================ */
 [data-theme="dark"] {
+  color-scheme: dark;
+
   --bg-body: #0a0f1c;
   --bg-body-alt: #0f1524;
   --bg-card: #131a2b;
@@ -195,7 +245,9 @@
 /* ============================================================
    RESET & BASE
    ============================================================ */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -206,6 +258,8 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   height: 100%;
+  /* Evita CLS cuando aparece/desaparece la scrollbar */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -245,7 +299,10 @@ body::before {
     radial-gradient(ellipse 500px 400px at 50% 50%, rgba(139, 92, 246, 0.08), transparent 60%);
 }
 
-#app { position: relative; z-index: 1; }
+#app {
+  position: relative;
+  z-index: var(--z-base);
+}
 
 /* ============================================================
    TIPOGRAFÍA
@@ -255,6 +312,8 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: var(--ls-tight);
   line-height: var(--lh-tight);
   color: var(--text-primary);
+  /* Evita “viudas” y balancea las líneas */
+  text-wrap: balance;
 }
 
 h1 { font-size: clamp(1.75rem, 4vw, var(--fs-4xl)); font-weight: var(--fw-extrabold); letter-spacing: var(--ls-tighter); }
@@ -263,6 +322,10 @@ h3 { font-size: clamp(1.25rem, 2.5vw, var(--fs-2xl)); font-weight: var(--fw-bold
 h4 { font-size: var(--fs-xl); font-weight: var(--fw-bold); }
 h5 { font-size: var(--fs-lg); font-weight: var(--fw-semibold); }
 h6 { font-size: var(--fs-md); font-weight: var(--fw-semibold); }
+
+p {
+  text-wrap: pretty;
+}
 
 a {
   color: var(--text-link);
@@ -328,7 +391,13 @@ code {
   transition: all var(--transition);
   overflow: hidden;
   position: relative;
-  backdrop-filter: blur(8px);
+}
+
+@supports (backdrop-filter: blur(8px)) {
+  .card-cacao {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
 }
 
 .card-cacao:hover {
@@ -863,10 +932,16 @@ code {
    ============================================================ */
 .glass {
   background: var(--bg-glass);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
   border: 1px solid var(--border-color);
 }
+
+@supports (backdrop-filter: blur(16px)) {
+  .glass {
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+  }
+}
+
 .gradient-text {
   background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
   -webkit-background-clip: text;
@@ -892,7 +967,11 @@ code {
   box-shadow: 0 0 0 3px var(--shadow-focus), 0 0 0 1px var(--primary-color);
   border-radius: var(--radius-sm);
 }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: none;
   box-shadow: 0 0 0 4px var(--shadow-focus);
 }
@@ -917,14 +996,33 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
    PRINT
    ============================================================ */
 @media print {
-  .no-print, .navbar-cacao, .footer-cacao { display: none !important; }
-  body { background: #fff; color: #000; }
+  .no-print,
+  .navbar-cacao,
+  .footer-cacao,
+  .skip-link {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
   body::before { display: none; }
-  .card-cacao { box-shadow: none; border: 1px solid #ddd; }
+  .card-cacao {
+    box-shadow: none;
+    border: 1px solid #ddd;
+  }
+  a[href]::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.8em;
+    color: #555;
+  }
+  @page {
+    margin: 1.5cm;
+  }
 }
 
 /* ============================================================
-   ACCESIBILIDAD
+   ACCESIBILIDAD — REDUCED MOTION
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -936,7 +1034,44 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 /* ============================================================
-   ONBOARDING TOUR (spotlight overlay)
+   ACCESIBILIDAD — ALTO CONTRASTE (Windows / macOS)
+   ============================================================ */
+@media (forced-colors: active) {
+  .btn,
+  .form-control,
+  .form-select,
+  .card-cacao {
+    border: 1px solid ButtonBorder;
+  }
+  .badge {
+    border: 1px solid ButtonBorder;
+  }
+  .skip-link {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+/* ============================================================
+   ACCESIBILIDAD — PREFIERE MÁS CONTRASTE
+   ============================================================ */
+@media (prefers-contrast: more) {
+  :root {
+    --border-color: #94a3b8;
+    --border-strong: #64748b;
+    --text-secondary: #1e293b;
+    --text-muted: #475569;
+  }
+  [data-theme="dark"] {
+    --border-color: #475569;
+    --border-strong: #64748b;
+    --text-secondary: #f1f5f9;
+    --text-muted: #cbd5e1;
+  }
+}
+
+/* ============================================================
+   ONBOARDING TOUR
    ============================================================ */
 .tour-active { overflow: hidden; }
 
@@ -952,6 +1087,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .Vue-Toastification__toast {
   border-radius: var(--radius-lg) !important;
   box-shadow: var(--shadow-xl) !important;
-  backdrop-filter: blur(12px);
   font-family: var(--font-family) !important;
+}
+
+@supports (backdrop-filter: blur(12px)) {
+  .Vue-Toastification__toast {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+/* Contenedor con anuncio accesible */
+.toast-container-a11y {
+  /* Los toasts se anuncian vía `aria-live` que ya provee la librería */
 }

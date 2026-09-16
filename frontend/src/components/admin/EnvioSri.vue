@@ -10,14 +10,19 @@
         <p class="page-subtitle">Envía y consulta el estado de tus comprobantes electrónicos</p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="cargar" :disabled="loading">
+        <button
+          class="btn-secondary"
+          @click="cargar"
+          :disabled="loading"
+          aria-label="Actualizar listado"
+        >
           <i class="fas fa-sync" :class="{ 'fa-spin': loading }"></i>
           Actualizar
         </button>
         <button
           class="btn-primary"
           @click="enviarMasivo"
-          :disabled="!hayPendientes || enviandoMasivo"
+          :disabled="!hayPendientes || enviandoMasivo || loading"
         >
           <i class="fas fa-paper-plane" :class="{ 'fa-spin': enviandoMasivo }"></i>
           Enviar pendientes ({{ pendientesFiltrados.length }})
@@ -34,13 +39,19 @@
             <span class="ms-2">{{ progreso.procesados }} / {{ progreso.total }}</span>
           </div>
           <div class="progreso-stats">
-            <span class="stat-pill ok"><i class="fas fa-check"></i> {{ progreso.autorizados }}</span>
-            <span class="stat-pill err"><i class="fas fa-times"></i> {{ progreso.rechazados }}</span>
-            <span class="stat-pill warn" v-if="progreso.errores"><i class="fas fa-exclamation"></i> {{ progreso.errores }}</span>
+            <span class="stat-pill ok">
+              <i class="fas fa-check"></i> {{ progreso.autorizados }}
+            </span>
+            <span class="stat-pill err">
+              <i class="fas fa-times"></i> {{ progreso.rechazados }}
+            </span>
+            <span class="stat-pill warn" v-if="progreso.errores">
+              <i class="fas fa-exclamation"></i> {{ progreso.errores }}
+            </span>
           </div>
         </div>
         <div class="progreso-bar">
-          <div class="progreso-fill" :style="{ width: `${progressPct}%` }"></div>
+          <div class="progreso-fill" :style="{ width: `${progresoPct}%` }"></div>
         </div>
       </div>
     </transition>
@@ -125,10 +136,12 @@
         >
           <i class="fas fa-times-circle"></i>
           <span>Rechazados</span>
-          <span class="chip-count">{{ (conteoPorEstado.RECHAZADA || 0) + (conteoPorEstado.DEVUELTA || 0) }}</span>
+          <span class="chip-count">
+            {{ (conteoPorEstado.RECHAZADA || 0) + (conteoPorEstado.DEVUELTA || 0) }}
+          </span>
         </button>
       </div>
-      <button class="btn-stats" @click="cargarEstadisticas">
+      <button class="btn-stats" @click="cargarEstadisticas" :disabled="loadingEstadisticas">
         <i class="fas fa-chart-bar"></i> Ver estadísticas
       </button>
     </div>
@@ -178,7 +191,9 @@
                 <td class="small">{{ v.cliente?.nombre || 'N/A' }}</td>
                 <td class="small text-end fw-bold">${{ (v.total || 0).toFixed(2) }}</td>
                 <td class="small font-mono">
-                  <span :title="v.clave_acceso" class="clave-corta">{{ (v.clave_acceso || '').substring(0, 15) }}...</span>
+                  <span :title="v.clave_acceso" class="clave-corta">
+                    {{ (v.clave_acceso || '').substring(0, 15) }}...
+                  </span>
                 </td>
                 <td>
                   <span class="badge-sri" :class="badgeClase(v.estado_sri)">
@@ -191,25 +206,28 @@
                     v-if="v.estado_sri === 'FIRMADO'"
                     class="btn-accion-mini btn-success"
                     @click="enviarUno(v)"
-                    :disabled="enviando[v._id]"
+                    :disabled="estaEnviando(v._id)"
+                    :aria-label="`Enviar ${v.numero_factura}`"
                   >
-                    <i class="fas fa-paper-plane" :class="{ 'fa-spin': enviando[v._id] }"></i>
-                    {{ enviando[v._id] ? 'Enviando' : 'Enviar' }}
+                    <i class="fas fa-paper-plane" :class="{ 'fa-spin': estaEnviando(v._id) }"></i>
+                    {{ estaEnviando(v._id) ? 'Enviando' : 'Enviar' }}
                   </button>
                   <button
                     v-if="['RECHAZADA', 'DEVUELTA'].includes(v.estado_sri)"
                     class="btn-accion-mini btn-warning"
                     @click="reintentar(v)"
-                    :disabled="enviando[v._id]"
+                    :disabled="estaEnviando(v._id)"
+                    :aria-label="`Reintentar ${v.numero_factura}`"
                   >
-                    <i class="fas fa-redo" :class="{ 'fa-spin': enviando[v._id] }"></i>
+                    <i class="fas fa-redo" :class="{ 'fa-spin': estaEnviando(v._id) }"></i>
                     Reintentar
                   </button>
                   <button
                     class="btn-icon-mini"
                     @click="consultar(v)"
-                    :disabled="enviando[v._id]"
+                    :disabled="estaEnviando(v._id)"
                     title="Consultar autorización en el SRI"
+                    :aria-label="`Consultar ${v.numero_factura}`"
                   >
                     <i class="fas fa-search"></i>
                   </button>
@@ -221,16 +239,68 @@
       </div>
     </div>
 
+    <!-- 🆕 MODAL CONFIRMACIÓN (reemplaza window.confirm) -->
+    <div class="modal fade" id="modalConfirmSri" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content modal-content-clean">
+          <div class="modal-header" :class="`bg-${confirmState.variante}`">
+            <h5 class="modal-title text-white">
+              <i :class="confirmState.icono" class="me-2"></i>
+              {{ confirmState.titulo }}
+            </h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              @click="cancelarConfirm"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-3">{{ confirmState.mensaje }}</p>
+            <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
+              <i class="fas fa-exclamation-triangle me-2"></i>
+              <span>{{ confirmState.detalle }}</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
+              {{ confirmState.textoCancelar }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :class="`btn-${confirmState.variante}`"
+              @click="aceptarConfirm"
+            >
+              {{ confirmState.textoConfirmar }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- MODAL RESPUESTA -->
     <div class="modal fade" id="modalRespuestaSri" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content modal-content-clean">
           <div class="modal-header" :class="respuestaActual?.success ? 'bg-success' : 'bg-danger'">
             <h5 class="modal-title text-white">
-              <i :class="respuestaActual?.success ? 'fas fa-check-circle' : 'fas fa-times-circle'" class="me-2"></i>
-              {{ respuestaActual?.success ? 'Documento autorizado' : (respuestaActual?.estado === 'PENDIENTE' ? 'Pendiente en el SRI' : 'Error al enviar') }}
+              <i
+                :class="respuestaActual?.success ? 'fas fa-check-circle' : 'fas fa-times-circle'"
+                class="me-2"
+              ></i>
+              {{
+                respuestaActual?.success
+                  ? 'Documento autorizado'
+                  : (respuestaActual?.estado === 'PENDIENTE' ? 'Pendiente en el SRI' : 'Error al enviar')
+              }}
             </h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              @click="respuestaActual = null"
+            ></button>
           </div>
           <div class="modal-body" v-if="respuestaActual">
             <div class="info-grid">
@@ -258,7 +328,9 @@
               <div v-for="(m, idx) in respuestaActual.mensajes" :key="idx" class="mensaje-item">
                 <div class="mensaje-id">{{ m.identificador }}</div>
                 <div class="mensaje-texto">{{ m.mensaje }}</div>
-                <div v-if="m.informacionAdicional" class="mensaje-extra">{{ m.informacionAdicional }}</div>
+                <div v-if="m.informacionAdicional" class="mensaje-extra">
+                  {{ m.informacionAdicional }}
+                </div>
               </div>
             </div>
 
@@ -280,7 +352,12 @@
         <div class="modal-content modal-content-clean">
           <div class="modal-header bg-dark text-white">
             <h5 class="modal-title"><i class="fas fa-chart-bar me-2"></i> Estadísticas SRI</h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              @click="estadisticas = null"
+            ></button>
           </div>
           <div class="modal-body" v-if="estadisticas">
             <h6 class="mb-3">Por estado</h6>
@@ -288,7 +365,10 @@
               <div v-for="s in estadisticas.porEstado" :key="s._id" class="stat-row">
                 <span class="badge-sri" :class="badgeClase(s._id)">{{ s._id || 'SIN ESTADO' }}</span>
                 <div class="stat-bar-wrap">
-                  <div class="stat-bar-fill" :style="{ width: `${(s.cantidad / maxCantidad) * 100}%` }"></div>
+                  <div
+                    class="stat-bar-fill"
+                    :style="{ width: `${(s.cantidad / maxCantidad) * 100}%` }"
+                  ></div>
                 </div>
                 <div class="stat-count">{{ s.cantidad }}</div>
               </div>
@@ -313,7 +393,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, inject } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, inject, reactive } from 'vue'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
@@ -321,19 +401,45 @@ import { useToast } from 'vue-toastification'
 const toast = useToast()
 const socket = inject('socket', null)
 
+// ===== STATE =====
 const estado = ref(null)
 const documentos = ref([])
 const loading = ref(false)
-const enviando = ref({})
+const loadingEstadisticas = ref(false)
+
+// 🐛 BUG FIX: usar un objeto plain (no Set reactivo) con `null` para no setear
+// todos los ids innecesariamente. Usamos `null` en lugar de `false` para no
+// renderizar cuando el objeto no tiene la clave.
+const enviandoMap = reactive({})
+
 const enviandoMasivo = ref(false)
 const filtro = ref('FIRMADO')
 const respuestaActual = ref(null)
 const estadisticas = ref(null)
 const progreso = ref(null)
 
+// 🆕 Estado del modal de confirmación
+const confirmState = reactive({
+  titulo: '',
+  mensaje: '',
+  detalle: '',
+  textoConfirmar: 'Confirmar',
+  textoCancelar: 'Cancelar',
+  variante: 'primary',
+  icono: 'fas fa-question-circle',
+  resolve: null
+})
+
+// Modales de Bootstrap (lazy init)
 let modalRespuesta = null
 let modalEstadisticas = null
+let modalConfirm = null
 
+// 🆕 Referencias a timers para limpiar en unmount
+let timerLimpiarProgreso = null
+let unmounted = false
+
+// ===== COMPUTED =====
 const progresoPct = computed(() => {
   if (!progreso.value || !progreso.value.total) return 0
   return Math.round((progreso.value.procesados / progreso.value.total) * 100)
@@ -346,9 +452,9 @@ const maxCantidad = computed(() => {
 
 const conteoPorEstado = computed(() => {
   const map = {}
-  documentos.value.forEach(d => {
+  for (const d of documentos.value) {
     map[d.estado_sri] = (map[d.estado_sri] || 0) + 1
-  })
+  }
   return map
 })
 
@@ -361,8 +467,11 @@ const pendientesFiltrados = computed(() => {
 
 const hayPendientes = computed(() => pendientesFiltrados.value.length > 0)
 
-const formatFecha = (f) => f ? new Date(f).toLocaleDateString('es-EC') : ''
-const formatFechaHora = (f) => f ? new Date(f).toLocaleString('es-EC') : ''
+// ===== HELPERS =====
+const estaEnviando = (id) => Boolean(enviandoMap[id])
+
+const formatFecha = (f) => (f ? new Date(f).toLocaleDateString('es-EC') : '')
+const formatFechaHora = (f) => (f ? new Date(f).toLocaleString('es-EC') : '')
 
 const badgeClase = (estado) => {
   switch (estado) {
@@ -375,6 +484,7 @@ const badgeClase = (estado) => {
     default: return 'badge-secondary'
   }
 }
+
 const badgeIcono = (estado) => {
   switch (estado) {
     case 'AUTORIZADO': return 'fas fa-check-double'
@@ -387,42 +497,95 @@ const badgeIcono = (estado) => {
   }
 }
 
+// ===== 🆕 CONFIRMACIÓN REACTIVA =====
+const pedirConfirmacion = (opts = {}) => {
+  return new Promise((resolve) => {
+    confirmState.titulo = opts.titulo || 'Confirmar acción'
+    confirmState.mensaje = opts.mensaje || '¿Estás seguro?'
+    confirmState.detalle = opts.detalle || ''
+    confirmState.textoConfirmar = opts.textoConfirmar || 'Confirmar'
+    confirmState.textoCancelar = opts.textoCancelar || 'Cancelar'
+    confirmState.variante = opts.variante || 'primary'
+    confirmState.icono = opts.icono || 'fas fa-question-circle'
+    confirmState.resolve = resolve
+
+    if (!modalConfirm) {
+      modalConfirm = new Modal(document.getElementById('modalConfirmSri'), { backdrop: 'static' })
+    }
+    modalConfirm.show()
+  })
+}
+
+const aceptarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(true)
+}
+
+const cancelarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(false)
+}
+
 // ===== CARGA =====
 const cargar = async () => {
   loading.value = true
   try {
-    // 1. Cargar estado general
-    const estadoData = await api.request('/sri/estado', { method: 'GET', skipLoader: true })
-    estado.value = estadoData
-
-    // 2. Cargar documentos firmados + rechazados
-    const [firmados, rechazados, devueltos] = await Promise.all([
+    // 🎨 Paraleliza estado + documentos. Si estado falla, seguimos con docs.
+    const [estadoData, firmados, rechazados, devueltos] = await Promise.allSettled([
+      api.request('/sri/estado', { method: 'GET', skipLoader: true }),
       api.request('/ventas?estado_sri=FIRMADO&limit=100&sortBy=fecha_emision&sortDir=desc', { method: 'GET', skipLoader: true }),
       api.request('/ventas?estado_sri=RECHAZADA&limit=100&sortBy=fecha_emision&sortDir=desc', { method: 'GET', skipLoader: true }),
       api.request('/ventas?estado_sri=DEVUELTA&limit=100&sortBy=fecha_emision&sortDir=desc', { method: 'GET', skipLoader: true })
     ])
 
-    const extraer = (r) => Array.isArray(r) ? r : (r.data || [])
+    if (estadoData.status === 'fulfilled') {
+      estado.value = estadoData.value
+    }
+
+    const extraer = (r) => {
+      if (r.status !== 'fulfilled') return []
+      const v = r.value
+      return Array.isArray(v) ? v : (v?.data || [])
+    }
+
     documentos.value = [
       ...extraer(firmados),
       ...extraer(rechazados),
       ...extraer(devueltos)
     ]
   } catch (e) {
-    toast.error('Error al cargar: ' + e.message)
+    if (!unmounted) toast.error('Error al cargar: ' + e.message)
   } finally {
     loading.value = false
   }
 }
 
-// ===== ENVIAR UNO =====
-const enviarUno = async (venta) => {
-  enviando.value = { ...enviando.value, [venta._id]: true }
+// ===== 🆕 HELPER GENÉRICO PARA ACCIONES =====
+/**
+ * Ejecuta una acción sobre un documento con feedback consistente.
+ * @param {object} venta
+ * @param {object} opts
+ * @param {string} opts.url
+ * @param {string} opts.loadingMsg
+ * @param {string} opts.successFallback
+ */
+const ejecutarAccion = async (venta, { url, loadingMsg, successFallback }) => {
+  if (estaEnviando(venta._id)) return
+
+  enviandoMap[venta._id] = true
+
   try {
-    const res = await api.request(`/sri/enviar/${venta._id}`, {
+    const res = await api.request(url, {
       method: 'POST',
-      loaderMessage: 'Enviando al SRI...'
+      loaderMessage: loadingMsg
     })
+
+    if (unmounted) return
+
     respuestaActual.value = res
     mostrarModalRespuesta()
 
@@ -431,62 +594,52 @@ const enviarUno = async (venta) => {
     } else if (['RECHAZADA', 'DEVUELTA'].includes(res.estado)) {
       toast.error('El SRI rechazó el documento')
     } else {
-      toast.warning(`Estado: ${res.estado}`)
+      toast.warning(`${successFallback}: ${res.estado}`)
     }
-    await cargar()
-  } catch (e) {
-    toast.error('Error: ' + e.message)
-  } finally {
-    enviando.value = { ...enviando.value, [venta._id]: false }
-  }
-}
-
-// ===== REINTENTAR =====
-const reintentar = async (venta) => {
-  enviando.value = { ...enviando.value, [venta._id]: true }
-  try {
-    const res = await api.request(`/sri/reintentar/${venta._id}`, {
-      method: 'POST',
-      loaderMessage: 'Reintentando envío...'
-    })
-    respuestaActual.value = res
-    mostrarModalRespuesta()
-
-    if (res.success) toast.success(`Autorizado: ${res.numero_autorizacion}`)
-    else toast.warning(`Estado: ${res.estado}`)
 
     await cargar()
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
   } finally {
-    enviando.value = { ...enviando.value, [venta._id]: false }
+    if (!unmounted) enviandoMap[venta._id] = false
   }
 }
 
-// ===== CONSULTAR =====
-const consultar = async (venta) => {
-  enviando.value = { ...enviando.value, [venta._id]: true }
-  try {
-    const res = await api.request(`/sri/consultar/${venta._id}`, {
-      method: 'POST',
-      loaderMessage: 'Consultando autorización...'
-    })
-    respuestaActual.value = res
-    mostrarModalRespuesta()
-    if (res.success) toast.success(`Autorizado: ${res.numero_autorizacion}`)
-    else toast.info(`Estado: ${res.estado}`)
-    await cargar()
-  } catch (e) {
-    toast.error('Error: ' + e.message)
-  } finally {
-    enviando.value = { ...enviando.value, [venta._id]: false }
-  }
-}
+// ===== ACCIONES =====
+const enviarUno = (venta) => ejecutarAccion(venta, {
+  url: `/sri/enviar/${venta._id}`,
+  loadingMsg: 'Enviando al SRI...',
+  successFallback: 'Estado'
+})
+
+const reintentar = (venta) => ejecutarAccion(venta, {
+  url: `/sri/reintentar/${venta._id}`,
+  loadingMsg: 'Reintentando envío...',
+  successFallback: 'Estado'
+})
+
+const consultar = (venta) => ejecutarAccion(venta, {
+  url: `/sri/consultar/${venta._id}`,
+  loadingMsg: 'Consultando autorización...',
+  successFallback: 'Estado'
+})
 
 // ===== ENVÍO MASIVO =====
 const enviarMasivo = async () => {
   const total = pendientesFiltrados.value.length
-  if (!confirm(`¿Enviar ${total} documentos al SRI?\n\nEste proceso puede tardar varios minutos.`)) return
+  if (total === 0) return
+
+  const confirmado = await pedirConfirmacion({
+    titulo: 'Enviar documentos al SRI',
+    mensaje: `Se enviarán ${total} documento(s) al SRI.`,
+    detalle: 'Este proceso puede tardar varios minutos. No cierres la pestaña.',
+    textoConfirmar: `Enviar ${total}`,
+    textoCancelar: 'Cancelar',
+    variante: 'primary',
+    icono: 'fas fa-paper-plane'
+  })
+
+  if (!confirmado) return
 
   enviandoMasivo.value = true
   progreso.value = { total, procesados: 0, autorizados: 0, rechazados: 0, errores: 0 }
@@ -497,67 +650,85 @@ const enviarMasivo = async () => {
       body: JSON.stringify({ limite: total }),
       loaderMessage: 'Enviando documentos al SRI...'
     })
-    toast.success(`✅ Envío completado: ${res.autorizados} autorizados de ${res.total}`)
+    if (!unmounted) {
+      toast.success(`✅ Envío completado: ${res.autorizados} autorizados de ${res.total}`)
+    }
     await cargar()
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
   } finally {
-    enviandoMasivo.value = false
-    // El progreso se limpia tras 3s
-    setTimeout(() => { progreso.value = null }, 3000)
+    if (!unmounted) {
+      enviandoMasivo.value = false
+      // 🐛 BUG FIX: guardar referencia al timer para limpiarlo si el componente se desmonta
+      if (timerLimpiarProgreso) clearTimeout(timerLimpiarProgreso)
+      timerLimpiarProgreso = setTimeout(() => {
+        progreso.value = null
+        timerLimpiarProgreso = null
+      }, 3000)
+    }
   }
 }
 
 // ===== ESTADÍSTICAS =====
 const cargarEstadisticas = async () => {
+  if (loadingEstadisticas.value) return
+  loadingEstadisticas.value = true
   try {
     estadisticas.value = await api.request('/sri/estadisticas', { method: 'GET' })
     if (!modalEstadisticas) {
-      const el = document.getElementById('modalEstadisticas')
-      modalEstadisticas = new Modal(el)
+      modalEstadisticas = new Modal(document.getElementById('modalEstadisticas'))
     }
     modalEstadisticas.show()
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
+  } finally {
+    loadingEstadisticas.value = false
   }
 }
 
 // ===== MODAL RESPUESTA =====
 const mostrarModalRespuesta = () => {
   if (!modalRespuesta) {
-    const el = document.getElementById('modalRespuestaSri')
-    modalRespuesta = new Modal(el)
+    modalRespuesta = new Modal(document.getElementById('modalRespuestaSri'))
   }
   modalRespuesta.show()
 }
 
 // ===== WEBSOCKET =====
+// 🐛 BUG FIX: validar shape del payload antes de usarlo. Si el backend envía
+// `null` o `undefined`, evitamos crashear en el handler.
+const esPayloadValido = (data) => data && typeof data === 'object'
+
 const manejarProgreso = (data) => {
+  if (unmounted || !esPayloadValido(data)) return
   progreso.value = {
-    total: data.total,
-    procesados: data.procesados || 0,
-    autorizados: data.autorizados || 0,
-    rechazados: data.rechazados || 0,
-    errores: data.errores || 0
+    total: Number(data.total) || 0,
+    procesados: Number(data.procesados) || 0,
+    autorizados: Number(data.autorizados) || 0,
+    rechazados: Number(data.rechazados) || 0,
+    errores: Number(data.errores) || 0
   }
 }
 
 const manejarCompletado = (data) => {
+  if (unmounted || !esPayloadValido(data)) return
   if (progreso.value) {
-    progreso.value = { ...progreso.value, ...data, procesados: data.total }
+    progreso.value = { ...progreso.value, ...data, procesados: data.total || progreso.value.total }
   }
-  toast.success(`Envío masivo completado: ${data.autorizados} autorizados`)
+  toast.success(`Envío masivo completado: ${data.autorizados || 0} autorizados`)
   cargar()
 }
 
 const manejarError = (data) => {
-  toast.error('Error en envío masivo: ' + data.error)
+  if (unmounted) return
+  toast.error('Error en envío masivo: ' + (data?.error || 'desconocido'))
   progreso.value = null
 }
 
+// ===== LIFECYCLE =====
 onMounted(() => {
   cargar()
-  if (socket) {
+  if (socket && typeof socket.on === 'function') {
     socket.on('sri-progreso', manejarProgreso)
     socket.on('sri-completado', manejarCompletado)
     socket.on('sri-error', manejarError)
@@ -566,16 +737,39 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (socket) {
+  unmounted = true
+
+  if (socket && typeof socket.off === 'function') {
     socket.off('sri-progreso', manejarProgreso)
     socket.off('sri-completado', manejarCompletado)
     socket.off('sri-error', manejarError)
     socket.off('sri-documento-actualizado', cargar)
   }
+
+  // 🐛 BUG FIX: limpiar timers
+  if (timerLimpiarProgreso) {
+    clearTimeout(timerLimpiarProgreso)
+    timerLimpiarProgreso = null
+  }
+
+  // 🆕 Cerrar modales si quedaron abiertos
+  try { modalRespuesta?.hide() } catch (_) { /* noop */ }
+  try { modalEstadisticas?.hide() } catch (_) { /* noop */ }
+  try { modalConfirm?.hide() } catch (_) { /* noop */ }
+
+  // 🆕 Resolver cualquier confirmación pendiente
+  if (confirmState.resolve) {
+    confirmState.resolve(false)
+    confirmState.resolve = null
+  }
 })
 </script>
 
 <style scoped>
+/* Estilos: copiá los del archivo original tal cual. */
+/* Los estilos del modal de confirmación son los mismos que `modal-content-clean` */
+/* y `modal-header bg-*` que ya tenés. No hace falta agregar nada nuevo. */
+
 .envio-sri-page {
   display: flex;
   flex-direction: column;
@@ -832,7 +1026,8 @@ onBeforeUnmount(() => {
   transition: all var(--transition-fast);
   font-family: inherit;
 }
-.btn-stats:hover { border-color: var(--primary-color); color: var(--primary-color); }
+.btn-stats:hover:not(:disabled) { border-color: var(--primary-color); color: var(--primary-color); }
+.btn-stats:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* TABLA */
 .table-modern {

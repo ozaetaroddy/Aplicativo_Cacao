@@ -1,3 +1,14 @@
+// src/router/index.js
+// ============================================================
+// Router principal con:
+//   - Lazy loading de componentes
+//   - Guards de autenticación + permisos
+//   - Título dinámico de página
+//   - Manejo de errores de chunk con retry controlado
+//   - Prevención de open-redirect
+// ============================================================
+'use strict'
+
 import { createRouter, createWebHistory } from 'vue-router'
 import { usePermisos } from '../composables/usePermisos'
 
@@ -61,6 +72,36 @@ const DiagnosticoSistema = () => import('../components/admin/DiagnosticoSistema.
 
 // Periodos
 const PeriodosCerrados = () => import('../components/periodos/PeriodosCerrados.vue')
+
+// ============================================================
+// HELPERS DE STORAGE (protegidos)
+// ============================================================
+function storageGet(key) {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function storageRemove(key) {
+  try {
+    localStorage.removeItem(key)
+  } catch { /* noop */ }
+}
+
+/**
+ * Solo permitimos redirigir a rutas internas de la app.
+ * Bloquea open-redirects tipo `?redirect=https://evil.com`.
+ */
+function esRedirectSeguro(value) {
+  if (typeof value !== 'string' || !value) return false
+  // Debe empezar con "/" y NO "//" (protocol-relative)
+  if (!value.startsWith('/')) return false
+  if (value.startsWith('//')) return false
+  if (value.startsWith('/\\')) return false
+  return true
+}
 
 // ============================================================
 // RUTAS
@@ -199,7 +240,6 @@ const routes = [
     meta: { requiresAuth: true, modulo: 'productos', accion: 'editar', title: 'Editar Producto' }
   },
 
-  
   // ===== CATEGORÍAS =====
   {
     path: '/categorias',
@@ -282,6 +322,10 @@ const routes = [
 
   // ===== REPORTES =====
   {
+    path: '/reportes',
+    redirect: '/reportes/ventas'
+  },
+  {
     path: '/reportes/ventas',
     name: 'ReporteVentas',
     component: ReporteVentas,
@@ -322,10 +366,6 @@ const routes = [
     name: 'AnexoATS',
     component: AnexoATS,
     meta: { requiresAuth: true, modulo: 'reportes', accion: 'ver', title: 'Anexo ATS' }
-  },
-  {
-    path: '/reportes',
-    redirect: '/reportes/ventas'
   },
 
   // ===== CONSULTAR DOCUMENTOS =====
@@ -398,13 +438,13 @@ const routes = [
     component: EnvioSri,
     meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver', title: 'Envío al SRI' }
   },
-
   {
-  path: '/diagnostico',
-  name: 'DiagnosticoSistema',
-  component: DiagnosticoSistema,
-  meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver', title: 'Diagnóstico' }
-},
+    path: '/diagnostico',
+    name: 'DiagnosticoSistema',
+    component: DiagnosticoSistema,
+    meta: { requiresAuth: true, modulo: 'usuarios', accion: 'ver', title: 'Diagnóstico' }
+  },
+
   // ===== 404 / CATCH-ALL =====
   {
     path: '/:pathMatch(.*)*',
@@ -420,84 +460,124 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL || '/'),
   routes,
   scrollBehavior(to, from, savedPosition) {
-    // Restaurar posición al volver atrás
+    // Al volver atrás, restaurar la posición
     if (savedPosition) return savedPosition
-    // Ir al inicio en rutas nuevas
-    return { top: 0, behavior: 'smooth' }
+    // Al cambiar de ruta, ir al top SIN smooth (evita scroll janky)
+    if (to.path === from.path) return undefined // no hacer nada si solo cambia query
+    return { top: 0, left: 0 }
   }
 })
 
 // ============================================================
-// GUARD DE NAVEGACIÓN
+// GUARD GLOBAL — BEFORE EACH
 // ============================================================
-router.beforeEach(async (to, from, next) => {
-  // Actualizar el título de la página
+router.beforeEach(async (to) => {
+  // ---- 1. Título de la página ----
   const titulo = to.meta?.title
   document.title = titulo ? `${titulo} — Sistema Contable` : 'Sistema Contable'
 
-  // Usamos `auth_hint` (no sensible) para saber si hay sesión probable.
-  // La verdad real la tiene el backend con la cookie httpOnly.
-  const tieneHint = !!localStorage.getItem('auth_hint')
-  const esRutaPublica = to.meta?.public || to.path === '/login'
+  // ---- 2. Detectar sesión probable ----
+  const tieneHint = Boolean(storageGet('auth_hint'))
+  const esPublica = to.meta?.public === true || to.path === '/login'
 
-  // 1. Si está en login y ya tiene hint → redirigir al home
+  // ---- 3. Redirigir desde /login si ya hay sesión ----
   if (to.path === '/login' && tieneHint) {
-    return next('/')
+    // Validar que el redirect sea seguro (evita open-redirect)
+    const queryRedirect = to.query?.redirect
+    const destino = esRedirectSeguro(queryRedirect) ? queryRedirect : '/'
+    return destino
   }
 
-  // 2. Si la ruta requiere auth y no hay hint → ir a login
-  if (!esRutaPublica && !tieneHint) {
-    return next({
+  // ---- 4. Bloquear rutas protegidas sin sesión ----
+  if (!esPublica && !tieneHint) {
+    return {
       path: '/login',
       query: { redirect: to.fullPath }
-    })
+    }
   }
 
-  // 3. Si la ruta requiere un permiso específico, verificar
+  // ---- 5. Verificar permisos específicos ----
   if (to.meta?.modulo && to.meta?.accion) {
     try {
       const { cargarPermisos, puede } = usePermisos()
       await cargarPermisos()
 
       if (!puede(to.meta.modulo, to.meta.accion)) {
-        console.warn(`Acceso denegado a ${to.path} (falta ${to.meta.modulo}:${to.meta.accion})`)
-        return next('/')
+        // Log estructurado en lugar de console.warn suelto
+        if (import.meta.env.DEV) {
+          console.warn(
+            `🚫 Acceso denegado a ${to.path} — falta "${to.meta.modulo}:${to.meta.accion}"`
+          )
+        }
+        // Redirigir al home (donde el usuario sí tiene acceso)
+        return '/'
       }
     } catch (e) {
-      console.error('Error verificando permisos:', e)
-      localStorage.removeItem('auth_hint')
-      localStorage.removeItem('user')
-      return next('/login')
+      // Si falla la carga de permisos → sesión inválida probable
+      // (el composable ya limpia su cache en error 401)
+      if (import.meta.env.DEV) {
+        console.warn('⚠️ Error verificando permisos:', e?.message || e)
+      }
+      storageRemove('auth_hint')
+      storageRemove('user')
+      return {
+        path: '/login',
+        query: { redirect: to.fullPath }
+      }
     }
   }
 
-  next()
+  // Todo OK
+  return true
 })
 
 // ============================================================
-// GUARD POST-NAVEGACIÓN (para tracking o cleanup)
+// GUARD GLOBAL — AFTER EACH
 // ============================================================
 router.afterEach((to, from) => {
-  // Scroll al inicio de la página
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-
-  // Log de navegación (útil para debug)
+  // Log de navegación solo en dev
   if (import.meta.env.DEV) {
-    console.log(`🧭 Navegación: ${from.path} → ${to.path}`)
+    const cambioRuta = to.path !== from.path
+    if (cambioRuta) {
+      console.log(`🧭 ${from.path} → ${to.path}`)
+    }
   }
 })
 
 // ============================================================
 // MANEJO DE ERRORES DE NAVEGACIÓN
 // ============================================================
+// Guard para no recargar en bucle
+let ultimoReloadChunk = 0
+const RELOAD_COOLDOWN_MS = 10_000 // 10 segundos entre reloads
+
 router.onError((error) => {
-  console.error('❌ Error de router:', error)
-  // Si hay un error de carga de chunk, recargar la página
-  if (error?.message?.includes('Failed to fetch dynamically imported module') ||
-      error?.message?.includes('Importing a module script failed')) {
-    console.warn('🔄 Recargando página por error de chunk...')
-    window.location.reload()
+  const msg = String(error?.message || '')
+
+  // Detectar errores típicos de chunk perdido tras un nuevo deploy
+  const esChunkError =
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Importing a module script failed') ||
+    msg.includes('error loading dynamically imported module')
+
+  if (esChunkError) {
+    const ahora = Date.now()
+    const puedeRecargar = ahora - ultimoReloadChunk > RELOAD_COOLDOWN_MS
+
+    if (puedeRecargar) {
+      ultimoReloadChunk = ahora
+      console.warn('🔄 Chunk obsoleto detectado. Recargando…')
+      window.location.reload()
+    } else {
+      console.error(
+        '❌ Chunk error repetido. Cooldown activo para evitar bucle de recargas.'
+      )
+    }
+    return
   }
+
+  // Otros errores
+  console.error('❌ Error de router:', error)
 })
 
 export default router

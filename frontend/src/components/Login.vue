@@ -1,7 +1,7 @@
 <template>
   <div class="login-page">
     <!-- Fondo animado -->
-    <div class="login-bg">
+    <div class="login-bg" aria-hidden="true">
       <div class="bg-shape bg-shape-1"></div>
       <div class="bg-shape bg-shape-2"></div>
       <div class="bg-shape bg-shape-3"></div>
@@ -12,7 +12,7 @@
       <!-- Info a la izquierda (solo desktop) -->
       <div class="login-info d-none d-lg-flex">
         <div class="info-brand">
-          <div class="info-logo">
+          <div class="info-logo" aria-hidden="true">
             <i class="fas fa-calculator"></i>
           </div>
           <div>
@@ -23,28 +23,36 @@
 
         <div class="info-features">
           <div class="feature-item">
-            <div class="feature-icon"><i class="fas fa-file-invoice"></i></div>
+            <div class="feature-icon" aria-hidden="true">
+              <i class="fas fa-file-invoice"></i>
+            </div>
             <div>
               <div class="feature-title">Facturación electrónica</div>
               <div class="feature-text">Comprobantes con validez legal ante el SRI</div>
             </div>
           </div>
           <div class="feature-item">
-            <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+            <div class="feature-icon" aria-hidden="true">
+              <i class="fas fa-chart-line"></i>
+            </div>
             <div>
               <div class="feature-title">Reportes en tiempo real</div>
               <div class="feature-text">Ventas, compras, IVA, retenciones y más</div>
             </div>
           </div>
           <div class="feature-item">
-            <div class="feature-icon"><i class="fas fa-shield-alt"></i></div>
+            <div class="feature-icon" aria-hidden="true">
+              <i class="fas fa-shield-alt"></i>
+            </div>
             <div>
               <div class="feature-title">Firma electrónica</div>
               <div class="feature-text">Certificado .p12 con XAdES-BES</div>
             </div>
           </div>
           <div class="feature-item">
-            <div class="feature-icon"><i class="fas fa-chart-pie"></i></div>
+            <div class="feature-icon" aria-hidden="true">
+              <i class="fas fa-chart-pie"></i>
+            </div>
             <div>
               <div class="feature-title">Estados financieros</div>
               <div class="feature-text">Balance general y estado de resultados</div>
@@ -53,7 +61,7 @@
         </div>
 
         <div class="info-footer">
-          <i class="fas fa-copyright"></i>
+          <i class="far fa-copyright" aria-hidden="true"></i>
           {{ year }} System Ozaet's Electronics — Ecuador
         </div>
       </div>
@@ -62,7 +70,7 @@
       <div class="login-form-wrapper">
         <div class="login-card">
           <!-- Logo móvil -->
-          <div class="login-logo d-lg-none">
+          <div class="login-logo d-lg-none" aria-hidden="true">
             <i class="fas fa-calculator"></i>
           </div>
 
@@ -73,20 +81,33 @@
 
           <!-- Error -->
           <transition name="fade">
-            <div v-if="errorGeneral" class="login-error">
-              <i class="fas fa-exclamation-circle"></i>
+            <div
+              v-if="errorGeneral"
+              class="login-error"
+              role="alert"
+              aria-live="polite"
+            >
+              <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
               <span>{{ errorGeneral }}</span>
             </div>
           </transition>
 
           <!-- Formulario -->
-          <form @submit.prevent="login" class="login-form">
+          <form
+            @submit.prevent="login"
+            class="login-form"
+            novalidate
+            :aria-busy="cargando ? 'true' : 'false'"
+          >
             <div class="form-group">
-              <label for="email" class="form-label">Correo electrónico</label>
+              <label for="login-email" class="form-label">
+                Correo electrónico
+              </label>
               <div class="input-wrapper">
-                <i class="fas fa-envelope input-icon"></i>
+                <i class="fas fa-envelope input-icon" aria-hidden="true"></i>
                 <input
-                  id="email"
+                  id="login-email"
+                  ref="emailInput"
                   type="email"
                   class="login-input"
                   v-model="email"
@@ -94,17 +115,23 @@
                   required
                   :disabled="cargando"
                   autocomplete="email"
-                  autofocus
+                  autocapitalize="none"
+                  autocorrect="off"
+                  spellcheck="false"
+                  inputmode="email"
+                  maxlength="200"
+                  aria-label="Correo electrónico"
                 />
               </div>
             </div>
 
             <div class="form-group">
-              <label for="password" class="form-label">Contraseña</label>
+              <label for="login-password" class="form-label">Contraseña</label>
               <div class="input-wrapper">
-                <i class="fas fa-lock input-icon"></i>
+                <i class="fas fa-lock input-icon" aria-hidden="true"></i>
                 <input
-                  id="password"
+                  id="login-password"
+                  ref="passwordInput"
                   :type="mostrarPassword ? 'text' : 'password'"
                   class="login-input"
                   v-model="password"
@@ -112,15 +139,21 @@
                   required
                   :disabled="cargando"
                   autocomplete="current-password"
+                  maxlength="200"
+                  aria-label="Contraseña"
                 />
                 <button
                   type="button"
                   class="toggle-password"
                   @click="mostrarPassword = !mostrarPassword"
                   :title="mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  :aria-label="mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
                   tabindex="-1"
                 >
-                  <i :class="mostrarPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                  <i
+                    :class="mostrarPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"
+                    aria-hidden="true"
+                  ></i>
                 </button>
               </div>
             </div>
@@ -128,22 +161,22 @@
             <button
               type="submit"
               class="login-button"
-              :disabled="cargando || !email || !password"
+              :disabled="cargando || !puedeEnviar"
             >
               <span v-if="!cargando" class="btn-content">
-                <i class="fas fa-sign-in-alt"></i>
+                <i class="fas fa-sign-in-alt" aria-hidden="true"></i>
                 Iniciar sesión
               </span>
               <span v-else class="btn-loading">
-                <span class="spinner"></span>
-                Verificando...
+                <span class="spinner" aria-hidden="true"></span>
+                Verificando…
               </span>
             </button>
           </form>
 
           <div class="login-footer">
             <p class="login-footer-text">
-              <i class="fas fa-shield-alt"></i>
+              <i class="fas fa-shield-alt" aria-hidden="true"></i>
               Sistema seguro con cifrado de extremo a extremo
             </p>
           </div>
@@ -159,91 +192,251 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useToast } from 'vue-toastification'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
 
+// ===== CONSTANTES =====
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
+const EMAIL_STORAGE_KEY = 'last_email'
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/
+
+// ===== STATE =====
 const email = ref('')
 const password = ref('')
 const mostrarPassword = ref(false)
 const cargando = ref(false)
 const errorGeneral = ref('')
 
-const year = computed(() => new Date().getFullYear())
+const emailInput = ref(null)
+const passwordInput = ref(null)
 
-onMounted(() => {
-  // Si ya hay hint de sesión, redirigir
-  if (localStorage.getItem('auth_hint')) {
-    const redirect = route.query.redirect || '/'
-    router.replace(redirect)
-    return
-  }
-  const savedEmail = localStorage.getItem('last_email')
-  if (savedEmail) {
-    email.value = savedEmail
-    setTimeout(() => {
-      document.getElementById('password')?.focus()
-    }, 100)
+// ===== GUARDS =====
+let unmounted = false
+let abortController = null
+
+// ===== COMPUTED =====
+const year = computed(() => {
+  try {
+    return new Intl.DateTimeFormat('es-EC', { year: 'numeric' }).format(new Date())
+  } catch {
+    return String(new Date().getFullYear())
   }
 })
 
+const puedeEnviar = computed(() =>
+  String(email.value || '').trim().length > 0 &&
+  String(password.value || '').length > 0
+)
+
+// ===== HELPERS =====
+const escapeHtml = (s) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+/**
+ * Bloquea/restaura el scroll del body mientras el login está en curso.
+ */
+const bloquearScroll = (bloquear) => {
+  if (typeof document === 'undefined') return
+  const body = document.body
+  if (!body) return
+  if (bloquear) {
+    if (!body.dataset.loginScrollLock) {
+      body.dataset.loginScrollLock = body.style.overflow || ''
+    }
+    body.style.overflow = 'hidden'
+  } else {
+    if (body.dataset.loginScrollLock !== undefined) {
+      body.style.overflow = body.dataset.loginScrollLock || ''
+      delete body.dataset.loginScrollLock
+    }
+  }
+}
+
+/**
+ * Limpia el hint de sesión. Se llama si veníamos de un intento
+ * fallido previo (evita loops de redirect).
+ */
+const limpiarHintSesion = () => {
+  try {
+    localStorage.removeItem('auth_hint')
+  } catch { /* noop */ }
+}
+
+// ===== VALIDACIÓN =====
+const validar = () => {
+  const emailTrim = String(email.value || '').trim()
+  const pass = String(password.value || '')
+
+  if (!emailTrim || !pass) {
+    return 'Complete todos los campos'
+  }
+  if (emailTrim.length > 200) {
+    return 'El correo es demasiado largo'
+  }
+  if (!EMAIL_REGEX.test(emailTrim)) {
+    return 'El formato del correo no es válido'
+  }
+  if (pass.length > 200) {
+    return 'La contraseña es demasiado larga'
+  }
+  return ''
+}
+
+// ===== LOGIN =====
 const login = async () => {
-  if (!email.value || !password.value) {
-    errorGeneral.value = 'Complete todos los campos'
-    toast.warning('Complete todos los campos')
+  // Guard: doble submit
+  if (cargando.value) return
+
+  // Validación
+  const errValidacion = validar()
+  if (errValidacion) {
+    errorGeneral.value = errValidacion
+    toast.warning(errValidacion)
     return
   }
 
+  // Cancelar request previa
+  if (abortController) {
+    try { abortController.abort() } catch { /* noop */ }
+  }
+  abortController = new AbortController()
+
   errorGeneral.value = ''
   cargando.value = true
+  bloquearScroll(true)
 
   try {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
-      credentials: 'include', // ← IMPORTANTE: recibe las cookies httpOnly
+      credentials: 'include', // Recibe cookies httpOnly
+      signal: abortController.signal,
       headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
       body: JSON.stringify({
-        email: email.value.trim().toLowerCase(),
-        password: password.value
+        email: String(email.value).trim().toLowerCase(),
+        password: String(password.value)
       })
     })
 
-    const data = await res.json()
-
-    if (!res.ok) {
-      throw new Error(data.error || 'Credenciales inválidas')
+    let data
+    try {
+      data = await res.json()
+    } catch {
+      data = {}
     }
 
-    // Solo guardamos el usuario (no sensible). El token vive en la cookie.
-    localStorage.setItem('user', JSON.stringify(data.user))
-    localStorage.setItem('auth_hint', '1')
-    localStorage.setItem('last_email', data.user.email)
+    if (unmounted) return
 
+    if (!res.ok) {
+      // Mapeo de códigos del backend a mensajes claros
+      const codigo = data?.codigo || ''
+      const mensajeBackend = data?.error || 'Credenciales inválidas'
+
+      let mensaje = mensajeBackend
+      if (codigo === 'CREDENCIALES_INVALIDAS') {
+        mensaje = 'Correo o contraseña incorrectos'
+      } else if (codigo === 'USER_INACTIVE') {
+        mensaje = 'Usuario desactivado. Contacta al administrador.'
+      } else if (codigo === 'RATE_LIMIT') {
+        mensaje = 'Demasiados intentos. Espere unos minutos antes de reintentar.'
+      }
+
+      throw Object.assign(new Error(mensaje), { codigo, status: res.status })
+    }
+
+    if (!data?.user) {
+      throw new Error('Respuesta inválida del servidor')
+    }
+
+    // Persistencia (solo datos no sensibles)
+    try {
+      localStorage.setItem('user', JSON.stringify(data.user))
+      localStorage.setItem('auth_hint', '1')
+      if (data.user.email) {
+        localStorage.setItem(EMAIL_STORAGE_KEY, data.user.email)
+      }
+    } catch { /* localStorage puede estar bloqueado */ }
+
+    // Limpiar cache de permisos
     try {
       const { usePermisos } = await import('../composables/usePermisos')
       usePermisos().limpiarCache()
-    } catch (_) { /* noop */ }
+    } catch { /* noop */ }
 
-    toast.success(`Bienvenido ${data.user.nombre}`)
+    if (!unmounted) {
+      toast.success(`Bienvenido ${data.user.nombre || data.user.email}`)
+    }
 
-    const redirect = route.query.redirect || '/'
-    router.push(redirect)
+    // Redirect: query param → home
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+      ? route.query.redirect
+      : '/'
+
+    if (!unmounted) router.push(redirect)
   } catch (e) {
-    errorGeneral.value = e.message
-    const silencioso = /credenciales|intentos|desactivado/i.test(e.message)
-    if (!silencioso) toast.error(e.message)
+    if (unmounted) return
+
+    const esAbort = e?.name === 'AbortError'
+    if (esAbort) return
+
+    const msg = e?.message || 'Error al iniciar sesión'
+    errorGeneral.value = msg
+
+    // No mostrar toast para errores esperados de credenciales
+    const silencioso = /credenciales|incorrectos|intentos|desactivado/i.test(msg)
+    if (!silencioso) toast.error(msg)
   } finally {
-    cargando.value = false
+    if (!unmounted) {
+      cargando.value = false
+      bloquearScroll(false)
+    }
   }
 }
+
+// ===== LIFECYCLE =====
+onMounted(async () => {
+  // Limpiar hint obsoleto de intentos previos
+  limpiarHintSesion()
+
+  // Pre-rellenar email si lo tenemos guardado
+  let savedEmail = ''
+  try {
+    savedEmail = localStorage.getItem(EMAIL_STORAGE_KEY) || ''
+  } catch { /* noop */ }
+
+  if (savedEmail) {
+    email.value = savedEmail
+    await nextTick()
+    // Enfocar password directamente porque el email ya está
+    if (!unmounted) passwordInput.value?.focus()
+  } else {
+    await nextTick()
+    if (!unmounted) emailInput.value?.focus()
+  }
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+  if (abortController) {
+    try { abortController.abort() } catch { /* noop */ }
+    abortController = null
+  }
+  bloquearScroll(false)
+  // Limpiar la contraseña de memoria
+  password.value = ''
+})
 </script>
 
 <style scoped>
@@ -335,7 +528,7 @@ const login = async () => {
   flex-direction: column;
   gap: 40px;
   color: #fff;
-  animation: slideRight 0.6s var(--ease-out, ease-out);
+  animation: slideRight 0.6s ease-out;
 }
 
 .info-brand {
@@ -382,7 +575,7 @@ const login = async () => {
   display: flex;
   gap: 14px;
   align-items: flex-start;
-  animation: slideRight 0.6s var(--ease-out, ease-out) backwards;
+  animation: slideRight 0.6s ease-out backwards;
 }
 .feature-item:nth-child(1) { animation-delay: 0.1s; }
 .feature-item:nth-child(2) { animation-delay: 0.2s; }
@@ -433,7 +626,7 @@ const login = async () => {
 .login-form-wrapper {
   width: 100%;
   max-width: 440px;
-  animation: slideUp 0.6s var(--ease-out, ease-out);
+  animation: slideUp 0.6s ease-out;
 }
 
 .login-card {
@@ -575,7 +768,6 @@ const login = async () => {
   box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.15);
 }
 
-.login-input:focus + .input-icon,
 .input-wrapper:focus-within .input-icon {
   color: #3498db;
 }
@@ -602,6 +794,10 @@ const login = async () => {
 .toggle-password:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.06);
+}
+.toggle-password:focus-visible {
+  outline: 2px solid #3498db;
+  outline-offset: 2px;
 }
 
 /* ============================================================
@@ -651,6 +847,11 @@ const login = async () => {
   opacity: 0.6;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.login-button:focus-visible {
+  outline: 2px solid #f1c40f;
+  outline-offset: 3px;
 }
 
 .btn-content,
@@ -770,7 +971,8 @@ const login = async () => {
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   .bg-shape,
-  .login-card::before {
+  .login-card::before,
+  .feature-item {
     animation: none;
   }
   * {

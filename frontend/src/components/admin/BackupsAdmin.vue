@@ -10,11 +10,21 @@
         <p class="page-subtitle">Respalda y restaura la información de tu empresa</p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="descargarAhora" :disabled="descargando">
+        <button
+          class="btn-secondary"
+          @click="descargarAhora"
+          :disabled="descargando"
+          aria-label="Descargar backup ahora"
+        >
           <i class="fas fa-download" :class="{ 'fa-spin': descargando }"></i>
           {{ descargando ? 'Generando...' : 'Descargar ahora' }}
         </button>
-        <button class="btn-primary" @click="abrirModalCrear" :disabled="creando">
+        <button
+          class="btn-primary"
+          @click="abrirModalCrear"
+          :disabled="creando"
+          aria-label="Guardar backup en el servidor"
+        >
           <i class="fas fa-save"></i>
           Guardar en servidor
         </button>
@@ -35,11 +45,13 @@
           <input
             type="checkbox"
             v-model="config.automatico_habilitado"
-            @change="guardarConfig"
+            @change="onToggleAutomatico"
           />
           <span class="slider"></span>
         </label>
-        <span class="switch-label">{{ config.automatico_habilitado ? 'Activado' : 'Desactivado' }}</span>
+        <span class="switch-label">
+          {{ config.automatico_habilitado ? 'Activado' : 'Desactivado' }}
+        </span>
       </div>
     </div>
 
@@ -52,7 +64,12 @@
         <div class="config-grid">
           <div class="config-field">
             <label class="config-label">Frecuencia</label>
-            <select class="form-control" v-model="config.cron" @change="guardarConfig">
+            <select
+              class="form-control"
+              v-model="config.cron"
+              @change="onCambiarCron"
+              :disabled="guardandoConfig"
+            >
               <option value="0 3 * * *">Diario a las 3:00 AM</option>
               <option value="0 3 * * 1">Semanal (lunes 3:00 AM)</option>
               <option value="0 3 1 * *">Mensual (día 1 a las 3:00 AM)</option>
@@ -67,9 +84,10 @@
               class="form-control"
               v-model.number="config.retencion"
               min="5" max="100"
-              @change="guardarConfig"
+              @change="onCambiarRetencion"
+              :disabled="guardandoConfig"
             />
-            <small class="config-hint">Backups automáticos a conservar</small>
+            <small class="config-hint">Backups automáticos a conservar (5-100)</small>
           </div>
           <div class="config-field">
             <label class="config-label">Última ejecución</label>
@@ -86,7 +104,10 @@
               <span v-else-if="config.ultimo_estado === 'error'" class="badge bg-danger">
                 <i class="fas fa-times"></i> Error
               </span>
-              <span v-else-if="config.ultimo_estado === 'omitido_por_tamano'" class="badge bg-warning text-dark">
+              <span
+                v-else-if="config.ultimo_estado === 'omitido_por_tamano'"
+                class="badge bg-warning text-dark"
+              >
                 <i class="fas fa-exclamation-triangle"></i> Omitido
               </span>
               <span v-else class="text-muted">—</span>
@@ -96,6 +117,9 @@
         <div v-if="config.ultimo_error" class="config-error">
           <i class="fas fa-exclamation-circle"></i>
           Último error: {{ config.ultimo_error }}
+        </div>
+        <div v-if="guardandoConfig" class="config-saving">
+          <i class="fas fa-spinner fa-spin"></i> Guardando configuración...
         </div>
       </div>
     </div>
@@ -124,8 +148,15 @@
             <option value="">Todos los tipos</option>
             <option value="manual">Solo manuales</option>
             <option value="automatico">Solo automáticos</option>
+            <option value="pre-restore">Solo pre-restauración</option>
           </select>
-          <button class="btn-icon" @click="cargar" :disabled="loading" title="Actualizar">
+          <button
+            class="btn-icon"
+            @click="cargar"
+            :disabled="loading"
+            title="Actualizar"
+            aria-label="Actualizar listado"
+          >
             <i class="fas fa-sync" :class="{ 'fa-spin': loading }"></i>
           </button>
         </div>
@@ -136,7 +167,7 @@
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th style="width:110px;">Tipo</th>
+                <th style="width:130px;">Tipo</th>
                 <th style="width:160px;">Fecha</th>
                 <th style="width:140px;">Tamaño</th>
                 <th style="width:140px;">Usuario</th>
@@ -155,7 +186,9 @@
                   <div class="empty-state">
                     <i class="fas fa-database"></i>
                     <div class="empty-title">No hay backups guardados</div>
-                    <div class="empty-text">Crea tu primer backup manual o activa los automáticos</div>
+                    <div class="empty-text">
+                      Crea tu primer backup manual o activa los automáticos
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -166,8 +199,8 @@
                 </td>
                 <td>
                   <span class="badge-tipo" :class="`tipo-${b.tipo}`">
-                    <i :class="b.tipo === 'automatico' ? 'fas fa-clock' : 'fas fa-hand-pointer'"></i>
-                    {{ b.tipo }}
+                    <i :class="badgeTipoIcono(b.tipo)"></i>
+                    {{ etiquetaTipo(b.tipo) }}
                   </span>
                 </td>
                 <td class="small">{{ formatFechaHora(b.fecha) }}</td>
@@ -190,27 +223,100 @@
                     >
                       {{ abrevCol(c.nombre) }}: {{ c.cantidad }}
                     </span>
-                    <span v-if="(b.colecciones || []).length > 3" class="badge-coll badge-more">
+                    <span
+                      v-if="(b.colecciones || []).length > 3"
+                      class="badge-coll badge-more"
+                      :title="coleccionesExtra(b)"
+                    >
                       +{{ b.colecciones.length - 3 }}
                     </span>
                   </div>
                 </td>
                 <td>
                   <div class="actions-cell">
-                    <button class="btn-icon btn-download" @click="descargar(b)" title="Descargar">
-                      <i class="fas fa-download"></i>
+                    <button
+                      class="btn-icon btn-download"
+                      @click="descargar(b)"
+                      :disabled="descargandoId === b._id"
+                      title="Descargar"
+                      aria-label="Descargar backup"
+                    >
+                      <i
+                        class="fas fa-download"
+                        :class="{ 'fa-spin': descargandoId === b._id }"
+                      ></i>
                     </button>
-                    <button class="btn-icon btn-restore" @click="abrirModalRestaurar(b)" title="Restaurar">
+                    <button
+                      class="btn-icon btn-restore"
+                      @click="abrirModalRestaurar(b)"
+                      title="Restaurar"
+                      aria-label="Restaurar backup"
+                    >
                       <i class="fas fa-undo"></i>
                     </button>
-                    <button class="btn-icon btn-delete" @click="eliminar(b)" title="Eliminar">
-                      <i class="fas fa-trash"></i>
+                    <button
+                      class="btn-icon btn-delete"
+                      @click="eliminar(b)"
+                      :disabled="eliminandoId === b._id"
+                      title="Eliminar"
+                      aria-label="Eliminar backup"
+                    >
+                      <i
+                        class="fas fa-trash"
+                        :class="{ 'fa-spin': eliminandoId === b._id }"
+                      ></i>
                     </button>
                   </div>
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🆕 MODAL CONFIRMACIÓN GENÉRICO -->
+    <div
+      class="modal fade"
+      id="modalConfirmBackup"
+      tabindex="-1"
+      aria-hidden="true"
+      data-bs-backdrop="static"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content modal-content-clean">
+          <div class="modal-header" :class="`bg-${confirmState.variante}`">
+            <h5 class="modal-title text-white">
+              <i :class="confirmState.icono" class="me-2"></i>
+              {{ confirmState.titulo }}
+            </h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              @click="cancelarConfirm"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-3" v-html="confirmState.mensaje"></p>
+            <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
+              <i class="fas fa-exclamation-triangle me-2"></i>
+              <span>{{ confirmState.detalle }}</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
+              {{ confirmState.textoCancelar }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :class="`btn-${confirmState.variante}`"
+              @click="aceptarConfirm"
+            >
+              {{ confirmState.textoConfirmar }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -231,6 +337,7 @@
                 class="form-control"
                 v-model="formCrear.nombre"
                 placeholder="Ej: Backup antes de importar compras"
+                maxlength="200"
               />
             </div>
             <div class="form-group mb-3">
@@ -240,21 +347,24 @@
                 v-model="formCrear.descripcion"
                 rows="2"
                 placeholder="Describe brevemente el motivo del backup..."
+                maxlength="500"
               ></textarea>
             </div>
             <div class="alert alert-info small mb-0">
               <i class="fas fa-info-circle me-1"></i>
-              Se guardará el estado actual de usuarios, clientes, productos, ventas, compras y demás colecciones.
-              El backup quedará en el servidor para restaurarlo luego si es necesario.
+              Se guardará el estado actual de usuarios, clientes, productos, ventas, compras y demás
+              colecciones. El backup quedará en el servidor para restaurarlo luego si es necesario.
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+              Cancelar
+            </button>
             <button
               type="button"
               class="btn btn-primary"
               @click="crearBackup"
-              :disabled="!formCrear.nombre || creando"
+              :disabled="!formCrear.nombre.trim() || creando"
             >
               <i class="fas fa-save" :class="{ 'fa-spin': creando }"></i>
               {{ creando ? 'Guardando...' : 'Guardar backup' }}
@@ -265,7 +375,13 @@
     </div>
 
     <!-- MODAL CONFIRMAR RESTAURACIÓN -->
-    <div class="modal fade" id="modalRestaurar" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div
+      class="modal fade"
+      id="modalRestaurar"
+      tabindex="-1"
+      aria-hidden="true"
+      data-bs-backdrop="static"
+    >
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header bg-warning">
@@ -307,28 +423,33 @@
                 Escribe <code>CONFIRMAR RESTAURACION</code> para continuar:
               </label>
               <input
-  type="text"
-  class="form-control"
-  :class="{
-    'is-invalid': confirmacion && confirmacion !== 'CONFIRMAR RESTAURACION',
-    'is-valid': confirmacion === 'CONFIRMAR RESTAURACION'
-  }"
-  v-model="confirmacion"
-  placeholder="CONFIRMAR RESTAURACION"
-  autocomplete="off"
-/>
-              <div v-if="confirmacion && confirmacion !== 'CONFIRMAR RESTAURACION'" class="invalid-feedback">
+                type="text"
+                class="form-control"
+                :class="{
+                  'is-invalid': confirmacion && confirmacion !== TEXTO_CONFIRMAR_RESTORE,
+                  'is-valid': confirmacion === TEXTO_CONFIRMAR_RESTORE
+                }"
+                v-model="confirmacion"
+                placeholder="CONFIRMAR RESTAURACION"
+                autocomplete="off"
+              />
+              <div
+                v-if="confirmacion && confirmacion !== TEXTO_CONFIRMAR_RESTORE"
+                class="invalid-feedback"
+              >
                 El texto no coincide exactamente
               </div>
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="cerrarModalRestaurar">Cancelar</button>
+            <button type="button" class="btn btn-secondary" @click="cerrarModalRestaurar">
+              Cancelar
+            </button>
             <button
               type="button"
               class="btn btn-danger"
               @click="restaurar"
-              :disabled="confirmacion !== 'CONFIRMAR RESTAURACION' || restaurando"
+              :disabled="confirmacion !== TEXTO_CONFIRMAR_RESTORE || restaurando"
             >
               <i class="fas fa-undo" :class="{ 'fa-spin': restaurando }"></i>
               {{ restaurando ? 'Restaurando...' : 'Restaurar ahora' }}
@@ -341,18 +462,28 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 
 const toast = useToast()
 
+// ===== CONSTANTES =====
+const TEXTO_CONFIRMAR_RESTORE = 'CONFIRMAR RESTAURACION'
+const TIPOS_VALIDOS = new Set(['manual', 'automatico', 'pre-restore'])
+const RETENCION_MIN = 5
+const RETENCION_MAX = 100
+
+// ===== STATE =====
 const backups = ref([])
 const loading = ref(false)
 const descargando = ref(false)
+const descargandoId = ref(null)
 const creando = ref(false)
 const restaurando = ref(false)
+const eliminandoId = ref(null)
+const guardandoConfig = ref(false)
 const filtroTipo = ref('')
 
 const config = ref({
@@ -368,8 +499,28 @@ const formCrear = ref({ nombre: '', descripcion: '' })
 const backupSeleccionado = ref(null)
 const confirmacion = ref('')
 
+// 🆕 Snapshot de config para rollback si falla el PUT
+let configSnapshot = null
+
+// 🆕 Estado del modal de confirmación genérico
+const confirmState = reactive({
+  titulo: '',
+  mensaje: '',
+  detalle: '',
+  textoConfirmar: 'Confirmar',
+  textoCancelar: 'Cancelar',
+  variante: 'primary',
+  icono: 'fas fa-question-circle',
+  resolve: null
+})
+
+// Modales
 let modalCrear = null
 let modalRestaurar = null
+let modalConfirm = null
+
+// 🆕 Flag para evitar toasts si se desmontó
+let unmounted = false
 
 // ===== COMPUTED =====
 const backupsFiltrados = computed(() => {
@@ -377,8 +528,18 @@ const backupsFiltrados = computed(() => {
   return backups.value.filter(b => b.tipo === filtroTipo.value)
 })
 
+// 🐛 BUG FIX: guard contra `config.value` null
 const estadoAuto = computed(() => {
-  if (!config.value.automatico_habilitado) {
+  const c = config.value
+  if (!c) {
+    return {
+      nivel: 'inactivo',
+      icon: 'fas fa-circle',
+      titulo: 'Cargando configuración...',
+      descripcion: ''
+    }
+  }
+  if (!c.automatico_habilitado) {
     return {
       nivel: 'inactivo',
       icon: 'fas fa-pause-circle',
@@ -386,13 +547,13 @@ const estadoAuto = computed(() => {
       descripcion: 'Actívalos para proteger tu información automáticamente'
     }
   }
-  const estado = config.value.ultimo_estado
+  const estado = c.ultimo_estado
   if (estado === 'error') {
     return {
       nivel: 'error',
       icon: 'fas fa-times-circle',
       titulo: 'Último backup falló',
-      descripcion: config.value.ultimo_error || 'Revisa los logs del servidor'
+      descripcion: c.ultimo_error || 'Revisa los logs del servidor'
     }
   }
   if (estado === 'omitido_por_tamano') {
@@ -408,7 +569,7 @@ const estadoAuto = computed(() => {
       nivel: 'ok',
       icon: 'fas fa-check-circle',
       titulo: 'Backups automáticos funcionando',
-      descripcion: `Último: ${formatFechaHora(config.value.ultima_ejecucion)}`
+      descripcion: `Último: ${formatFechaHora(c.ultima_ejecucion)}`
     }
   }
   return {
@@ -422,20 +583,29 @@ const estadoAuto = computed(() => {
 // ===== HELPERS =====
 const formatFechaHora = (f) => {
   if (!f) return '—'
-  return new Date(f).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' })
+  try {
+    return new Date(f).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' })
+  } catch {
+    return '—'
+  }
 }
 
+// 🐛 BUG FIX: distinguir null de 0 y dar precisión variable
 const formatBytes = (bytes) => {
-  if (!bytes) return '0 B'
+  if (bytes === null || bytes === undefined) return '—'
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  if (n === 0) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(k)), sizes.length - 1)
+  const decimales = i === 0 ? 0 : (i === 1 ? 1 : 2)
+  return `${(n / Math.pow(k, i)).toFixed(decimales)} ${sizes[i]}`
 }
 
 const tamanoClase = (bytes) => {
-  if (!bytes) return ''
-  const mb = bytes / 1024 / 1024
+  if (bytes === null || bytes === undefined) return ''
+  const mb = Number(bytes) / 1024 / 1024
   if (mb > 12) return 'tamano-danger'
   if (mb > 8) return 'tamano-warn'
   return 'tamano-ok'
@@ -452,20 +622,95 @@ const abrevCol = (nombre) => {
     compras_v2: 'compras',
     kardex: 'kardex',
     retenciones: 'retenc',
+    pagos: 'pagos',
+    contadores: 'contad',
     periodos_cerrados: 'periodos',
     configuracion: 'config',
-    certificados: 'cert'
+    certificados: 'cert',
+    backup_config: 'bkconfig'
   }
-  return map[nombre] || nombre.slice(0, 8)
+  return map[nombre] || String(nombre).slice(0, 8)
+}
+
+const coleccionesExtra = (b) => {
+  const arr = b?.colecciones || []
+  if (arr.length <= 3) return ''
+  return arr.slice(3).map(c => `${c.nombre}: ${c.cantidad}`).join(' · ')
+}
+
+// 🆕 Icono y etiqueta por tipo de backup
+const badgeTipoIcono = (tipo) => {
+  switch (tipo) {
+    case 'automatico': return 'fas fa-clock'
+    case 'manual': return 'fas fa-hand-pointer'
+    case 'pre-restore': return 'fas fa-history'
+    default: return 'fas fa-file-archive'
+  }
+}
+
+const etiquetaTipo = (tipo) => {
+  switch (tipo) {
+    case 'automatico': return 'Automático'
+    case 'manual': return 'Manual'
+    case 'pre-restore': return 'Pre-restore'
+    default: return tipo || '—'
+  }
+}
+
+// 🆕 Sanitizar nombre de archivo para descarga (maneja acentos)
+const sanitizeFilename = (nombre, fallback = 'backup') => {
+  const base = String(nombre || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // quitar acentos
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^[._-]+/, '')
+    .slice(0, 120)
+  return base || fallback
+}
+
+// ===== 🆕 CONFIRMACIÓN REACTIVA =====
+const pedirConfirmacion = (opts = {}) => {
+  return new Promise((resolve) => {
+    confirmState.titulo = opts.titulo || 'Confirmar acción'
+    confirmState.mensaje = opts.mensaje || '¿Estás seguro?'
+    confirmState.detalle = opts.detalle || ''
+    confirmState.textoConfirmar = opts.textoConfirmar || 'Confirmar'
+    confirmState.textoCancelar = opts.textoCancelar || 'Cancelar'
+    confirmState.variante = opts.variante || 'primary'
+    confirmState.icono = opts.icono || 'fas fa-question-circle'
+    confirmState.resolve = resolve
+
+    if (!modalConfirm) {
+      modalConfirm = new Modal(document.getElementById('modalConfirmBackup'), { backdrop: 'static' })
+    }
+    modalConfirm.show()
+  })
+}
+
+const aceptarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(true)
+}
+
+const cancelarConfirm = () => {
+  const r = confirmState.resolve
+  confirmState.resolve = null
+  modalConfirm?.hide()
+  if (r) r(false)
 }
 
 // ===== CARGA =====
 const cargar = async () => {
   loading.value = true
   try {
-    backups.value = await api.request('/backups', { method: 'GET' })
+    const res = await api.request('/backups', { method: 'GET' })
+    if (!unmounted) backups.value = Array.isArray(res) ? res : (res?.data || [])
   } catch (e) {
-    toast.error('Error al cargar backups: ' + e.message)
+    if (!unmounted) toast.error('Error al cargar backups: ' + e.message)
   } finally {
     loading.value = false
   }
@@ -473,38 +718,93 @@ const cargar = async () => {
 
 const cargarConfig = async () => {
   try {
-    config.value = { ...config.value, ...(await api.request('/backups/config', { method: 'GET' })) }
+    const res = await api.request('/backups/config', { method: 'GET' })
+    if (unmounted || !res) return
+
+    config.value = { ...config.value, ...res }
+    // 🆕 Snapshot inicial para rollback
+    configSnapshot = JSON.parse(JSON.stringify(config.value))
   } catch (e) {
-    console.warn('Error al cargar config:', e)
+    if (!unmounted) {
+      console.warn('Error al cargar config:', e)
+      // No tostamos aquí porque el usuario no disparó la acción
+    }
   }
 }
 
-const guardarConfig = async () => {
+// ===== CONFIG (con rollback) =====
+/**
+ * Aplica un cambio de config con rollback si falla.
+ * @param {object} patch  Campos a enviar (solo los que cambiaron)
+ * @param {string} etiqueta  Para logs y toasts
+ */
+const aplicarCambioConfig = async (patch, etiqueta) => {
+  if (guardandoConfig.value) return
+
+  const anterior = JSON.parse(JSON.stringify(config.value))
+  guardandoConfig.value = true
+
   try {
-    await api.request('/backups/config', {
+    const res = await api.request('/backups/config', {
       method: 'PUT',
-      body: JSON.stringify({
-        automatico_habilitado: config.value.automatico_habilitado,
-        cron: config.value.cron,
-        retencion: config.value.retencion
-      }),
+      body: JSON.stringify(patch),
       skipLoader: true
     })
-    toast.success('Configuración guardada')
+    if (unmounted) return
+
+    // Mergear respuesta del backend (por si normaliza valores)
+    config.value = { ...config.value, ...res }
+    configSnapshot = JSON.parse(JSON.stringify(config.value))
+    toast.success(`${etiqueta} actualizado`)
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) {
+      // 🐛 BUG FIX: revertir al estado anterior
+      config.value = anterior
+      toast.error(`Error al actualizar ${etiqueta.toLowerCase()}: ${e.message}`)
+    }
+  } finally {
+    guardandoConfig.value = false
   }
+}
+
+const onToggleAutomatico = () => {
+  const habilitado = !!config.value.automatico_habilitado
+  aplicarCambioConfig(
+    { automatico_habilitado: habilitado },
+    `Backups automáticos ${habilitado ? 'activados' : 'desactivados'}`
+  )
+}
+
+const onCambiarCron = () => {
+  const cron = String(config.value.cron || '').trim()
+  // Validación superficial: 5 campos separados por espacio
+  if (cron.split(/\s+/).length !== 5) {
+    toast.error('Expresión cron inválida')
+    config.value.cron = configSnapshot?.cron || '0 3 * * *'
+    return
+  }
+  aplicarCambioConfig({ cron }, 'Frecuencia de backups')
+}
+
+const onCambiarRetencion = () => {
+  // 🐛 BUG FIX: clampear el valor a [MIN, MAX]
+  let val = Number(config.value.retencion)
+  if (!Number.isInteger(val) || val < RETENCION_MIN) val = RETENCION_MIN
+  if (val > RETENCION_MAX) val = RETENCION_MAX
+  config.value.retencion = val
+  aplicarCambioConfig({ retencion: val }, 'Retención de backups')
 }
 
 // ===== DESCARGA DIRECTA =====
 const descargarAhora = async () => {
+  if (descargando.value) return
   descargando.value = true
   try {
-    const fecha = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-    await api.download('/backups/download-now', `backup_${fecha}.json.gz`)
-    toast.success('Backup descargado correctamente')
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    await api.download('/backups/download-now', `backup_${stamp}.json.gz`)
+    if (!unmounted) toast.success('Backup descargado correctamente')
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
   } finally {
     descargando.value = false
   }
@@ -523,24 +823,25 @@ const abrirModalCrear = () => {
 }
 
 const crearBackup = async () => {
-  if (!formCrear.value.nombre) return
+  const nombre = String(formCrear.value.nombre || '').trim()
+  if (!nombre || creando.value) return
+
   creando.value = true
   try {
     await api.request('/backups', {
       method: 'POST',
       body: JSON.stringify({
-        nombre: formCrear.value.nombre,
+        nombre,
         tipo: 'manual',
-        descripcion: formCrear.value.descripcion
+        descripcion: String(formCrear.value.descripcion || '').trim()
       }),
       loaderMessage: 'Generando backup...'
     })
-    toast.success('Backup guardado en el servidor')
-    modalCrear.hide()
-    await cargar()
-    await cargarConfig()
+    if (!unmounted) toast.success('Backup guardado en el servidor')
+    modalCrear?.hide()
+    await Promise.all([cargar(), cargarConfig()])
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
   } finally {
     creando.value = false
   }
@@ -548,12 +849,17 @@ const crearBackup = async () => {
 
 // ===== DESCARGAR UNO =====
 const descargar = async (b) => {
+  if (descargandoId.value === b._id) return
+  descargandoId.value = b._id
   try {
-    const nombreLimpio = String(b.nombre || 'backup').replace(/[^a-z0-9]/gi, '_')
-    await api.download(`/backups/${b._id}/download`, `${nombreLimpio}.json.gz`)
-    toast.success('Descarga iniciada')
+    // 🐛 BUG FIX: sanitize normaliza acentos también
+    const filename = `${sanitizeFilename(b.nombre, `backup_${b._id}`)}.json.gz`
+    await api.download(`/backups/${b._id}/download`, filename)
+    if (!unmounted) toast.success('Descarga iniciada')
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
+  } finally {
+    descargandoId.value = null
   }
 }
 
@@ -568,43 +874,95 @@ const abrirModalRestaurar = (b) => {
 }
 
 const cerrarModalRestaurar = () => {
-  if (modalRestaurar) modalRestaurar.hide()
+  if (restaurando.value) return // bloquear cierre durante restore
+  modalRestaurar?.hide()
+  backupSeleccionado.value = null
+  confirmacion.value = ''
 }
 
 const restaurar = async () => {
-  if (confirmacion.value !== 'CONFIRMAR RESTAURACION') return
+  if (confirmacion.value !== TEXTO_CONFIRMAR_RESTORE) return
+  if (!backupSeleccionado.value || restaurando.value) return
+
   restaurando.value = true
   try {
     await api.request(`/backups/${backupSeleccionado.value._id}/restore`, {
       method: 'POST',
-      body: JSON.stringify({ confirmacion: 'CONFIRMAR RESTAURACION' }),
+      body: JSON.stringify({ confirmacion: TEXTO_CONFIRMAR_RESTORE }),
       loaderMessage: 'Restaurando backup...'
     })
-    toast.success('Backup restaurado. Recargando...')
-    modalRestaurar.hide()
-    setTimeout(() => window.location.reload(), 1500)
+    if (!unmounted) {
+      toast.success('Backup restaurado. Recargando...')
+      modalRestaurar?.hide()
+      // Recarga dura porque cambió todo el estado del backend
+      setTimeout(() => {
+        window.location.reload()
+      }, 1500)
+    }
   } catch (e) {
-    toast.error('Error: ' + e.message)
-  } finally {
+    if (!unmounted) toast.error('Error: ' + e.message)
     restaurando.value = false
   }
 }
 
 // ===== ELIMINAR =====
 const eliminar = async (b) => {
-  if (!confirm(`¿Eliminar el backup "${b.nombre}"?\n\nEsta acción no se puede deshacer.`)) return
+  if (eliminandoId.value === b._id) return
+
+  const confirmado = await pedirConfirmacion({
+    titulo: 'Eliminar backup',
+    mensaje: `¿Eliminar el backup <strong>${escapeHtml(b.nombre)}</strong>?`,
+    detalle: 'Esta acción no se puede deshacer.',
+    textoConfirmar: 'Eliminar',
+    textoCancelar: 'Cancelar',
+    variante: 'danger',
+    icono: 'fas fa-trash'
+  })
+  if (!confirmado) return
+
+  eliminandoId.value = b._id
   try {
-    await api.request(`/backups/${b._id}`, { method: 'DELETE', loaderMessage: 'Eliminando...' })
-    toast.success('Backup eliminado')
+    await api.request(`/backups/${b._id}`, {
+      method: 'DELETE',
+      loaderMessage: 'Eliminando...'
+    })
+    if (!unmounted) toast.success('Backup eliminado')
     await cargar()
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
+  } finally {
+    eliminandoId.value = null
   }
 }
 
+// 🆕 Escapado básico para mensajes del modal (evita inyección HTML)
+const escapeHtml = (s) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+// ===== LIFECYCLE =====
 onMounted(() => {
   cargar()
   cargarConfig()
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+
+  // 🆕 Cerrar modales si quedaron abiertos
+  try { modalCrear?.hide() } catch (_) { /* noop */ }
+  try { modalRestaurar?.hide() } catch (_) { /* noop */ }
+  try { modalConfirm?.hide() } catch (_) { /* noop */ }
+
+  // 🆕 Resolver cualquier confirmación pendiente
+  if (confirmState.resolve) {
+    confirmState.resolve(false)
+    confirmState.resolve = null
+  }
 })
 </script>
 
@@ -678,6 +1036,18 @@ onMounted(() => {
   color: #e74c3c;
   font-size: 0.8rem;
 }
+.config-saving {
+  margin-top: 12px;
+  padding: 8px 14px;
+  background: rgba(52,152,219,0.08);
+  border-left: 3px solid #3498db;
+  border-radius: 6px;
+  color: #2980b9;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 /* INFO CARD */
 .info-card-warn {
@@ -715,6 +1085,7 @@ onMounted(() => {
 .badge-tipo { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--radius-full); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
 .tipo-manual { background: rgba(52,152,219,0.15); color: #3498db; }
 .tipo-automatico { background: rgba(46,204,113,0.15); color: #27ae60; }
+.tipo-pre-restore { background: rgba(155,89,182,0.15); color: #9b59b6; }
 
 .tamano-valor { font-weight: 700; font-size: 0.85rem; }
 .tamano-ok { color: #27ae60; }
@@ -724,12 +1095,12 @@ onMounted(() => {
 
 .collections-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .badge-coll { font-size: 0.65rem; padding: 2px 7px; border-radius: 8px; background: var(--bg-table-stripe); color: var(--text-muted); font-weight: 600; white-space: nowrap; }
-.badge-more { background: rgba(52,152,219,0.15); color: #3498db; }
+.badge-more { background: rgba(52,152,219,0.15); color: #3498db; cursor: help; }
 
 .actions-cell { display: flex; gap: 4px; justify-content: center; }
-.btn-download:hover { border-color: #3498db !important; color: #3498db !important; background: rgba(52,152,219,0.1) !important; }
-.btn-restore:hover { border-color: #f39c12 !important; color: #f39c12 !important; background: rgba(243,156,18,0.1) !important; }
-.btn-delete:hover { border-color: #e74c3c !important; color: #e74c3c !important; background: rgba(231,76,60,0.1) !important; }
+.btn-download:hover:not(:disabled) { border-color: #3498db !important; color: #3498db !important; background: rgba(52,152,219,0.1) !important; }
+.btn-restore:hover:not(:disabled) { border-color: #f39c12 !important; color: #f39c12 !important; background: rgba(243,156,18,0.1) !important; }
+.btn-delete:hover:not(:disabled) { border-color: #e74c3c !important; color: #e74c3c !important; background: rgba(231,76,60,0.1) !important; }
 
 .empty-cell { padding: 0 !important; }
 .empty-state { text-align: center; padding: 50px 20px; color: var(--text-muted); }
@@ -763,6 +1134,9 @@ onMounted(() => {
 .backup-meta { font-size: 0.78rem; color: var(--text-muted); line-height: 1.6; }
 
 code { background: rgba(231,76,60,0.1); padding: 2px 6px; border-radius: 4px; color: #e74c3c; font-weight: 700; font-size: 0.85em; }
+
+/* MODAL GENÉRICO */
+.modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
 
 @media (max-width: 768px) {
   .page-subtitle { padding-left: 0; }

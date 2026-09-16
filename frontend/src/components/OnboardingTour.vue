@@ -1,16 +1,23 @@
 <template>
   <Teleport to="body">
     <transition name="tour-fade">
-      <div v-if="active" class="tour-root" @click.self="noop">
+      <div
+        v-if="active"
+        class="tour-root"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Tour guiado"
+        @click.self="noop"
+      >
+        <!-- Overlay con spotlight -->
+        <div class="tour-overlay" :style="overlayStyle" aria-hidden="true"></div>
 
-        <!-- Overlay oscuro con hole (spotlight) -->
-        <div class="tour-overlay" :style="overlayStyle"></div>
-
-        <!-- Highlight del elemento activo -->
+        <!-- Highlight del target -->
         <div
           v-if="targetRect"
           class="tour-highlight"
           :style="highlightStyle"
+          aria-hidden="true"
         ></div>
 
         <!-- Card del paso -->
@@ -20,17 +27,17 @@
             :key="currentStep"
             class="tour-card"
             :style="cardStyle"
-            :class="`tour-card-${currentStepData.position || 'bottom'}`"
+            role="document"
           >
             <!-- Progreso -->
-            <div class="tour-progress">
+            <div class="tour-progress" aria-hidden="true">
               <div class="tour-progress-bar" :style="{ width: progress + '%' }"></div>
             </div>
 
             <!-- Header -->
             <div class="tour-header">
               <div class="tour-step-info">
-                <div class="tour-step-badge">
+                <div class="tour-step-badge" aria-hidden="true">
                   <i :class="currentStepData.icon || 'fas fa-info-circle'"></i>
                 </div>
                 <div>
@@ -40,8 +47,14 @@
                   <h3 class="tour-title">{{ currentStepData.title }}</h3>
                 </div>
               </div>
-              <button class="tour-close" @click="descartar" title="Cerrar tour">
-                <i class="fas fa-times"></i>
+              <button
+                type="button"
+                class="tour-close"
+                @click="descartar"
+                title="Cerrar tour"
+                aria-label="Cerrar tour"
+              >
+                <i class="fas fa-times" aria-hidden="true"></i>
               </button>
             </div>
 
@@ -49,10 +62,9 @@
             <div class="tour-body">
               <p class="tour-description">{{ currentStepData.description }}</p>
 
-              <!-- Bullets opcionales -->
               <ul v-if="currentStepData.bullets?.length" class="tour-bullets">
                 <li v-for="(b, i) in currentStepData.bullets" :key="i">
-                  <i class="fas fa-check-circle"></i>
+                  <i class="fas fa-check-circle" aria-hidden="true"></i>
                   <span>{{ b }}</span>
                 </li>
               </ul>
@@ -62,53 +74,71 @@
             <div class="tour-footer">
               <button
                 v-if="!isFirstStep"
+                type="button"
                 class="tour-btn tour-btn-ghost"
                 @click="anterior"
+                aria-label="Paso anterior"
               >
-                <i class="fas fa-arrow-left"></i>
+                <i class="fas fa-arrow-left" aria-hidden="true"></i>
                 <span>Atrás</span>
               </button>
-              <div v-else class="tour-btn-placeholder"></div>
+              <div v-else class="tour-btn-placeholder" aria-hidden="true"></div>
 
               <div class="tour-footer-right">
                 <button
                   v-if="!isLastStep"
+                  type="button"
                   class="tour-btn tour-btn-text"
                   @click="descartar"
                 >
                   Saltar
                 </button>
                 <button
+                  type="button"
                   class="tour-btn tour-btn-primary"
                   @click="siguiente"
+                  :aria-label="isLastStep ? 'Empezar a usar el sistema' : 'Siguiente paso'"
                 >
                   <span>{{ isLastStep ? 'Empezar' : 'Siguiente' }}</span>
-                  <i :class="isLastStep ? 'fas fa-rocket' : 'fas fa-arrow-right'"></i>
+                  <i
+                    :class="isLastStep ? 'fas fa-rocket' : 'fas fa-arrow-right'"
+                    aria-hidden="true"
+                  ></i>
                 </button>
               </div>
             </div>
 
             <!-- Puntos de navegación -->
-            <div class="tour-dots">
+            <div class="tour-dots" role="tablist" aria-label="Navegación del tour">
               <button
                 v-for="(s, i) in steps"
                 :key="i"
+                type="button"
                 class="tour-dot"
                 :class="{ active: i === currentStep, done: i < currentStep }"
                 @click="irA(i)"
                 :title="s.title"
+                :aria-label="`Ir al paso ${i + 1}: ${s.title}`"
+                :aria-current="i === currentStep ? 'step' : undefined"
+                role="tab"
               ></button>
             </div>
           </div>
         </transition>
-
       </div>
     </transition>
   </Teleport>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import {
+  ref,
+  computed,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  nextTick
+} from 'vue'
 import { useOnboarding } from '../composables/useOnboarding'
 
 const {
@@ -125,28 +155,54 @@ const {
   descartar
 } = useOnboarding()
 
+// ===== STATE =====
 const targetRect = ref(null)
-const viewport = ref({ w: window.innerWidth, h: window.innerHeight })
+const viewport = ref({
+  w: typeof window !== 'undefined' ? window.innerWidth : 1024,
+  h: typeof window !== 'undefined' ? window.innerHeight : 768
+})
 
+// ===== GUARDS =====
+let unmounted = false
+let resizeTimer = null
+let scrollRafId = null
+let recalcTimer = null
+
+// ===== COMPUTED =====
 const currentStepData = computed(() => steps.value[currentStep.value] || null)
 
-function noop() {}
+const isReducedMotion = computed(() => {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+})
 
-function actualizarViewport() {
+// ===== HELPERS =====
+const noop = () => { /* bloquea clicks de fondo */ }
+
+const actualizarViewport = () => {
+  if (typeof window === 'undefined') return
   viewport.value = { w: window.innerWidth, h: window.innerHeight }
 }
 
-function calcularTargetRect() {
+const calcularTargetRect = () => {
   const data = currentStepData.value
   if (!data?.target) {
     targetRect.value = null
     return
   }
-  const el = document.querySelector(data.target)
+
+  let el = null
+  try {
+    el = document.querySelector(data.target)
+  } catch {
+    el = null
+  }
+
   if (!el) {
     targetRect.value = null
     return
   }
+
   const rect = el.getBoundingClientRect()
   targetRect.value = {
     top: rect.top,
@@ -156,16 +212,29 @@ function calcularTargetRect() {
     bottom: rect.bottom,
     right: rect.right
   }
+
+  // Si el target está fuera de la ventana, hacer scroll suave
+  if (rect.top < 0 || rect.bottom > window.innerHeight) {
+    try {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } catch {
+      el.scrollIntoView()
+    }
+  }
 }
 
-// Overlay con hole: usamos box-shadow gigante para crear el "hueco"
+// ===== ESTILOS DINÁMICOS =====
 const overlayStyle = computed(() => {
   const pad = currentStepData.value?.spotlightPadding ?? 8
   const r = targetRect.value
-  if (!r) return { background: 'rgba(15, 23, 42, 0.72)' }
+
+  if (!r) {
+    return { background: 'rgba(15, 23, 42, 0.72)' }
+  }
+
   return {
     background: 'transparent',
-    boxShadow: `0 0 0 9999px rgba(15, 23, 42, 0.72)`,
+    boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.72)',
     borderRadius: '12px',
     top: `${r.top - pad}px`,
     left: `${r.left - pad}px`,
@@ -177,7 +246,7 @@ const overlayStyle = computed(() => {
 const highlightStyle = computed(() => {
   const pad = currentStepData.value?.spotlightPadding ?? 8
   const r = targetRect.value
-  if (!r) return {}
+  if (!r) return { display: 'none' }
   return {
     top: `${r.top - pad}px`,
     left: `${r.left - pad}px`,
@@ -196,7 +265,7 @@ const cardStyle = computed(() => {
   const gap = 16
   const safePad = 20
 
-  // Si no hay target → centro
+  // Sin target → centrado
   if (!r) {
     return {
       top: '50%',
@@ -208,7 +277,6 @@ const cardStyle = computed(() => {
 
   let top = 0
   let left = 0
-  let transform = ''
 
   switch (position) {
     case 'top':
@@ -230,12 +298,16 @@ const cardStyle = computed(() => {
       break
   }
 
-  // Ajustar si se sale de pantalla
+  // Ajustes para que quede dentro de la pantalla
   if (left < safePad) left = safePad
   if (left + cardW > w - safePad) left = w - cardW - safePad
-  if (top < safePad) top = r.bottom + gap
-  if (top + cardH > h - safePad) top = r.top - cardH - gap
-  if (top < safePad) top = safePad
+
+  if (top < safePad) {
+    top = r.bottom + gap
+  }
+  if (top + cardH > h - safePad) {
+    top = Math.max(safePad, r.top - cardH - gap)
+  }
 
   return {
     top: `${top}px`,
@@ -244,48 +316,139 @@ const cardStyle = computed(() => {
   }
 })
 
-// Recalcular al cambiar de paso
-watch(currentStep, async () => {
-  await nextTick()
-  calcularTargetRect()
-  // Pequeño delay por si el DOM tarda en aparecer
-  setTimeout(calcularTargetRect, 60)
-})
-
-watch(active, async (val) => {
-  if (val) {
-    await nextTick()
-    setTimeout(calcularTargetRect, 80)
+// ===== BLOQUEO DE SCROLL =====
+const bloquearScroll = (bloquear) => {
+  if (typeof document === 'undefined') return
+  const body = document.body
+  if (!body) return
+  if (bloquear) {
+    if (!body.dataset.tourScrollLock) {
+      body.dataset.tourScrollLock = body.style.overflow || ''
+    }
+    body.style.overflow = 'hidden'
+  } else {
+    if (body.dataset.tourScrollLock !== undefined) {
+      body.style.overflow = body.dataset.tourScrollLock || ''
+      delete body.dataset.tourScrollLock
+    }
   }
-})
+}
 
-let resizeTimer = null
-function onResize() {
+// ===== WATCHERS =====
+watch(
+  currentStep,
+  async () => {
+    await nextTick()
+    if (unmounted) return
+    calcularTargetRect()
+    // Segundo intento por si el DOM tarda (elementos lazy)
+    if (recalcTimer) clearTimeout(recalcTimer)
+    recalcTimer = setTimeout(() => {
+      if (!unmounted) calcularTargetRect()
+      recalcTimer = null
+    }, 80)
+  }
+)
+
+watch(
+  active,
+  async (val) => {
+    bloquearScroll(val)
+    if (val) {
+      // Marca el HTML para CSS global si lo necesita
+      try {
+        document.documentElement.classList.add('tour-active')
+      } catch { /* noop */ }
+      await nextTick()
+      if (unmounted) return
+      if (recalcTimer) clearTimeout(recalcTimer)
+      recalcTimer = setTimeout(() => {
+        if (!unmounted) calcularTargetRect()
+        recalcTimer = null
+      }, 100)
+    } else {
+      try {
+        document.documentElement.classList.remove('tour-active')
+      } catch { /* noop */ }
+      targetRect.value = null
+    }
+  },
+  { immediate: false }
+)
+
+// ===== HANDLERS =====
+const onResize = () => {
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeTimer = setTimeout(() => {
+    resizeTimer = null
+    if (unmounted) return
     actualizarViewport()
     calcularTargetRect()
   }, 100)
 }
 
-function onKeydown(e) {
-  if (!active.value) return
-  if (e.key === 'Escape') descartar()
-  if (e.key === 'ArrowRight' || e.key === 'Enter') siguiente()
-  if (e.key === 'ArrowLeft') anterior()
+const onScroll = () => {
+  if (scrollRafId) return
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
+    if (unmounted || !active.value) return
+    calcularTargetRect()
+  })
 }
 
+const onKeydown = (e) => {
+  if (!active.value) return
+
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    descartar()
+    return
+  }
+  if (e.key === 'ArrowRight' || e.key === 'Enter') {
+    e.preventDefault()
+    siguiente()
+    return
+  }
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    anterior()
+  }
+}
+
+// ===== LIFECYCLE =====
 onMounted(() => {
+  actualizarViewport()
+
   window.addEventListener('resize', onResize)
-  window.addEventListener('scroll', calcularTargetRect, true)
+  window.addEventListener('scroll', onScroll, true)
   window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
+  unmounted = true
+
   window.removeEventListener('resize', onResize)
-  window.removeEventListener('scroll', calcularTargetRect, true)
+  window.removeEventListener('scroll', onScroll, true)
   window.removeEventListener('keydown', onKeydown)
-  document.documentElement.classList.remove('tour-active')
+
+  if (resizeTimer) {
+    clearTimeout(resizeTimer)
+    resizeTimer = null
+  }
+  if (recalcTimer) {
+    clearTimeout(recalcTimer)
+    recalcTimer = null
+  }
+  if (scrollRafId) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
+  }
+
+  bloquearScroll(false)
+
+  try {
+    document.documentElement.classList.remove('tour-active')
+  } catch { /* noop */ }
 })
 </script>
 
@@ -342,15 +505,6 @@ onBeforeUnmount(() => {
   width: 420px;
   border: 1px solid rgba(226, 232, 240, 0.8);
   transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Modo oscuro opcional */
-@media (prefers-color-scheme: dark) {
-  .tour-card {
-    background: #131a2b;
-    border-color: rgba(30, 41, 59, 0.8);
-    color: #f1f5f9;
-  }
 }
 
 .tour-progress {
@@ -414,11 +568,6 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  .tour-title { color: #f1f5f9; }
-  .tour-step-label { color: #94a3b8; }
-}
-
 .tour-close {
   width: 32px;
   height: 32px;
@@ -449,10 +598,6 @@ onBeforeUnmount(() => {
   margin: 0 0 12px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .tour-description { color: #cbd5e1; }
-}
-
 .tour-bullets {
   list-style: none;
   padding: 0;
@@ -476,10 +621,6 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
   margin-top: 2px;
   flex-shrink: 0;
-}
-
-@media (prefers-color-scheme: dark) {
-  .tour-bullets li { color: #cbd5e1; }
 }
 
 .tour-footer {
@@ -508,7 +649,7 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s ease-out;
   height: 40px;
   white-space: nowrap;
 }
@@ -540,13 +681,6 @@ onBeforeUnmount(() => {
   padding: 9px 10px;
 }
 .tour-btn-text:hover { color: #0f172a; }
-
-@media (prefers-color-scheme: dark) {
-  .tour-btn-ghost { border-color: #334155; color: #cbd5e1; }
-  .tour-btn-ghost:hover { background: #1e293b; color: #f1f5f9; }
-  .tour-btn-text { color: #94a3b8; }
-  .tour-btn-text:hover { color: #f1f5f9; }
-}
 
 .tour-btn-placeholder { width: 80px; }
 
@@ -610,5 +744,24 @@ onBeforeUnmount(() => {
     transform: none !important;
   }
   .tour-highlight { display: none; }
+}
+
+/* Accesibilidad */
+@media (prefers-reduced-motion: reduce) {
+  .tour-highlight,
+  .tour-progress-bar,
+  .tour-card,
+  .tour-dot {
+    transition: none;
+    animation: none;
+  }
+  .tour-pop-enter-active,
+  .tour-pop-leave-active {
+    transition: opacity 0.15s ease;
+  }
+  .tour-pop-enter-from,
+  .tour-pop-leave-to {
+    transform: none;
+  }
 }
 </style>

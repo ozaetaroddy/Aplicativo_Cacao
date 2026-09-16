@@ -25,11 +25,13 @@
         </div>
         <div class="cert-status-content">
           <div class="cert-status-label">
-            {{ infoCert.vencido ? 'CERTIFICADO VENCIDO' : (infoCert.por_vencer ? 'CERTIFICADO POR VENCER' : 'CERTIFICADO VIGENTE') }}
+            {{
+              infoCert.vencido
+                ? 'CERTIFICADO VENCIDO'
+                : (infoCert.por_vencer ? 'CERTIFICADO POR VENCER' : 'CERTIFICADO VIGENTE')
+            }}
           </div>
-          <div class="cert-status-message">
-            {{ certStatusMessage }}
-          </div>
+          <div class="cert-status-message">{{ certStatusMessage }}</div>
         </div>
         <div v-if="!infoCert.vencido" class="cert-dias-badge" :class="certStatusClass">
           <div class="dias-num">{{ infoCert.dias_restantes }}</div>
@@ -106,7 +108,10 @@
             <i class="fas fa-exclamation-triangle"></i>
             <div>
               <strong>Certificado próximo a vencer</strong>
-              <div class="small">Contacta a tu proveedor para renovarlo antes del {{ formatFecha(infoCert.info?.validityNotAfter) }}</div>
+              <div class="small">
+                Contacta a tu proveedor para renovarlo antes del
+                {{ formatFecha(infoCert.info?.validityNotAfter) }}
+              </div>
             </div>
           </div>
           <div v-if="infoCert.vencido" class="cert-alerta danger">
@@ -164,6 +169,7 @@
                   @dragleave.prevent="dragOver = false"
                   @drop.prevent="onDrop"
                   @click="abrirSelectorArchivo"
+                  @paste.prevent="onPaste"
                 >
                   <input
                     ref="fileInput"
@@ -176,7 +182,9 @@
                     <i class="fas fa-cloud-upload-alt drop-icon"></i>
                     <div class="drop-title">Arrastra tu archivo aquí</div>
                     <div class="drop-sub">o haz click para seleccionar</div>
-                    <div class="drop-hint">Formatos permitidos: .p12, .pfx</div>
+                    <div class="drop-hint">
+                      Formatos permitidos: .p12, .pfx · Máx: {{ formatBytes(MAX_SIZE) }}
+                    </div>
                   </template>
                   <template v-else>
                     <i class="fas fa-file-certificate file-icon"></i>
@@ -184,11 +192,20 @@
                       <div class="file-name">{{ archivo.name }}</div>
                       <div class="file-size">{{ formatBytes(archivo.size) }}</div>
                     </div>
-                    <button type="button" class="file-remove" @click.stop="quitarArchivo">
+                    <button
+                      type="button"
+                      class="file-remove"
+                      @click.stop="quitarArchivo"
+                      aria-label="Quitar archivo"
+                    >
                       <i class="fas fa-times"></i>
                     </button>
                   </template>
                 </div>
+                <small class="form-hint">
+                  Arrastra desde tu carpeta, o pega con <kbd>Ctrl</kbd>+<kbd>V</kbd>.
+                  Tamaño óptimo: ≤ 5 MB.
+                </small>
               </div>
 
               <!-- PASSWORD -->
@@ -204,12 +221,15 @@
                     v-model="password"
                     placeholder="Contraseña del .p12"
                     autocomplete="new-password"
+                    maxlength="200"
+                    @input="errorMensaje = ''"
                   />
                   <button
                     type="button"
                     class="toggle-pass"
                     @click="mostrarPassword = !mostrarPassword"
                     tabindex="-1"
+                    :aria-label="mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
                   >
                     <i :class="mostrarPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
                   </button>
@@ -235,6 +255,14 @@
               </div>
             </transition>
 
+            <!-- 🆕 Progreso -->
+            <div v-if="cargando" class="upload-progress">
+              <div class="upload-progress-text">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>{{ faseSubida }}</span>
+              </div>
+            </div>
+
             <!-- BOTONES -->
             <div class="form-actions">
               <button
@@ -250,6 +278,7 @@
                 type="button"
                 class="btn-cancel"
                 @click="cancelar"
+                :disabled="cargando"
               >
                 Cancelar
               </button>
@@ -292,14 +321,18 @@
             <div class="paso-num">3</div>
             <div class="paso-content">
               <strong>Súbelo aquí con la contraseña</strong>
-              <div class="small">El sistema validará que el certificado sea del titular correcto.</div>
+              <div class="small">
+                El sistema validará que el certificado sea del titular correcto.
+              </div>
             </div>
           </div>
           <div class="paso">
             <div class="paso-num">4</div>
             <div class="paso-content">
               <strong>El sistema firmará automáticamente</strong>
-              <div class="small">Cada factura que emitas será firmada y enviada al SRI sin intervención manual.</div>
+              <div class="small">
+                Cada factura que emitas será firmada y enviada al SRI sin intervención manual.
+              </div>
             </div>
           </div>
         </div>
@@ -311,8 +344,15 @@
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header bg-danger text-white">
-            <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i> Eliminar Certificado</h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <h5 class="modal-title">
+              <i class="fas fa-exclamation-triangle me-2"></i> Eliminar Certificado
+            </h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
           </div>
           <div class="modal-body">
             <p>¿Estás seguro de que quieres eliminar el certificado actual?</p>
@@ -323,8 +363,15 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button type="button" class="btn btn-danger" @click="eliminarCertificado" :disabled="eliminando">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+              Cancelar
+            </button>
+            <button
+              type="button"
+              class="btn btn-danger"
+              @click="eliminarCertificado"
+              :disabled="eliminando"
+            >
               <i class="fas fa-trash" :class="{ 'fa-spin': eliminando }"></i>
               {{ eliminando ? 'Eliminando...' : 'Sí, eliminar' }}
             </button>
@@ -336,13 +383,19 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 
 const toast = useToast()
 
+// ===== CONSTANTES =====
+const MAX_SIZE = 15 * 1024 * 1024 // 15 MB
+const READ_TIMEOUT_MS = 30_000
+const TAMANO_OPTIMO = 5 * 1024 * 1024
+
+// ===== STATE =====
 const loading = ref(true)
 const infoCert = ref(null)
 const mostrarFormulario = ref(false)
@@ -354,8 +407,15 @@ const password = ref('')
 const errorMensaje = ref('')
 const exitoMensaje = ref('')
 const dragOver = ref(false)
+const faseSubida = ref('')
 const fileInput = ref(null)
+
+// Modales
 let modalEliminar = null
+let modalEliminarInstanciado = false
+
+// 🆕 Flag unmount
+let unmounted = false
 
 // ===== COMPUTED =====
 const certStatusClass = computed(() => {
@@ -378,48 +438,119 @@ const certStatusMessage = computed(() => {
     return `El certificado venció el ${formatFecha(infoCert.value.info?.validityNotAfter)}. Debes renovarlo para poder facturar.`
   }
   if (infoCert.value.por_vencer) {
-    return `Vence pronto. Contacta a tu entidad certificadora para renovarlo.`
+    return 'Vence pronto. Contacta a tu entidad certificadora para renovarlo.'
   }
-  return `Tu certificado está vigente y listo para firmar facturas.`
+  return 'Tu certificado está vigente y listo para firmar facturas.'
 })
 
 // ===== HELPERS =====
 const formatFecha = (fecha) => {
   if (!fecha) return 'N/A'
-  return new Date(fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  try {
+    return new Date(fecha).toLocaleDateString('es-EC', {
+      day: '2-digit', month: '2-digit', year: 'numeric'
+    })
+  } catch {
+    return 'N/A'
+  }
 }
 
 const formatFechaHora = (fecha) => {
   if (!fecha) return 'N/A'
-  return new Date(fecha).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' })
+  try {
+    return new Date(fecha).toLocaleString('es-EC', {
+      dateStyle: 'medium', timeStyle: 'short'
+    })
+  } catch {
+    return 'N/A'
+  }
 }
 
 const formatBytes = (bytes) => {
-  if (!bytes) return '0 B'
+  if (bytes === null || bytes === undefined) return '—'
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  if (n === 0) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(k)), sizes.length - 1)
+  return `${(n / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
+/**
+ * Extrae el valor de `CN=` de un string X.500.
+ * 🐛 BUG FIX: escapar el separador por si el CN contiene caracteres especiales.
+ */
 const extraerCN = (texto) => {
   if (!texto) return 'N/A'
-  const match = texto.match(/CN=([^,]+)/)
-  return match ? match[1] : texto
+  const match = String(texto).match(/CN=([^,]+)/i)
+  return match ? match[1].trim() : texto
+}
+
+// 🆕 Sanitizar nombre de archivo para subida
+const sanitizeNombreArchivo = (nombre, fallback = 'certificado.p12') => {
+  const base = String(nombre || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .replace(/[\/\\]/g, '')
+    .replace(/\.\./g, '')
+    .replace(/[^\w.\- ]/g, '_')
+    .trim()
+    .slice(0, 200)
+  return base || fallback
+}
+
+// ===== VALIDACIÓN DE ARCHIVO =====
+const validarExtension = (f) => {
+  const nombre = String(f?.name || '').toLowerCase()
+  return nombre.endsWith('.p12') || nombre.endsWith('.pfx')
+}
+
+/**
+ * 🆕 Valida magic bytes de un .p12/.pfx (ASN.1 DER).
+ * Un PKCS#12 empieza con SEQUENCE (0x30) y suele tener 0x82 (longitud larga).
+ * Leemos solo los primeros 8 bytes para no cargar el archivo entero.
+ *
+ * @param {File} file
+ * @returns {Promise<boolean>}
+ */
+const validarMagicBytes = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    const timeout = setTimeout(() => {
+      try { reader.abort() } catch { /* noop */ }
+      resolve(false)
+    }, 5000)
+
+    reader.onload = (e) => {
+      clearTimeout(timeout)
+      try {
+        const buf = new Uint8Array(e.target.result)
+        if (buf.length < 2) return resolve(false)
+        // 0x30 = SEQUENCE, seguido típicamente de 0x82 (len 2 bytes)
+        resolve(buf[0] === 0x30 && (buf[1] === 0x82 || buf[1] === 0x81 || buf[1] === 0x80))
+      } catch {
+        resolve(false)
+      }
+    }
+    reader.onerror = () => {
+      clearTimeout(timeout)
+      resolve(false)
+    }
+    reader.readAsArrayBuffer(file.slice(0, 8))
+  })
 }
 
 // ===== ARCHIVO =====
-const validarExtension = (f) => {
-  const nombre = f.name.toLowerCase()
-  if (!nombre.endsWith('.p12') && !nombre.endsWith('.pfx')) {
-    return false
+const setArchivo = async (f) => {
+  errorMensaje.value = ''
+  exitoMensaje.value = ''
+
+  if (!f || !(f instanceof File)) {
+    errorMensaje.value = 'Archivo inválido'
+    return
   }
-  return true
-}
-
-const MAX_SIZE = 15 * 1024 * 1024 // 15 MB
-
-const setArchivo = (f) => {
   if (!validarExtension(f)) {
     errorMensaje.value = 'El archivo debe ser .p12 o .pfx'
     toast.warning('Formato de archivo no válido')
@@ -430,9 +561,20 @@ const setArchivo = (f) => {
     toast.warning('Archivo demasiado grande')
     return
   }
+  if (f.size === 0) {
+    errorMensaje.value = 'El archivo está vacío'
+    return
+  }
+
+  // 🆕 Validar magic bytes (defensa contra archivos renombrados)
+  const esValido = await validarMagicBytes(f)
+  if (!esValido) {
+    errorMensaje.value = 'El archivo no parece ser un certificado .p12/.pfx válido'
+    toast.warning('El contenido del archivo no corresponde a un certificado')
+    return
+  }
+
   archivo.value = f
-  errorMensaje.value = ''
-  exitoMensaje.value = ''
 }
 
 const onFileChange = (event) => {
@@ -442,8 +584,21 @@ const onFileChange = (event) => {
 
 const onDrop = (event) => {
   dragOver.value = false
-  const f = event.dataTransfer.files?.[0]
+  const f = event.dataTransfer?.files?.[0]
   if (f) setArchivo(f)
+}
+
+// 🆕 Paste (Ctrl+V) desde el explorador de archivos
+const onPaste = (event) => {
+  const items = event.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const f = item.getAsFile()
+      if (f) setArchivo(f)
+      return
+    }
+  }
 }
 
 const abrirSelectorArchivo = () => {
@@ -460,16 +615,23 @@ const quitarArchivo = () => {
 const cargarInfo = async () => {
   loading.value = true
   try {
-    infoCert.value = await api.request('/certificado/info', { method: 'GET' })
+    const res = await api.request('/certificado/info', { method: 'GET' })
+    if (unmounted) return
+    infoCert.value = res
+    // 🐛 BUG FIX: resetear formulario al recargar info
+    mostrarFormulario.value = false
   } catch (e) {
-    console.error(e)
+    if (!unmounted) console.error('Error cargando info del certificado:', e)
   } finally {
-    loading.value = false
+    if (!unmounted) loading.value = false
   }
 }
 
 const toggleFormulario = () => {
   mostrarFormulario.value = !mostrarFormulario.value
+  // Limpiar mensajes al alternar
+  errorMensaje.value = ''
+  exitoMensaje.value = ''
 }
 
 const cancelar = () => {
@@ -477,63 +639,121 @@ const cancelar = () => {
   archivo.value = null
   password.value = ''
   errorMensaje.value = ''
+  exitoMensaje.value = ''
   if (fileInput.value) fileInput.value.value = ''
+}
+
+// ===== LECTURA BASE64 CON TIMEOUT =====
+/**
+ * Lee un File como base64 (sin el prefijo data URL).
+ * Añade timeout para evitar cuelgues en archivos corruptos.
+ */
+const leerArchivoBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    const timeout = setTimeout(() => {
+      try { reader.abort() } catch { /* noop */ }
+      reject(new Error('La lectura del archivo tardó demasiado. Intenta con un archivo más pequeño.'))
+    }, READ_TIMEOUT_MS)
+
+    reader.onload = () => {
+      clearTimeout(timeout)
+      try {
+        const result = String(reader.result || '')
+        const idx = result.indexOf(',')
+        const b64 = idx >= 0 ? result.slice(idx + 1) : result
+        resolve(b64)
+      } catch (e) {
+        reject(new Error('Error al procesar el archivo'))
+      }
+    }
+
+    reader.onerror = () => {
+      clearTimeout(timeout)
+      const code = reader.error?.code
+      const msg = code === 1 ? 'Archivo no encontrado'
+        : code === 2 ? 'Error de seguridad al leer el archivo'
+        : code === 3 ? 'El archivo está corrupto o fue modificado'
+        : code === 4 ? 'El archivo no se puede leer (formato no soportado)'
+        : 'Error al leer el archivo'
+      reject(new Error(msg))
+    }
+
+    reader.readAsDataURL(file)
+  })
 }
 
 // ===== SUBIR =====
 const subirCertificado = async () => {
   if (!archivo.value || !password.value) return
+  if (cargando.value) return
 
   errorMensaje.value = ''
   exitoMensaje.value = ''
   cargando.value = true
+  faseSubida.value = 'Leyendo archivo...'
 
   try {
-    // Leer archivo como base64
-    const archivo_base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result.split(',')[1])
-      reader.onerror = reject
-      reader.readAsDataURL(archivo.value)
-    })
+    // 1. Leer archivo como base64
+    const archivo_base64 = await leerArchivoBase64(archivo.value)
+    if (unmounted) return
 
+    faseSubida.value = 'Subiendo al servidor...'
+
+    // 2. Enviar al backend
     const res = await api.request('/certificado/subir', {
       method: 'POST',
       body: JSON.stringify({
         archivo_base64,
         password: password.value,
-        nombre_archivo: archivo.value.name
+        nombre_archivo: sanitizeNombreArchivo(archivo.value.name)
       }),
       loaderMessage: 'Cargando certificado...'
     })
 
-    exitoMensaje.value = `Certificado cargado. Vigente hasta ${formatFecha(res.certificado.valido_hasta)}`
+    if (unmounted) return
+
+    // 3. Mostrar éxito
+    const vence = res?.certificado?.valido_hasta
+    exitoMensaje.value = vence
+      ? `Certificado cargado. Vigente hasta ${formatFecha(vence)}`
+      : 'Certificado cargado correctamente'
     toast.success('Certificado cargado correctamente')
 
-    // Limpiar formulario
+    // 4. Limpiar formulario
     archivo.value = null
     password.value = ''
     if (fileInput.value) fileInput.value.value = ''
     mostrarFormulario.value = false
 
+    // 5. Refrescar info (incluye días restantes calculados por el backend)
     await cargarInfo()
   } catch (e) {
-    errorMensaje.value = e.message
-    toast.error('Error: ' + e.message)
+    if (!unmounted) {
+      errorMensaje.value = e.message
+      toast.error('Error: ' + e.message)
+    }
   } finally {
-    cargando.value = false
+    if (!unmounted) {
+      cargando.value = false
+      faseSubida.value = ''
+    }
   }
 }
 
 // ===== ELIMINAR =====
 const abrirModalEliminar = () => {
-  if (!modalEliminar) {
+  // 🐛 BUG FIX: recrear la instancia si por alguna razón quedó en mal estado
+  if (!modalEliminar || !modalEliminarInstanciado) {
     modalEliminar = new Modal(document.getElementById('modalEliminarCert'))
+    modalEliminarInstanciado = true
   }
   modalEliminar.show()
 }
 
 const eliminarCertificado = async () => {
+  if (eliminando.value) return
   eliminando.value = true
   try {
     await api.request('/certificado', {
@@ -541,17 +761,31 @@ const eliminarCertificado = async () => {
       body: JSON.stringify({ confirmacion: 'ELIMINAR CERTIFICADO' }),
       loaderMessage: 'Eliminando...'
     })
-    toast.success('Certificado eliminado')
-    modalEliminar.hide()
-    await cargarInfo()
+    if (!unmounted) {
+      toast.success('Certificado eliminado')
+      modalEliminar?.hide()
+      await cargarInfo()
+    }
   } catch (e) {
-    toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + e.message)
   } finally {
-    eliminando.value = false
+    if (!unmounted) eliminando.value = false
   }
 }
 
+// ===== LIFECYCLE =====
 onMounted(cargarInfo)
+
+onBeforeUnmount(() => {
+  unmounted = true
+
+  // 🆕 Limpiar datos sensibles
+  password.value = ''
+  archivo.value = null
+
+  // 🆕 Cerrar modal si quedó abierto
+  try { modalEliminar?.hide() } catch { /* noop */ }
+})
 </script>
 
 <style scoped>
@@ -655,6 +889,14 @@ onMounted(cargarInfo)
 .form-label { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
 .required { color: #e74c3c; margin-right: 4px; }
 .form-hint { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; }
+kbd {
+  background: var(--bg-table-stripe);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  font-family: monospace;
+}
 
 /* DROP ZONE */
 .drop-zone {
@@ -713,6 +955,23 @@ onMounted(cargarInfo)
 .alert-success { background: rgba(39,174,96,0.08); border: 1px solid rgba(39,174,96,0.3); color: #1e8449; }
 .alert i { font-size: 1.15rem; flex-shrink: 0; }
 
+/* 🆕 UPLOAD PROGRESS */
+.upload-progress {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(52,152,219,0.08);
+  border: 1px solid rgba(52,152,219,0.3);
+  border-radius: var(--radius-md);
+}
+.upload-progress-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #2980b9;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
 /* ACTIONS */
 .form-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
 .btn-submit, .btn-cancel {
@@ -732,7 +991,8 @@ onMounted(cargarInfo)
 .btn-submit:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(39,174,96,0.4); }
 .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-cancel { background: transparent; border: 1.5px solid var(--border-color); color: var(--text-secondary); }
-.btn-cancel:hover { border-color: #e74c3c; color: #e74c3c; }
+.btn-cancel:hover:not(:disabled) { border-color: #e74c3c; color: #e74c3c; }
+.btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* AYUDA */
 .ayuda-card .card-header { background: linear-gradient(135deg, rgba(52,152,219,0.08), transparent); }

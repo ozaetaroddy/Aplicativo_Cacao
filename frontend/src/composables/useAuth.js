@@ -1,78 +1,210 @@
 // frontend/src/composables/useAuth.js
+// ============================================================
 // Autenticación basada en cookies httpOnly (sin token en localStorage).
 // El token real vive en la cookie `sc_at` inaccesible desde JS.
+// ============================================================
+'use strict'
 
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../services/api'
 import { usePermisos } from './usePermisos'
 
+// ===== CONSTANTES =====
 const USER_KEY = 'user'
 const HINT_KEY = 'auth_hint'
+const BROADCAST_CHANNEL = 'auth'
 
+// ===== ESTADO COMPARTIDO (singleton) =====
+const user = ref(_leerUsuario())
+
+// ===== HELPERS DE STORAGE =====
+function _leerUsuario() {
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function _escribirUsuario(u) {
+  try {
+    if (u === null) {
+      localStorage.removeItem(USER_KEY)
+      localStorage.removeItem(HINT_KEY)
+    } else {
+      localStorage.setItem(USER_KEY, JSON.stringify(u))
+      localStorage.setItem(HINT_KEY, '1')
+    }
+  } catch { /* noop */ }
+}
+
+// ===== BROADCAST A OTRAS PESTAÑAS =====
+let channel = null
+function getChannel() {
+  if (typeof window === 'undefined' || !window.BroadcastChannel) return null
+  if (!channel) {
+    try {
+      channel = new BroadcastChannel(BROADCAST_CHANNEL)
+      channel.addEventListener('message', (ev) => {
+        if (ev?.data?.type === 'logout') {
+          user.value = null
+          try {
+            usePermisos().limpiarCache()
+          } catch { /* noop */ }
+        } else if (ev?.data?.type === 'login') {
+          user.value = _leerUsuario()
+        }
+      })
+    } catch {
+      channel = null
+    }
+  }
+  return channel
+}
+
+function broadcast(type) {
+  const ch = getChannel()
+  if (ch) {
+    try { ch.postMessage({ type }) } catch { /* noop */ }
+  }
+}
+
+// ===== COMPOSABLE =====
 export function useAuth() {
-  const router = useRouter()
-  const user = ref(JSON.parse(localStorage.getItem(USER_KEY) || 'null'))
+  // El router se obtiene perezosamente para no romper fuera de setup
+  let _router = null
+  const getRouter = () => {
+    if (_router) return _router
+    try {
+      _router = useRouter()
+    } catch {
+      _router = null
+    }
+    return _router
+  }
 
-  const isAuthenticated = computed(() => !!user.value)
+  const isAuthenticated = computed(() => Boolean(user.value))
   const isAdmin = computed(() => user.value?.rol === 'admin')
 
-  const logout = async () => {
+  // ===== LOGOUT =====
+  let logoutEnCurso = false
+
+  const logout = async ({ silent = false } = {}) => {
+    if (logoutEnCurso) return
+    logoutEnCurso = true
+
     // 1. Invalidar refresh token en el backend
     try {
-      await api.post('/auth/logout', {}, { skipLoader: true })
-    } catch (_) { /* seguimos con el logout local */ }
+      await api.request('/auth/logout', {
+        method: 'POST',
+        skipLoader: true
+      })
+    } catch {
+      /* seguimos con el logout local aunque el server falle */
+    }
 
     // 2. Limpiar estado local
-    localStorage.removeItem(USER_KEY)
-    localStorage.removeItem(HINT_KEY)
+    _escribirUsuario(null)
     user.value = null
 
     // 3. Limpiar cache de permisos
-    try { usePermisos().limpiarCache() } catch (_) { /* noop */ }
+    try {
+      usePermisos().limpiarCache()
+    } catch { /* noop */ }
 
-    // 4. Redirigir
-    router.push('/login')
+    // 4. Avisar a otras pestañas
+    broadcast('logout')
+
+    // 5. Redirigir
+    if (!silent) {
+      const router = getRouter()
+      if (router) {
+        try {
+          router.push('/login')
+        } catch { /* noop */ }
+      }
+    }
+
+    logoutEnCurso = false
   }
 
+  // ===== SET USER (después del login) =====
   const setUser = (newUser) => {
-    localStorage.setItem(USER_KEY, JSON.stringify(newUser))
-    localStorage.setItem(HINT_KEY, '1')
+    if (!newUser || typeof newUser !== 'object') return
+    _escribirUsuario(newUser)
     user.value = newUser
+    broadcast('login')
   }
 
-  const updateUser = (newUserData) => {
-    const updated = { ...(user.value || {}), ...newUserData }
-    localStorage.setItem(USER_KEY, JSON.stringify(updated))
+  // ===== UPDATE USER (merge parcial) =====
+  const updateUser = (patch) => {
+    if (!patch || typeof patch !== 'object') return
+    const updated = { ...(user.value || {}), ...patch }
+    _escribirUsuario(updated)
     user.value = updated
   }
 
-  /**
-   * Refresca los datos del usuario desde el backend (sincroniza rol, nombre, etc).
-   * Si el backend devuelve 401, cierra la sesión automáticamente.
-   */
+  // ===== REFRESH USER =====
   const refreshUser = async () => {
     try {
-      const data = await api.get('/auth/perfil', { skipLoader: true })
+      const data = await api.request('/auth/perfil', {
+        method: 'GET',
+        skipLoader: true
+      })
+
+      if (!data) return null
+
       const userData = {
-        id: data._id,
+        id: data._id || data.id,
         nombre: data.nombre,
         email: data.email,
         rol: data.rol,
         telefono: data.telefono || ''
       }
-      localStorage.setItem(USER_KEY, JSON.stringify(userData))
+
+      _escribirUsuario(userData)
       user.value = userData
       return userData
     } catch (e) {
-      console.warn('No se pudo refrescar el usuario:', e.message)
-      if (/sesión|expirada|401/i.test(e.message)) {
-        localStorage.removeItem(USER_KEY)
-        localStorage.removeItem(HINT_KEY)
+      const codigo = e?.codigo || e?.code || ''
+      const status = e?.status
+      const msg = String(e?.message || '')
+
+      // Detectar cualquier error de sesión inválida
+      const esSesionInvalida =
+        status === 401 ||
+        ['NO_TOKEN', 'TOKEN_EXPIRED', 'TOKEN_INVALID', 'TOKEN_MALFORMED',
+         'PASSWORD_CHANGED', 'USER_NOT_FOUND', 'USER_INACTIVE'].includes(codigo) ||
+        /sesión|expirada|token/i.test(msg)
+
+      if (esSesionInvalida) {
+        _escribirUsuario(null)
         user.value = null
+        try {
+          usePermisos().limpiarCache()
+        } catch { /* noop */ }
+      } else {
+        console.warn('No se pudo refrescar el usuario:', msg)
       }
+
       return null
     }
+  }
+
+  // ===== SINCRONIZAR ENTRE PESTAÑAS =====
+  // Escuchamos cambios de `storage` (fallback de BroadcastChannel)
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (ev) => {
+      if (ev.key === USER_KEY) {
+        user.value = _leerUsuario()
+      }
+    })
+    getChannel() // inicializar
   }
 
   return {
@@ -85,3 +217,7 @@ export function useAuth() {
     refreshUser
   }
 }
+
+// ---- Solo para tests ----
+export const _leerUsuario = _leerUsuario
+export const _escribirUsuario = _escribirUsuario

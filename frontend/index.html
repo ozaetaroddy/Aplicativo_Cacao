@@ -2,47 +2,68 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+
+    <!-- ============================================================
+         ICONS
+         ============================================================ -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- ============================================================
+         META BÁSICOS
+         ============================================================ -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#1a3a5c" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#0a0f1c" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Sistema contable completo con facturación electrónica SRI para Ecuador" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- ============================================================
+         PWA / MOBILE
+         ============================================================ -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Sistema Contable" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="robots" content="noindex, nofollow" />
 
-    <!-- CSP: bloquea scripts inline no firmados y limita orígenes.
-         Ajusta connect-src con el dominio real del backend. -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self';
-               script-src 'self' 'unsafe-inline' 'unsafe-eval';
-               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-               img-src 'self' data: blob:;
-               font-src 'self' data: https://fonts.gstatic.com;
-               connect-src 'self' https: wss:;
-               object-src 'none';
-               base-uri 'self';
-               form-action 'self';"
-    />
-
+    <!-- ============================================================
+         OPEN GRAPH
+         ============================================================ -->
     <meta property="og:title" content="Sistema Contable — System Ozaet's Electronics" />
     <meta property="og:description" content="Sistema contable completo con facturación electrónica SRI" />
     <meta property="og:image" content="/pwa-512x512.png" />
     <meta property="og:type" content="website" />
 
-    <title>Sistema Contable Universal</title>
+    <!--
+      ⚠️  CSP, X-Frame-Options, HSTS, etc. se aplican vía `vercel.json`
+          headers (no como <meta>). El <meta http-equiv="Content-Security-Policy">
+          ignora directivas clave como `frame-ancestors` y no permite
+          reportes. Mantener la seguridad en headers es la práctica correcta.
+    -->
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    <title>Sistema Contable</title>
 
     <!-- ============================================================
-         LOADING SCREEN — se oculta automáticamente al montar Vue
+         FUENTES
+         ============================================================ -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..800&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..800&display=swap"
+    />
+
+    <!-- ============================================================
+         LOADING SCREEN — se oculta al montar Vue
+         Colores alineados con --bg-navbar / --primary del design system
          ============================================================ -->
     <style>
       #app-loading {
@@ -53,50 +74,110 @@
         align-items: center;
         justify-content: center;
         gap: 20px;
-        background: linear-gradient(135deg, #0f1626 0%, #1a2332 50%, #2c3e50 100%);
+        background: linear-gradient(135deg, #0f1e35 0%, #1e3a5f 55%, #24467a 100%);
         color: #ecf0f1;
         font-family: 'Inter', -apple-system, sans-serif;
         z-index: 99999;
         transition: opacity 0.4s ease;
       }
-      #app-loading.hide { opacity: 0; pointer-events: none; }
+      #app-loading.hide {
+        opacity: 0;
+        pointer-events: none;
+      }
       #app-loading .logo {
-        width: 72px; height: 72px; border-radius: 18px;
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
         background: linear-gradient(135deg, #3498db, #2980b9);
-        display: flex; align-items: center; justify-content: center;
-        font-size: 2rem; font-weight: 800; color: #fff;
-        box-shadow: 0 12px 32px rgba(52,152,219,0.4);
-        animation: float 2.4s ease-in-out infinite;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        font-weight: 800;
+        color: #fff;
+        box-shadow: 0 12px 32px rgba(52, 152, 219, 0.4);
+        animation: app-float 2.4s ease-in-out infinite;
       }
       #app-loading .name {
-        font-size: 1.15rem; font-weight: 700; color: #f1c40f;
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #f1c40f;
         letter-spacing: 0.3px;
       }
       #app-loading .sub {
-        font-size: 0.8rem; color: rgba(255,255,255,0.5);
+        font-size: 0.8rem;
+        color: rgba(255, 255, 255, 0.5);
       }
       #app-loading .spinner {
-        width: 32px; height: 32px; margin-top: 12px;
-        border: 3px solid rgba(255,255,255,0.15);
+        width: 32px;
+        height: 32px;
+        margin-top: 12px;
+        border: 3px solid rgba(255, 255, 255, 0.15);
         border-top-color: #3498db;
         border-radius: 50%;
-        animation: spin 0.9s linear infinite;
+        animation: app-spin 0.9s linear infinite;
       }
-      @keyframes spin { to { transform: rotate(360deg); } }
-      @keyframes float {
+      @keyframes app-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes app-float {
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-6px); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-loading .logo,
+        #app-loading .spinner {
+          animation: none;
+        }
       }
     </style>
   </head>
   <body>
-    <div id="app-loading">
-      <div class="logo">S</div>
+    <!-- ============================================================
+         LOADING SCREEN
+         ============================================================ -->
+    <div id="app-loading" role="status" aria-live="polite">
+      <div class="logo" aria-hidden="true">S</div>
       <div class="name">System Ozaet's Electronics</div>
       <div class="sub">Sistema Contable · Ecuador</div>
-      <div class="spinner"></div>
+      <div class="spinner" aria-hidden="true"></div>
+      <span class="visually-hidden">Cargando aplicación…</span>
     </div>
 
+    <!-- ============================================================
+         NOSCRIPT
+         ============================================================ -->
+    <noscript>
+      <div
+        style="
+          position: fixed;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 2rem;
+          font-family: system-ui, sans-serif;
+          background: #f7f8fc;
+          color: #0f172a;
+          text-align: center;
+          z-index: 100000;
+        "
+      >
+        <div>
+          <h1 style="font-size: 1.5rem; margin-bottom: 0.5rem;">
+            JavaScript está deshabilitado
+          </h1>
+          <p>
+            Este sistema requiere JavaScript para funcionar.
+            Por favor, habilítalo en tu navegador y recarga la página.
+          </p>
+        </div>
+      </div>
+    </noscript>
+
+    <!-- ============================================================
+         APP
+         ============================================================ -->
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>

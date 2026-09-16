@@ -5,30 +5,40 @@
       <div class="hero-content">
         <div class="hero-text">
           <div class="hero-greeting">
-            <i class="fas fa-sun"></i>
+            <i :class="iconoSaludo" aria-hidden="true"></i>
             <span>{{ saludo }}, <strong>{{ nombreUsuario }}</strong></span>
           </div>
           <h1 class="hero-title">
             {{ esListo ? 'Todo listo para facturar' : 'Panel de Control' }}
           </h1>
           <p class="hero-subtitle">
-            {{ esListo
-              ? 'Tu sistema está configurado. Emite comprobantes con validez legal en minutos.'
-              : 'Revisa el estado del sistema y comienza a facturar electrónicamente.' }}
+            {{
+              esListo
+                ? 'Tu sistema está configurado. Emite comprobantes con validez legal en minutos.'
+                : 'Revisa el estado del sistema y comienza a facturar electrónicamente.'
+            }}
           </p>
         </div>
         <div class="hero-actions">
-          <router-link v-if="puedeCrearVentas" to="/ventas/nuevo?tipo=factura" class="hero-btn hero-btn-primary">
-            <i class="fas fa-plus-circle"></i>
+          <router-link
+            v-if="puedeCrearVentas"
+            to="/ventas/nuevo?tipo=factura"
+            class="hero-btn hero-btn-primary"
+          >
+            <i class="fas fa-plus-circle" aria-hidden="true"></i>
             <span>Nueva Factura</span>
           </router-link>
-          <router-link v-if="puedeVerVentas" to="/ventas" class="hero-btn hero-btn-ghost">
-            <i class="fas fa-list"></i>
+          <router-link
+            v-if="puedeVerVentas"
+            to="/ventas"
+            class="hero-btn hero-btn-ghost"
+          >
+            <i class="fas fa-list" aria-hidden="true"></i>
             <span>Ver ventas</span>
           </router-link>
         </div>
       </div>
-      <div class="hero-decoration">
+      <div class="hero-decoration" aria-hidden="true">
         <div class="hero-circle hero-circle-1"></div>
         <div class="hero-circle hero-circle-2"></div>
         <div class="hero-circle hero-circle-3"></div>
@@ -36,32 +46,46 @@
     </div>
 
     <!-- ===== ALERTAS ===== -->
-    <transition-group name="fade" tag="div" class="alerts-grid" v-if="alertas.length > 0">
+    <transition-group
+      v-if="alertas.length > 0"
+      name="fade"
+      tag="div"
+      class="alerts-grid"
+    >
       <div
         v-for="a in alertas"
         :key="a.id"
         class="alert-card"
         :class="`alert-${a.nivel}`"
       >
-        <div class="alert-icon">
+        <div class="alert-icon" aria-hidden="true">
           <i :class="a.icon"></i>
         </div>
         <div class="alert-content">
           <div class="alert-title">{{ a.titulo }}</div>
           <div class="alert-text">{{ a.texto }}</div>
         </div>
-        <router-link v-if="a.to" :to="a.to" class="alert-action">
+        <router-link
+          v-if="a.to"
+          :to="a.to"
+          class="alert-action"
+          :aria-label="a.actionLabel || 'Ver'"
+        >
           {{ a.actionLabel || 'Ver' }}
-          <i class="fas fa-arrow-right"></i>
+          <i class="fas fa-arrow-right" aria-hidden="true"></i>
         </router-link>
       </div>
     </transition-group>
 
     <!-- ===== ACCESOS RÁPIDOS ===== -->
-    <section class="section" data-tour="quick-actions">
+    <section
+      v-if="accesosRapidos.length > 0"
+      class="section"
+      data-tour="quick-actions"
+    >
       <div class="section-header">
         <h2 class="section-title">
-          <i class="fas fa-bolt"></i>
+          <i class="fas fa-bolt" aria-hidden="true"></i>
           <span>Accesos Rápidos</span>
         </h2>
         <div class="section-hint">Las acciones más usadas</div>
@@ -73,27 +97,31 @@
           :to="acceso.to"
           class="quick-card"
         >
-          <div class="quick-icon" :style="{ background: acceso.color }">
+          <div class="quick-icon" :style="{ background: acceso.color }" aria-hidden="true">
             <i :class="acceso.icon"></i>
           </div>
           <div class="quick-info">
             <span class="quick-label">{{ acceso.label }}</span>
             <span class="quick-desc">{{ acceso.desc }}</span>
           </div>
-          <i class="fas fa-arrow-right quick-arrow"></i>
+          <i class="fas fa-arrow-right quick-arrow" aria-hidden="true"></i>
         </router-link>
       </div>
     </section>
 
     <!-- ===== KPIs ===== -->
-    <section v-if="puedeVerVentas || puedeVerCompras" class="section" data-tour="kpis">
+    <section
+      v-if="puedeVerVentas || puedeVerCompras"
+      class="section"
+      data-tour="kpis"
+    >
       <div class="section-header">
         <h2 class="section-title">
-          <i class="fas fa-chart-pie"></i>
+          <i class="fas fa-chart-pie" aria-hidden="true"></i>
           <span>Resumen del Día</span>
         </h2>
         <div class="live-indicator">
-          <span class="live-dot"></span>
+          <span class="live-dot" aria-hidden="true"></span>
           <span class="live-text">En vivo</span>
         </div>
       </div>
@@ -102,9 +130,14 @@
         <!-- Ventas Hoy -->
         <div v-if="puedeVerVentas" class="kpi-card" style="--accent: #2563eb;">
           <div class="kpi-top">
-            <div class="kpi-icon"><i class="fas fa-file-invoice"></i></div>
+            <div class="kpi-icon" aria-hidden="true">
+              <i class="fas fa-file-invoice"></i>
+            </div>
             <div class="kpi-trend" :class="tendenciaVentas >= 0 ? 'up' : 'down'">
-              <i :class="tendenciaVentas >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
+              <i
+                :class="tendenciaVentas >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"
+                aria-hidden="true"
+              ></i>
               <span>{{ Math.abs(tendenciaVentas).toFixed(1) }}%</span>
             </div>
           </div>
@@ -119,9 +152,14 @@
         <!-- Compras Hoy -->
         <div v-if="puedeVerCompras" class="kpi-card" style="--accent: #10b981;">
           <div class="kpi-top">
-            <div class="kpi-icon"><i class="fas fa-shopping-cart"></i></div>
+            <div class="kpi-icon" aria-hidden="true">
+              <i class="fas fa-shopping-cart"></i>
+            </div>
             <div class="kpi-trend" :class="tendenciaCompras >= 0 ? 'up' : 'down'">
-              <i :class="tendenciaCompras >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
+              <i
+                :class="tendenciaCompras >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"
+                aria-hidden="true"
+              ></i>
               <span>{{ Math.abs(tendenciaCompras).toFixed(1) }}%</span>
             </div>
           </div>
@@ -136,9 +174,14 @@
         <!-- Ventas Mes -->
         <div v-if="puedeVerVentas" class="kpi-card" style="--accent: #f59e0b;">
           <div class="kpi-top">
-            <div class="kpi-icon"><i class="fas fa-calendar-alt"></i></div>
+            <div class="kpi-icon" aria-hidden="true">
+              <i class="fas fa-calendar-alt"></i>
+            </div>
             <div class="kpi-trend" :class="varMesVentas >= 0 ? 'up' : 'down'">
-              <i :class="varMesVentas >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
+              <i
+                :class="varMesVentas >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"
+                aria-hidden="true"
+              ></i>
               <span>{{ Math.abs(varMesVentas).toFixed(1) }}%</span>
             </div>
           </div>
@@ -152,9 +195,14 @@
         <!-- Compras Mes -->
         <div v-if="puedeVerCompras" class="kpi-card" style="--accent: #8b5cf6;">
           <div class="kpi-top">
-            <div class="kpi-icon"><i class="fas fa-truck"></i></div>
+            <div class="kpi-icon" aria-hidden="true">
+              <i class="fas fa-truck"></i>
+            </div>
             <div class="kpi-trend" :class="varMesCompras >= 0 ? 'up' : 'down'">
-              <i :class="varMesCompras >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"></i>
+              <i
+                :class="varMesCompras >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'"
+                aria-hidden="true"
+              ></i>
               <span>{{ Math.abs(varMesCompras).toFixed(1) }}%</span>
             </div>
           </div>
@@ -171,31 +219,48 @@
     <section class="section">
       <div class="section-header">
         <h2 class="section-title">
-          <i class="fas fa-chart-line"></i>
+          <i class="fas fa-chart-line" aria-hidden="true"></i>
           <span>Indicadores Clave</span>
         </h2>
       </div>
       <div class="metrics-grid">
         <div v-if="puedeVerVentas && puedeVerCompras" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon" style="background: rgba(16, 185, 129, 0.12); color: #10b981;">
+            <div
+              class="metric-icon"
+              style="background: rgba(16, 185, 129, 0.12); color: #10b981;"
+              aria-hidden="true"
+            >
               <i class="fas fa-percent"></i>
             </div>
             <div class="metric-info">
-              <div class="metric-value" :style="{ color: margenBruto >= 0 ? '#10b981' : '#ef4444' }">
+              <div
+                class="metric-value"
+                :style="{ color: margenBruto >= 0 ? '#10b981' : '#ef4444' }"
+              >
                 {{ margenBruto.toFixed(2) }}%
               </div>
               <div class="metric-label">Margen bruto (mes)</div>
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(Math.max(margenBruto, 0), 100)}%`, background: margenBruto >= 0 ? '#10b981' : '#ef4444' }"></div>
+            <div
+              class="metric-bar-fill"
+              :style="{
+                width: `${Math.min(Math.max(margenBruto, 0), 100)}%`,
+                background: margenBruto >= 0 ? '#10b981' : '#ef4444'
+              }"
+            ></div>
           </div>
         </div>
 
         <div v-if="puedeVerCompras" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon" style="background: rgba(239, 68, 68, 0.12); color: #ef4444;">
+            <div
+              class="metric-icon"
+              style="background: rgba(239, 68, 68, 0.12); color: #ef4444;"
+              aria-hidden="true"
+            >
               <i class="fas fa-exclamation-triangle"></i>
             </div>
             <div class="metric-info">
@@ -204,13 +269,23 @@
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(cuentasPorPagar * 5, 100)}%`, background: '#ef4444' }"></div>
+            <div
+              class="metric-bar-fill"
+              :style="{
+                width: `${Math.min(cuentasPorPagar * 5, 100)}%`,
+                background: '#ef4444'
+              }"
+            ></div>
           </div>
         </div>
 
         <div v-if="puedeVerInventario" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;">
+            <div
+              class="metric-icon"
+              style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;"
+              aria-hidden="true"
+            >
               <i class="fas fa-boxes"></i>
             </div>
             <div class="metric-info">
@@ -219,13 +294,23 @@
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(stockBajo * 10, 100)}%`, background: '#f59e0b' }"></div>
+            <div
+              class="metric-bar-fill"
+              :style="{
+                width: `${Math.min(stockBajo * 10, 100)}%`,
+                background: '#f59e0b'
+              }"
+            ></div>
           </div>
         </div>
 
         <div v-if="puedeVerVentas" class="metric-card">
           <div class="metric-top">
-            <div class="metric-icon" style="background: rgba(37, 99, 235, 0.12); color: #2563eb;">
+            <div
+              class="metric-icon"
+              style="background: rgba(37, 99, 235, 0.12); color: #2563eb;"
+              aria-hidden="true"
+            >
               <i class="fas fa-cloud-upload-alt"></i>
             </div>
             <div class="metric-info">
@@ -234,7 +319,13 @@
             </div>
           </div>
           <div class="metric-bar">
-            <div class="metric-bar-fill" :style="{ width: `${Math.min(sri.firmados * 10, 100)}%`, background: '#2563eb' }"></div>
+            <div
+              class="metric-bar-fill"
+              :style="{
+                width: `${Math.min(sri.firmados * 10, 100)}%`,
+                background: '#2563eb'
+              }"
+            ></div>
           </div>
         </div>
       </div>
@@ -244,7 +335,7 @@
     <section v-if="puedeVerVentas || puedeVerCompras" class="section">
       <div class="section-header">
         <h2 class="section-title">
-          <i class="fas fa-inbox"></i>
+          <i class="fas fa-inbox" aria-hidden="true"></i>
           <span>Bandejas de Trabajo</span>
         </h2>
       </div>
@@ -252,7 +343,11 @@
         <div v-if="puedeVerVentas" class="bandeja-card">
           <div class="bandeja-header">
             <div class="bandeja-title">
-              <div class="bandeja-icon" style="background: linear-gradient(135deg, #2563eb, #1d4ed8);">
+              <div
+                class="bandeja-icon"
+                style="background: linear-gradient(135deg, #2563eb, #1d4ed8);"
+                aria-hidden="true"
+              >
                 <i class="fas fa-hand-holding-usd"></i>
               </div>
               <div>
@@ -261,7 +356,7 @@
               </div>
             </div>
             <router-link to="/ventas" class="bandeja-link">
-              Ver todas <i class="fas fa-arrow-right"></i>
+              Ver todas <i class="fas fa-arrow-right" aria-hidden="true"></i>
             </router-link>
           </div>
           <div class="bandeja-body">
@@ -272,7 +367,11 @@
         <div v-if="puedeVerCompras" class="bandeja-card">
           <div class="bandeja-header">
             <div class="bandeja-title">
-              <div class="bandeja-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+              <div
+                class="bandeja-icon"
+                style="background: linear-gradient(135deg, #f59e0b, #d97706);"
+                aria-hidden="true"
+              >
                 <i class="fas fa-shopping-cart"></i>
               </div>
               <div>
@@ -281,7 +380,7 @@
               </div>
             </div>
             <router-link to="/compras" class="bandeja-link">
-              Ver todas <i class="fas fa-arrow-right"></i>
+              Ver todas <i class="fas fa-arrow-right" aria-hidden="true"></i>
             </router-link>
           </div>
           <div class="bandeja-body">
@@ -295,7 +394,7 @@
     <section v-if="puedeVerVentas || puedeVerCompras" class="section">
       <div class="section-header">
         <h2 class="section-title">
-          <i class="fas fa-chart-area"></i>
+          <i class="fas fa-chart-area" aria-hidden="true"></i>
           <span>Tendencia (Últimos 7 días)</span>
         </h2>
       </div>
@@ -310,7 +409,7 @@
     <section v-if="puedeVerVentas && topProductos.length > 0" class="section">
       <div class="section-header">
         <h2 class="section-title">
-          <i class="fas fa-star"></i>
+          <i class="fas fa-star" aria-hidden="true"></i>
           <span>Top 5 Productos del Mes</span>
         </h2>
       </div>
@@ -319,22 +418,25 @@
           <table class="table-cacao">
             <thead>
               <tr>
-                <th style="width:60px;">#</th>
+                <th style="width: 60px;">#</th>
                 <th>Producto</th>
-                <th style="width:120px;">Código</th>
-                <th style="width:120px;" class="text-end">Cantidad</th>
-                <th style="width:140px;" class="text-end">Total vendido</th>
+                <th style="width: 120px;">Código</th>
+                <th style="width: 120px;" class="text-end">Cantidad</th>
+                <th style="width: 140px;" class="text-end">Total vendido</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(p, idx) in topProductos" :key="p.productoId">
+              <tr
+                v-for="(p, idx) in topProductos"
+                :key="String(p.productoId || `top-${idx}`)"
+              >
                 <td>
                   <span class="rank-badge" :class="getRankClass(idx)">{{ idx + 1 }}</span>
                 </td>
                 <td class="fw-bold">{{ p.nombre }}</td>
                 <td class="font-mono small text-muted">{{ p.codigo || '—' }}</td>
                 <td class="text-end">{{ p.cantidad }}</td>
-                <td class="text-end fw-bold">${{ (p.total || 0).toFixed(2) }}</td>
+                <td class="text-end fw-bold">${{ Number(p.total || 0).toFixed(2) }}</td>
               </tr>
             </tbody>
           </table>
@@ -345,7 +447,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, inject } from 'vue'
+import {
+  ref,
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  inject
+} from 'vue'
 import { usePermisos } from '../composables/usePermisos'
 import { useEstadisticas } from '../composables/useEstadisticas'
 import { api } from '../services/api'
@@ -359,70 +467,143 @@ const socket = inject('socket', null)
 
 const { puede } = usePermisos()
 const {
-  ventasHoy, ventasAyer, ventasMes, facturasMes,
-  comprasHoy, comprasAyer, comprasMes, comprasDelMes,
-  tendenciaVentas, tendenciaCompras, ventasMesPrev, comprasMesPrev,
-  ventasDiarias, comprasDiarias, dias,
-  topProductos, cuentasPorPagar, stockBajo, sri,
+  ventasHoy,
+  ventasAyer,
+  ventasMes,
+  facturasMes,
+  comprasHoy,
+  comprasAyer,
+  comprasMes,
+  comprasDelMes,
+  tendenciaVentas,
+  tendenciaCompras,
+  ventasMesPrev,
+  comprasMesPrev,
+  ventasDiarias,
+  comprasDiarias,
+  dias,
+  topProductos,
+  cuentasPorPagar,
+  stockBajo,
+  sri,
   cargarEstadisticas
 } = useEstadisticas()
 
-// Permisos
+// ===== PERMISOS =====
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
 const puedeCrearVentas = computed(() => puede('ventas', 'crear'))
 const puedeVerCompras = computed(() => puede('compras', 'ver'))
 const puedeVerInventario = computed(() => puede('inventario', 'ver'))
 
-// User info
-const user = ref(JSON.parse(localStorage.getItem('user') || '{}'))
-const nombreUsuario = computed(() => user.value?.nombre?.split(' ')[0] || 'Usuario')
+// ===== USER (con try/catch) =====
+const parseUser = () => {
+  try {
+    const raw = localStorage.getItem('user')
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const user = ref(parseUser())
+
+const nombreUsuario = computed(() => {
+  const n = user.value?.nombre
+  if (!n || typeof n !== 'string') return 'Usuario'
+  return n.split(/\s+/)[0] || 'Usuario'
+})
+
+// ===== SALUDO (con tick cada minuto para actualizarse) =====
+const horaActual = ref(new Date().getHours())
 
 const saludo = computed(() => {
-  const h = new Date().getHours()
+  const h = horaActual.value
   if (h < 12) return 'Buenos días'
   if (h < 19) return 'Buenas tardes'
   return 'Buenas noches'
 })
 
-// Estado del sistema
+const iconoSaludo = computed(() => {
+  const h = horaActual.value
+  if (h < 12) return 'fas fa-sun'
+  if (h < 19) return 'fas fa-sun'
+  return 'fas fa-moon'
+})
+
+// ===== ESTADO DEL SISTEMA =====
 const certInfo = ref(null)
 const estadoGeneral = ref(null)
+
 const esListo = computed(() => estadoGeneral.value?.listo_para_facturar === true)
 
+// ===== GUARDS =====
+let unmounted = false
+let infoAbort = null
+let statsAbort = null
+let relojTimer = null
+let kpiRefreshTimer = null
+let refreshDebounce = null
+const kpisEnVuelo = ref(false)
+
+// ===== CARGA ESTADO SISTEMA =====
 const cargarEstadoSistema = async () => {
+  if (!puede('usuarios', 'ver')) return
+
+  if (infoAbort) {
+    try { infoAbort.abort() } catch { /* noop */ }
+  }
+  infoAbort = new AbortController()
+
   try {
-    if (puede('usuarios', 'ver')) {
-      const [diag, cert] = await Promise.all([
-        api.request('/diagnostico', { method: 'GET', skipLoader: true }).catch(() => null),
-        api.request('/certificado/info', { method: 'GET', skipLoader: true }).catch(() => null)
-      ])
-      estadoGeneral.value = diag
-      certInfo.value = cert
-    }
-  } catch (e) { /* silencioso */ }
+    const [diag, cert] = await Promise.allSettled([
+      api.request('/diagnostico', {
+        method: 'GET',
+        skipLoader: true,
+        signal: infoAbort.signal
+      }),
+      api.request('/certificado/info', {
+        method: 'GET',
+        skipLoader: true,
+        signal: infoAbort.signal
+      })
+    ])
+
+    if (unmounted) return
+
+    if (diag.status === 'fulfilled') estadoGeneral.value = diag.value
+    if (cert.status === 'fulfilled') certInfo.value = cert.value
+  } catch { /* silencioso */ }
 }
 
-// Variaciones mes vs mes
+// ===== VARIACIONES MES/MES =====
 const varMesVentas = computed(() => {
-  const prev = ventasMesPrev.value || 0
-  if (prev === 0) return ventasMes.value > 0 ? 100 : 0
-  return ((ventasMes.value - prev) / prev) * 100
+  const prev = Number(ventasMesPrev.value) || 0
+  const actual = Number(ventasMes.value) || 0
+  if (prev === 0) return actual > 0 ? 100 : 0
+  return ((actual - prev) / prev) * 100
 })
+
 const varMesCompras = computed(() => {
-  const prev = comprasMesPrev.value || 0
-  if (prev === 0) return comprasMes.value > 0 ? 100 : 0
-  return ((comprasMes.value - prev) / prev) * 100
+  const prev = Number(comprasMesPrev.value) || 0
+  const actual = Number(comprasMes.value) || 0
+  if (prev === 0) return actual > 0 ? 100 : 0
+  return ((actual - prev) / prev) * 100
 })
 
-// Margen bruto
+// ===== MARGEN =====
 const margenBruto = computed(() => {
-  if (ventasMes.value <= 0) return 0
-  return ((ventasMes.value - comprasMes.value) / ventasMes.value) * 100
+  const ventas = Number(ventasMes.value) || 0
+  const compras = Number(comprasMes.value) || 0
+  if (ventas <= 0) return 0
+  return ((ventas - compras) / ventas) * 100
 })
 
-// Alertas
+// ===== ALERTAS =====
 const alertas = computed(() => {
   const arr = []
+  const puedeVerUsuarios = puede('usuarios', 'ver')
 
   if (certInfo.value?.cargado && certInfo.value.por_vencer) {
     arr.push({
@@ -434,7 +615,7 @@ const alertas = computed(() => {
       to: '/certificado-firma',
       actionLabel: 'Renovar'
     })
-  } else if (certInfo.value && !certInfo.value.cargado && puede('usuarios', 'ver')) {
+  } else if (certInfo.value && !certInfo.value.cargado && puedeVerUsuarios) {
     arr.push({
       id: 'cert-missing',
       nivel: 'danger',
@@ -446,24 +627,26 @@ const alertas = computed(() => {
     })
   }
 
-  if (sri.value.firmados > 0) {
+  const firmados = Number(sri.value?.firmados) || 0
+  if (firmados > 0) {
     arr.push({
       id: 'firmados',
       nivel: 'info',
       icon: 'fas fa-cloud-upload-alt',
-      titulo: `${sri.value.firmados} documentos firmados`,
+      titulo: `${firmados} documentos firmados`,
       texto: 'Listos para enviar al SRI.',
       to: '/envio-sri',
       actionLabel: 'Enviar'
     })
   }
 
-  if (puedeVerInventario.value && stockBajo.value > 0) {
+  const bajoStock = Number(stockBajo.value) || 0
+  if (puedeVerInventario.value && bajoStock > 0) {
     arr.push({
       id: 'stock',
       nivel: 'warning',
       icon: 'fas fa-boxes',
-      titulo: `${stockBajo.value} productos con stock bajo`,
+      titulo: `${bajoStock} productos con stock bajo`,
       texto: 'Revisa el inventario para reabastecer.',
       to: '/inventario/stock',
       actionLabel: 'Ver stock'
@@ -473,9 +656,10 @@ const alertas = computed(() => {
   return arr
 })
 
-// Accesos rápidos
+// ===== ACCESOS RÁPIDOS =====
 const accesosRapidos = computed(() => {
   const accesos = []
+
   if (puedeCrearVentas.value) {
     accesos.push({
       label: 'Nueva Factura',
@@ -544,6 +728,7 @@ const accesosRapidos = computed(() => {
       to: '/reportes/ventas'
     })
   }
+
   return accesos.slice(0, 6)
 })
 
@@ -554,29 +739,89 @@ const getRankClass = (idx) => {
   return 'default'
 }
 
-// ✅ FIX WebSocket: los eventos del backend emiten el documento DIRECTO,
-// no envuelto en { data: ... }. Además, refrescamos los KPIs al recibirlos.
+// ===== WEBSOCKET (con debounce) =====
+const refrescarEstadisticasConDebounce = () => {
+  if (refreshDebounce) clearTimeout(refreshDebounce)
+  refreshDebounce = setTimeout(() => {
+    refreshDebounce = null
+    if (!unmounted && !kpisEnVuelo.value) {
+      kpisEnVuelo.value = true
+      cargarEstadisticas(true)
+        .catch(() => { /* noop */ })
+        .finally(() => { kpisEnVuelo.value = false })
+    }
+  }, 800)
+}
+
 const handlerVenta = (venta) => {
-  toast.info(`📤 Nueva venta: ${venta?.numero_factura || 'documento'}`)
-  setTimeout(() => cargarEstadisticas(true), 500)
+  const num = venta?.numero_factura || 'documento'
+  toast.info(`📤 Nueva venta: ${num}`)
+  refrescarEstadisticasConDebounce()
 }
+
 const handlerCompra = (compra) => {
-  toast.info(`📥 Nueva compra: ${compra?.numero_factura || 'documento'}`)
-  setTimeout(() => cargarEstadisticas(true), 500)
+  const num = compra?.numero_factura || 'documento'
+  toast.info(`📥 Nueva compra: ${num}`)
+  refrescarEstadisticasConDebounce()
 }
 
+// ===== LIFECYCLE =====
 onMounted(async () => {
-  await cargarEstadisticas()
-  await cargarEstadoSistema()
+  // Carga inicial
+  try {
+    await Promise.allSettled([
+      cargarEstadisticas(),
+      cargarEstadoSistema()
+    ])
+  } catch { /* noop */ }
 
-  if (socket) {
+  // Reloj: actualizar saludo cada minuto
+  relojTimer = setInterval(() => {
+    if (unmounted) return
+    horaActual.value = new Date().getHours()
+  }, 60 * 1000)
+
+  // Auto-refresh de KPIs cada 5 minutos
+  kpiRefreshTimer = setInterval(() => {
+    if (unmounted || kpisEnVuelo.value) return
+    kpisEnVuelo.value = true
+    cargarEstadisticas(true)
+      .catch(() => { /* noop */ })
+      .finally(() => { kpisEnVuelo.value = false })
+  }, 5 * 60 * 1000)
+
+  // WebSocket
+  if (socket && typeof socket.on === 'function') {
     socket.on('nueva-venta', handlerVenta)
     socket.on('nueva-compra', handlerCompra)
   }
 })
 
 onBeforeUnmount(() => {
-  if (socket) {
+  unmounted = true
+
+  if (infoAbort) {
+    try { infoAbort.abort() } catch { /* noop */ }
+    infoAbort = null
+  }
+  if (statsAbort) {
+    try { statsAbort.abort() } catch { /* noop */ }
+    statsAbort = null
+  }
+  if (refreshDebounce) {
+    clearTimeout(refreshDebounce)
+    refreshDebounce = null
+  }
+  if (relojTimer) {
+    clearInterval(relojTimer)
+    relojTimer = null
+  }
+  if (kpiRefreshTimer) {
+    clearInterval(kpiRefreshTimer)
+    kpiRefreshTimer = null
+  }
+
+  if (socket && typeof socket.off === 'function') {
     socket.off('nueva-venta', handlerVenta)
     socket.off('nueva-compra', handlerCompra)
   }
@@ -621,21 +866,21 @@ onBeforeUnmount(() => {
   padding: 6px 14px;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-full);
+  border-radius: 999px;
   font-size: 0.78rem;
-  font-weight: var(--fw-medium);
+  font-weight: 500;
   color: rgba(255, 255, 255, 0.85);
   margin-bottom: 16px;
   backdrop-filter: blur(8px);
 }
 .hero-greeting i { color: #fbbf24; }
-.hero-greeting strong { color: #fff; font-weight: var(--fw-bold); }
+.hero-greeting strong { color: #fff; font-weight: 700; }
 
 .hero-title {
   font-size: clamp(1.6rem, 3.5vw, 2.25rem);
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   color: #fff;
-  letter-spacing: var(--ls-tighter);
+  letter-spacing: -0.03em;
   margin: 0 0 10px;
   line-height: 1.15;
 }
@@ -661,7 +906,7 @@ onBeforeUnmount(() => {
   padding: 13px 24px;
   border-radius: var(--radius-md);
   font-size: 0.9375rem;
-  font-weight: var(--fw-semibold);
+  font-weight: 600;
   text-decoration: none;
   transition: all var(--transition);
   border: 1.5px solid transparent;
@@ -710,22 +955,22 @@ onBeforeUnmount(() => {
   width: 320px; height: 320px;
   background: radial-gradient(circle, rgba(37, 99, 235, 0.5), transparent);
   top: -100px; right: -80px;
-  animation: float 12s ease-in-out infinite;
+  animation: heroFloat 12s ease-in-out infinite;
 }
 .hero-circle-2 {
   width: 260px; height: 260px;
   background: radial-gradient(circle, rgba(245, 158, 11, 0.35), transparent);
   bottom: -100px; right: 25%;
-  animation: float 16s ease-in-out infinite reverse;
+  animation: heroFloat 16s ease-in-out infinite reverse;
 }
 .hero-circle-3 {
   width: 200px; height: 200px;
   background: radial-gradient(circle, rgba(139, 92, 246, 0.3), transparent);
   top: 30%; left: 40%;
-  animation: float 20s ease-in-out infinite;
+  animation: heroFloat 20s ease-in-out infinite;
 }
 
-@keyframes float {
+@keyframes heroFloat {
   0%, 100% { transform: translate(0, 0) scale(1); }
   33% { transform: translate(20px, -20px) scale(1.05); }
   66% { transform: translate(-15px, 15px) scale(0.97); }
@@ -756,9 +1001,9 @@ onBeforeUnmount(() => {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
-.alert-warning { border-left-color: var(--warning); }
-.alert-danger { border-left-color: var(--danger); }
-.alert-info { border-left-color: var(--info); }
+.alert-warning { border-left-color: var(--warning, #f59e0b); }
+.alert-danger { border-left-color: var(--danger, #ef4444); }
+.alert-info { border-left-color: var(--info, #0ea5e9); }
 
 .alert-icon {
   width: 42px;
@@ -770,14 +1015,14 @@ onBeforeUnmount(() => {
   font-size: 1.05rem;
   flex-shrink: 0;
 }
-.alert-warning .alert-icon { background: var(--warning-bg); color: var(--warning); }
-.alert-danger .alert-icon { background: var(--danger-bg); color: var(--danger); }
-.alert-info .alert-icon { background: var(--info-bg); color: var(--info); }
+.alert-warning .alert-icon { background: var(--warning-bg, rgba(245,158,11,0.15)); color: var(--warning, #f59e0b); }
+.alert-danger .alert-icon { background: var(--danger-bg, rgba(239,68,68,0.15)); color: var(--danger, #ef4444); }
+.alert-info .alert-icon { background: var(--info-bg, rgba(14,165,233,0.15)); color: var(--info, #0ea5e9); }
 
 .alert-content { flex: 1; min-width: 0; }
 .alert-title {
   font-size: 0.875rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 2px;
 }
@@ -794,12 +1039,12 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   font-size: 0.78rem;
-  font-weight: var(--fw-semibold);
+  font-weight: 600;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -829,9 +1074,9 @@ onBeforeUnmount(() => {
 
 .section-title {
   font-size: 1.0625rem;
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   color: var(--text-primary);
-  letter-spacing: var(--ls-tight);
+  letter-spacing: -0.02em;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -857,7 +1102,7 @@ onBeforeUnmount(() => {
 .section-hint {
   font-size: 0.78rem;
   color: var(--text-muted);
-  font-weight: var(--fw-medium);
+  font-weight: 500;
 }
 
 .live-indicator {
@@ -865,19 +1110,24 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  background: var(--success-bg);
-  border: 1px solid var(--success-border);
-  border-radius: var(--radius-full);
+  background: var(--success-bg, rgba(16,185,129,0.15));
+  border: 1px solid var(--success-border, rgba(16,185,129,0.3));
+  border-radius: 999px;
   font-size: 0.75rem;
-  font-weight: var(--fw-semibold);
-  color: var(--success);
+  font-weight: 600;
+  color: var(--success, #10b981);
 }
 .live-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--success);
+  background: var(--success, #10b981);
   animation: pulse-status 2s infinite;
+}
+@keyframes pulse-status {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
 /* ============================================================
@@ -942,7 +1192,7 @@ onBeforeUnmount(() => {
 }
 .quick-label {
   font-size: 0.9rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
 }
@@ -1032,19 +1282,19 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   font-size: 0.7rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   padding: 4px 10px;
-  border-radius: var(--radius-full);
+  border-radius: 999px;
 }
-.kpi-trend.up { background: var(--success-bg); color: var(--success); }
-.kpi-trend.down { background: var(--danger-bg); color: var(--danger); }
+.kpi-trend.up { background: var(--success-bg, rgba(16,185,129,0.15)); color: var(--success, #10b981); }
+.kpi-trend.down { background: var(--danger-bg, rgba(239,68,68,0.15)); color: var(--danger, #ef4444); }
 
 .kpi-value {
   font-size: 1.75rem;
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   color: var(--text-primary);
   line-height: 1.05;
-  letter-spacing: var(--ls-tighter);
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   position: relative;
   z-index: 1;
@@ -1054,8 +1304,8 @@ onBeforeUnmount(() => {
   font-size: 0.72rem;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: var(--ls-wider);
-  font-weight: var(--fw-bold);
+  letter-spacing: 0.12em;
+  font-weight: 700;
   margin-top: 6px;
   position: relative;
   z-index: 1;
@@ -1073,7 +1323,7 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
 }
-.kpi-footer strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
+.kpi-footer strong { color: var(--text-secondary); font-weight: 600; }
 
 /* ============================================================
    METRICS
@@ -1117,31 +1367,31 @@ onBeforeUnmount(() => {
 .metric-info { flex: 1; min-width: 0; }
 .metric-value {
   font-size: 1.35rem;
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   color: var(--text-primary);
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--ls-tight);
+  letter-spacing: -0.02em;
 }
 .metric-label {
   font-size: 0.72rem;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: var(--ls-wide);
-  font-weight: var(--fw-semibold);
+  letter-spacing: 0.08em;
+  font-weight: 600;
   margin-top: 3px;
 }
 
 .metric-bar {
   height: 5px;
   background: var(--border-light);
-  border-radius: var(--radius-full);
+  border-radius: 999px;
   overflow: hidden;
 }
 .metric-bar-fill {
   height: 100%;
   border-radius: inherit;
-  transition: width 0.6s var(--ease-out);
+  transition: width 0.6s ease-out;
 }
 
 /* ============================================================
@@ -1188,7 +1438,7 @@ onBeforeUnmount(() => {
 }
 .bandeja-name {
   font-size: 0.9rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   color: var(--text-primary);
 }
 .bandeja-sub {
@@ -1198,13 +1448,13 @@ onBeforeUnmount(() => {
 
 .bandeja-link {
   font-size: 0.78rem;
-  font-weight: var(--fw-semibold);
+  font-weight: 600;
   color: var(--primary-color);
   display: flex;
   align-items: center;
   gap: 6px;
   text-decoration: none;
-  transition: gap var(--transition-fast);
+  transition: gap 0.15s ease;
 }
 .bandeja-link:hover { gap: 10px; }
 
@@ -1223,14 +1473,18 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   font-size: 0.75rem;
   letter-spacing: 0;
 }
 .rank-badge.gold { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #1a2a3a; }
 .rank-badge.silver { background: linear-gradient(135deg, #d1d5db, #9ca3af); color: #1a2a3a; }
 .rank-badge.bronze { background: linear-gradient(135deg, #d97706, #92400e); color: #fff; }
-.rank-badge.default { background: var(--bg-table-stripe); color: var(--text-muted); border: 1px solid var(--border-color); }
+.rank-badge.default {
+  background: var(--bg-table-stripe);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
 
 /* ============================================================
    RESPONSIVE
@@ -1252,5 +1506,18 @@ onBeforeUnmount(() => {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .metrics-grid { grid-template-columns: 1fr; }
   .bandejas-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   ACCESIBILIDAD
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .hero-circle,
+  .live-dot {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }
 </style>

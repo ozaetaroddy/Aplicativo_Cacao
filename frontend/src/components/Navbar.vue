@@ -1,10 +1,20 @@
 <template>
-  <nav class="navbar-app" ref="navbar" :class="{ 'navbar-scrolled': scrolled }">
+  <nav
+    ref="navbar"
+    class="navbar-app"
+    :class="{ 'navbar-scrolled': scrolled }"
+    aria-label="Navegación principal"
+  >
     <div class="container navbar-inner">
-
       <!-- ===== BRAND ===== -->
-      <router-link class="brand" to="/" @click="cerrarTodo" data-tour="brand">
-        <div class="brand-logo">
+      <router-link
+        class="brand"
+        to="/"
+        @click="cerrarTodo"
+        data-tour="brand"
+        aria-label="Ir al inicio"
+      >
+        <div class="brand-logo" aria-hidden="true">
           <i class="fas fa-calculator"></i>
         </div>
         <div class="brand-text">
@@ -13,13 +23,14 @@
         </div>
       </router-link>
 
-      <!-- ===== BOTÓN HAMBURGUESA MÓVIL ===== -->
+      <!-- ===== BURGER MÓVIL ===== -->
       <button
         class="burger"
         type="button"
         @click="toggleNavbar"
-        :aria-expanded="navbarAbierto"
+        :aria-expanded="navbarAbierto ? 'true' : 'false'"
         aria-label="Abrir menú"
+        aria-controls="main-nav-menu"
       >
         <span class="burger-line" :class="{ open: navbarAbierto }"></span>
         <span class="burger-line" :class="{ open: navbarAbierto }"></span>
@@ -27,77 +38,115 @@
       </button>
 
       <!-- ===== MENÚ ===== -->
-      <div class="nav-menu" :class="{ 'nav-menu-open': navbarAbierto }">
+      <div
+        id="main-nav-menu"
+        class="nav-menu"
+        :class="{ 'nav-menu-open': navbarAbierto }"
+      >
         <ul class="nav-list">
+          <!-- INICIO -->
           <li>
-            <router-link class="nav-item" to="/" exact-active-class="active" @click="cerrarTodo">
-              <i class="fas fa-home"></i>
+            <router-link
+              class="nav-item"
+              to="/"
+              exact-active-class="active"
+              @click="cerrarTodo"
+            >
+              <i class="fas fa-home" aria-hidden="true"></i>
               <span>Inicio</span>
             </router-link>
           </li>
 
-          <!-- ===== DOCUMENTOS ===== -->
+          <!-- DOCUMENTOS -->
           <li
             v-if="puedeVerVentas || puedeVerCompras"
             class="nav-dropdown"
             :class="{ open: dropdowns.documentos }"
             data-tour="documentos"
           >
-            <button class="nav-item" @click.stop="toggleDropdown('documentos')">
-              <i class="fas fa-file-invoice"></i>
+            <button
+              type="button"
+              class="nav-item"
+              @click.stop="toggleDropdown('documentos')"
+              :aria-expanded="dropdowns.documentos ? 'true' : 'false'"
+              aria-haspopup="true"
+            >
+              <i class="fas fa-file-invoice" aria-hidden="true"></i>
               <span>Documentos</span>
-              <i class="fas fa-chevron-down nav-caret"></i>
+              <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
             </button>
             <transition name="dropdown">
               <ul v-if="dropdowns.documentos" class="dropdown-panel">
                 <li class="dropdown-section">Bandejas</li>
                 <li v-if="puedeVerVentas">
                   <router-link class="dropdown-link" to="/ventas" @click="cerrarTodo">
-                    <i class="fas fa-hand-holding-usd"></i>
+                    <i class="fas fa-hand-holding-usd" aria-hidden="true"></i>
                     <span>Bandeja de Ventas</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerCompras">
                   <router-link class="dropdown-link" to="/compras" @click="cerrarTodo">
-                    <i class="fas fa-inbox"></i>
+                    <i class="fas fa-inbox" aria-hidden="true"></i>
                     <span>Bandeja de Compras</span>
                   </router-link>
                 </li>
 
-                <li v-if="puedeCrearVentas" class="dropdown-section">Crear documento</li>
-                <li v-if="puedeCrearVentas">
-                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=factura" @click="cerrarTodo">
-                    <i class="fas fa-file-invoice"></i>
-                    <span>Nueva Factura</span>
-                    <span class="shortcut">01</span>
-                  </router-link>
-                </li>
-                <li v-if="puedeCrearVentas">
-                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">
-                    <i class="fas fa-truck"></i>
-                    <span>Guía de Remisión</span>
-                    <span class="shortcut">06</span>
-                  </router-link>
-                </li>
-                <li v-if="puedeCrearVentas">
-                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=nota_credito" @click="cerrarTodo">
-                    <i class="fas fa-minus-circle"></i>
-                    <span>Nota de Crédito</span>
-                    <span class="shortcut">04</span>
-                  </router-link>
-                </li>
-                <li v-if="puedeCrearVentas">
-                  <router-link class="dropdown-link" to="/ventas/nuevo?tipo=retencion" @click="cerrarTodo">
-                    <i class="fas fa-percent"></i>
-                    <span>Retención</span>
-                    <span class="shortcut">07</span>
-                  </router-link>
-                </li>
+                <template v-if="puedeCrearVentas">
+                  <li class="dropdown-section">Crear documento</li>
+                  <li>
+                    <router-link
+                      class="dropdown-link"
+                      to="/ventas/nuevo?tipo=factura"
+                      @click="cerrarTodo"
+                    >
+                      <i class="fas fa-file-invoice" aria-hidden="true"></i>
+                      <span>Nueva Factura</span>
+                      <span class="shortcut">01</span>
+                    </router-link>
+                  </li>
+                  <li>
+                    <router-link
+                      class="dropdown-link"
+                      to="/ventas/nuevo?tipo=guia_remision"
+                      @click="cerrarTodo"
+                    >
+                      <i class="fas fa-truck" aria-hidden="true"></i>
+                      <span>Guía de Remisión</span>
+                      <span class="shortcut">06</span>
+                    </router-link>
+                  </li>
+                  <li>
+                    <router-link
+                      class="dropdown-link"
+                      to="/ventas/nuevo?tipo=nota_credito"
+                      @click="cerrarTodo"
+                    >
+                      <i class="fas fa-minus-circle" aria-hidden="true"></i>
+                      <span>Nota de Crédito</span>
+                      <span class="shortcut">04</span>
+                    </router-link>
+                  </li>
+                  <li>
+                    <router-link
+                      class="dropdown-link"
+                      to="/ventas/nuevo?tipo=retencion"
+                      @click="cerrarTodo"
+                    >
+                      <i class="fas fa-percent" aria-hidden="true"></i>
+                      <span>Retención</span>
+                      <span class="shortcut">07</span>
+                    </router-link>
+                  </li>
+                </template>
 
-                <li class="dropdown-divider"></li>
+                <li class="dropdown-divider" aria-hidden="true"></li>
                 <li>
-                  <router-link class="dropdown-link highlight" to="/consultar-documentos" @click="cerrarTodo">
-                    <i class="fas fa-search"></i>
+                  <router-link
+                    class="dropdown-link highlight"
+                    to="/consultar-documentos"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-search" aria-hidden="true"></i>
                     <span>Consultar Documentos</span>
                   </router-link>
                 </li>
@@ -105,40 +154,51 @@
             </transition>
           </li>
 
-          <!-- ===== BASE DE DATOS ===== -->
+          <!-- BASE DE DATOS -->
           <li
-            v-if="puedeVerClientes || puedeVerProveedores || puedeVerProductos || puedeVerCategorias"
+            v-if="
+              puedeVerClientes ||
+              puedeVerProveedores ||
+              puedeVerProductos ||
+              puedeVerCategorias
+            "
             class="nav-dropdown"
             :class="{ open: dropdowns.maestros }"
           >
-            <button class="nav-item" @click.stop="toggleDropdown('maestros')">
-              <i class="fas fa-database"></i>
+            <button
+              type="button"
+              class="nav-item"
+              @click.stop="toggleDropdown('maestros')"
+              :aria-expanded="dropdowns.maestros ? 'true' : 'false'"
+              aria-haspopup="true"
+            >
+              <i class="fas fa-database" aria-hidden="true"></i>
               <span>Base de datos</span>
-              <i class="fas fa-chevron-down nav-caret"></i>
+              <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
             </button>
             <transition name="dropdown">
               <ul v-if="dropdowns.maestros" class="dropdown-panel">
                 <li v-if="puedeVerProductos">
                   <router-link class="dropdown-link" to="/productos" @click="cerrarTodo">
-                    <i class="fas fa-boxes"></i>
+                    <i class="fas fa-boxes" aria-hidden="true"></i>
                     <span>Productos</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerCategorias">
                   <router-link class="dropdown-link" to="/categorias" @click="cerrarTodo">
-                    <i class="fas fa-tags"></i>
+                    <i class="fas fa-tags" aria-hidden="true"></i>
                     <span>Categorías</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerClientes">
                   <router-link class="dropdown-link" to="/clientes" @click="cerrarTodo">
-                    <i class="fas fa-users"></i>
+                    <i class="fas fa-users" aria-hidden="true"></i>
                     <span>Clientes</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerProveedores">
                   <router-link class="dropdown-link" to="/proveedores" @click="cerrarTodo">
-                    <i class="fas fa-truck-loading"></i>
+                    <i class="fas fa-truck-loading" aria-hidden="true"></i>
                     <span>Proveedores</span>
                   </router-link>
                 </li>
@@ -146,46 +206,68 @@
             </transition>
           </li>
 
-          <!-- ===== INVENTARIO ===== -->
+          <!-- INVENTARIO -->
           <li
             v-if="puedeVerInventario || puedeVerKardex"
             class="nav-dropdown"
             :class="{ open: dropdowns.inventarios }"
           >
-            <button class="nav-item" @click.stop="toggleDropdown('inventarios')">
-              <i class="fas fa-warehouse"></i>
+            <button
+              type="button"
+              class="nav-item"
+              @click.stop="toggleDropdown('inventarios')"
+              :aria-expanded="dropdowns.inventarios ? 'true' : 'false'"
+              aria-haspopup="true"
+            >
+              <i class="fas fa-warehouse" aria-hidden="true"></i>
               <span>Inventario</span>
-              <i class="fas fa-chevron-down nav-caret"></i>
+              <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
             </button>
             <transition name="dropdown">
               <ul v-if="dropdowns.inventarios" class="dropdown-panel">
                 <li v-if="puedeVerKardex">
                   <router-link class="dropdown-link" to="/kardex" @click="cerrarTodo">
-                    <i class="fas fa-clipboard-list"></i>
+                    <i class="fas fa-clipboard-list" aria-hidden="true"></i>
                     <span>Kardex</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerInventario">
-                  <router-link class="dropdown-link" to="/inventario/stock" @click="cerrarTodo">
-                    <i class="fas fa-boxes"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/inventario/stock"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-boxes" aria-hidden="true"></i>
                     <span>Stock actual</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerInventario">
-                  <router-link class="dropdown-link" to="/inventario/valorizado" @click="cerrarTodo">
-                    <i class="fas fa-dollar-sign"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/inventario/valorizado"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-dollar-sign" aria-hidden="true"></i>
                     <span>Valorizado</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerInventario">
-                  <router-link class="dropdown-link" to="/inventario/conteo" @click="cerrarTodo">
-                    <i class="fas fa-clipboard-check"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/inventario/conteo"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-clipboard-check" aria-hidden="true"></i>
                     <span>Conteo físico</span>
                   </router-link>
                 </li>
                 <li v-if="puedeEditarInventario">
-                  <router-link class="dropdown-link" to="/inventario/ajustes" @click="cerrarTodo">
-                    <i class="fas fa-edit"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/inventario/ajustes"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-edit" aria-hidden="true"></i>
                     <span>Ajustes</span>
                   </router-link>
                 </li>
@@ -193,55 +275,69 @@
             </transition>
           </li>
 
-          <!-- ===== REPORTES ===== -->
+          <!-- REPORTES -->
           <li
             v-if="puedeVerReportes"
             class="nav-dropdown"
             :class="{ open: dropdowns.reportes }"
           >
-            <button class="nav-item" @click.stop="toggleDropdown('reportes')">
-              <i class="fas fa-chart-bar"></i>
+            <button
+              type="button"
+              class="nav-item"
+              @click.stop="toggleDropdown('reportes')"
+              :aria-expanded="dropdowns.reportes ? 'true' : 'false'"
+              aria-haspopup="true"
+            >
+              <i class="fas fa-chart-bar" aria-hidden="true"></i>
               <span>Reportes</span>
-              <i class="fas fa-chevron-down nav-caret"></i>
+              <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
             </button>
             <transition name="dropdown">
               <ul v-if="dropdowns.reportes" class="dropdown-panel">
                 <li class="dropdown-section">Análisis</li>
                 <li>
                   <router-link class="dropdown-link" to="/reportes/ventas" @click="cerrarTodo">
-                    <i class="fas fa-arrow-up"></i>
+                    <i class="fas fa-arrow-up" aria-hidden="true"></i>
                     <span>Ventas</span>
                   </router-link>
                 </li>
                 <li>
                   <router-link class="dropdown-link" to="/reportes/compras" @click="cerrarTodo">
-                    <i class="fas fa-arrow-down"></i>
+                    <i class="fas fa-arrow-down" aria-hidden="true"></i>
                     <span>Compras</span>
                   </router-link>
                 </li>
                 <li>
                   <router-link class="dropdown-link" to="/reportes/mensual" @click="cerrarTodo">
-                    <i class="fas fa-calendar-alt"></i>
+                    <i class="fas fa-calendar-alt" aria-hidden="true"></i>
                     <span>Reporte mensual</span>
                   </router-link>
                 </li>
 
                 <li class="dropdown-section">Contabilidad</li>
                 <li>
-                  <router-link class="dropdown-link" to="/reportes/estado-cuenta" @click="cerrarTodo">
-                    <i class="fas fa-file-invoice-dollar"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/reportes/estado-cuenta"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-file-invoice-dollar" aria-hidden="true"></i>
                     <span>Estado de cuenta</span>
                   </router-link>
                 </li>
                 <li>
                   <router-link class="dropdown-link" to="/reportes/cartera" @click="cerrarTodo">
-                    <i class="fas fa-chart-pie"></i>
+                    <i class="fas fa-chart-pie" aria-hidden="true"></i>
                     <span>Cartera general</span>
                   </router-link>
                 </li>
                 <li>
-                  <router-link class="dropdown-link" to="/reportes/estados-financieros" @click="cerrarTodo">
-                    <i class="fas fa-chart-line"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/reportes/estados-financieros"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-chart-line" aria-hidden="true"></i>
                     <span>Estados financieros</span>
                   </router-link>
                 </li>
@@ -249,13 +345,17 @@
                 <li class="dropdown-section">SRI</li>
                 <li>
                   <router-link class="dropdown-link" to="/reportes/ats" @click="cerrarTodo">
-                    <i class="fas fa-file-export"></i>
+                    <i class="fas fa-file-export" aria-hidden="true"></i>
                     <span>Anexo ATS</span>
                   </router-link>
                 </li>
                 <li>
-                  <router-link class="dropdown-link" to="/periodos-cerrados" @click="cerrarTodo">
-                    <i class="fas fa-lock"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/periodos-cerrados"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-lock" aria-hidden="true"></i>
                     <span>Períodos cerrados</span>
                   </router-link>
                 </li>
@@ -263,28 +363,38 @@
             </transition>
           </li>
 
-          <!-- ===== RETENCIONES ===== -->
+          <!-- RETENCIONES -->
           <li
             v-if="puedeVerRetenciones"
             class="nav-dropdown"
             :class="{ open: dropdowns.retenciones }"
           >
-            <button class="nav-item" @click.stop="toggleDropdown('retenciones')">
-              <i class="fas fa-percent"></i>
+            <button
+              type="button"
+              class="nav-item"
+              @click.stop="toggleDropdown('retenciones')"
+              :aria-expanded="dropdowns.retenciones ? 'true' : 'false'"
+              aria-haspopup="true"
+            >
+              <i class="fas fa-percent" aria-hidden="true"></i>
               <span>Retenciones</span>
-              <i class="fas fa-chevron-down nav-caret"></i>
+              <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
             </button>
             <transition name="dropdown">
               <ul v-if="dropdowns.retenciones" class="dropdown-panel">
                 <li>
                   <router-link class="dropdown-link" to="/retenciones" @click="cerrarTodo">
-                    <i class="fas fa-list"></i>
+                    <i class="fas fa-list" aria-hidden="true"></i>
                     <span>Lista de retenciones</span>
                   </router-link>
                 </li>
                 <li v-if="puedeCrearRetenciones">
-                  <router-link class="dropdown-link" to="/retenciones/nuevo" @click="cerrarTodo">
-                    <i class="fas fa-plus"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/retenciones/nuevo"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-plus" aria-hidden="true"></i>
                     <span>Nueva retención</span>
                   </router-link>
                 </li>
@@ -292,38 +402,62 @@
             </transition>
           </li>
 
-          <!-- ===== ADMINISTRACIÓN ===== -->
+          <!-- ADMINISTRACIÓN -->
           <li
             v-if="puedeVerUsuarios || puedeVerAuditoria"
             class="nav-dropdown"
             :class="{ open: dropdowns.admin }"
           >
-            <button class="nav-item" @click.stop="toggleDropdown('admin')">
-              <i class="fas fa-cog"></i>
+            <button
+              type="button"
+              class="nav-item"
+              @click.stop="toggleDropdown('admin')"
+              :aria-expanded="dropdowns.admin ? 'true' : 'false'"
+              aria-haspopup="true"
+            >
+              <i class="fas fa-cog" aria-hidden="true"></i>
               <span>Admin</span>
-              <i class="fas fa-chevron-down nav-caret"></i>
-              <span v-if="certificadoPorVencer" class="nav-alert-dot warning" :title="`Certificado vence en ${certificadoDiasRestantes} días`"></span>
-              <span v-else-if="documentosFirmados > 0" class="nav-alert-dot info" :title="`${documentosFirmados} docs pendientes de envío SRI`"></span>
+              <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
+              <span
+                v-if="certificadoPorVencer"
+                class="nav-alert-dot warning"
+                :title="`Certificado vence en ${certificadoDiasRestantes} días`"
+                aria-label="Alerta de certificado"
+              ></span>
+              <span
+                v-else-if="documentosFirmados > 0"
+                class="nav-alert-dot info"
+                :title="`${documentosFirmados} docs pendientes de envío SRI`"
+                aria-label="Documentos pendientes"
+              ></span>
             </button>
             <transition name="dropdown">
               <ul v-if="dropdowns.admin" class="dropdown-panel">
                 <li v-if="puedeVerUsuarios">
                   <router-link class="dropdown-link" to="/diagnostico" @click="cerrarTodo">
-                    <i class="fas fa-stethoscope"></i>
+                    <i class="fas fa-stethoscope" aria-hidden="true"></i>
                     <span>Diagnóstico</span>
                   </router-link>
                 </li>
 
                 <li v-if="puedeVerUsuarios" class="dropdown-section">Configuración</li>
                 <li v-if="puedeVerUsuarios">
-                  <router-link class="dropdown-link" to="/configuracion-empresa" @click="cerrarTodo">
-                    <i class="fas fa-building"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/configuracion-empresa"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-building" aria-hidden="true"></i>
                     <span>Empresa</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerUsuarios">
-                  <router-link class="dropdown-link" to="/certificado-firma" @click="cerrarTodo">
-                    <i class="fas fa-shield-alt"></i>
+                  <router-link
+                    class="dropdown-link"
+                    to="/certificado-firma"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-shield-alt" aria-hidden="true"></i>
                     <span>Certificado</span>
                     <span v-if="certificadoPorVencer" class="badge-mini warning">
                       {{ certificadoDiasRestantes }}d
@@ -332,7 +466,7 @@
                 </li>
                 <li v-if="puedeVerUsuarios">
                   <router-link class="dropdown-link" to="/envio-sri" @click="cerrarTodo">
-                    <i class="fas fa-cloud-upload-alt"></i>
+                    <i class="fas fa-cloud-upload-alt" aria-hidden="true"></i>
                     <span>Envío al SRI</span>
                     <span v-if="documentosFirmados > 0" class="badge-mini info">
                       {{ documentosFirmados }}
@@ -343,19 +477,19 @@
                 <li v-if="puedeVerUsuarios" class="dropdown-section">Seguridad</li>
                 <li v-if="puedeVerUsuarios">
                   <router-link class="dropdown-link" to="/usuarios" @click="cerrarTodo">
-                    <i class="fas fa-user-cog"></i>
+                    <i class="fas fa-user-cog" aria-hidden="true"></i>
                     <span>Usuarios</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerAuditoria">
                   <router-link class="dropdown-link" to="/auditoria" @click="cerrarTodo">
-                    <i class="fas fa-history"></i>
+                    <i class="fas fa-history" aria-hidden="true"></i>
                     <span>Auditoría</span>
                   </router-link>
                 </li>
                 <li v-if="puedeVerUsuarios">
                   <router-link class="dropdown-link" to="/backups" @click="cerrarTodo">
-                    <i class="fas fa-database"></i>
+                    <i class="fas fa-database" aria-hidden="true"></i>
                     <span>Backups</span>
                   </router-link>
                 </li>
@@ -366,32 +500,46 @@
 
         <!-- ===== CONTROLES DERECHA ===== -->
         <div class="nav-controls">
-          <!-- Buscador -->
           <div class="search-container" data-tour="search">
             <SearchBar ref="searchBar" />
           </div>
 
-          <!-- Toggle tema -->
           <ThemeToggle />
 
-          <!-- ===== USER MENU ===== -->
+          <!-- USER MENU -->
           <div class="user-wrapper" ref="userDropdown" data-tour="user-menu">
-            <button class="user-btn" @click.stop="toggleUserMenu">
-              <div class="user-avatar" :data-rol="user?.rol">
+            <button
+              type="button"
+              class="user-btn"
+              @click.stop="toggleUserMenu"
+              :aria-expanded="userMenuOpen ? 'true' : 'false'"
+              aria-haspopup="true"
+            >
+              <div class="user-avatar" :data-rol="user?.rol" aria-hidden="true">
                 {{ getInitials(user?.nombre) }}
               </div>
               <div class="user-details">
-                <span class="user-name">{{ user?.nombre?.split(' ')[0] || 'Usuario' }}</span>
+                <span class="user-name">
+                  {{ (user?.nombre || 'Usuario').split(' ')[0] }}
+                </span>
                 <span class="user-role">{{ user?.rol || 'user' }}</span>
               </div>
-              <i class="fas fa-chevron-down user-caret" :class="{ rotated: userMenuOpen }"></i>
+              <i
+                class="fas fa-chevron-down user-caret"
+                :class="{ rotated: userMenuOpen }"
+                aria-hidden="true"
+              ></i>
             </button>
 
             <transition name="dropdown">
               <div v-if="userMenuOpen" class="user-panel" @click.stop>
                 <!-- Header -->
                 <div class="user-panel-header">
-                  <div class="user-avatar-lg" :data-rol="user?.rol">
+                  <div
+                    class="user-avatar-lg"
+                    :data-rol="user?.rol"
+                    aria-hidden="true"
+                  >
                     {{ getInitials(user?.nombre) }}
                   </div>
                   <div class="user-panel-info">
@@ -405,45 +553,66 @@
 
                 <!-- Alertas -->
                 <div v-if="certificadoPorVencer" class="user-alert warning">
-                  <i class="fas fa-exclamation-triangle"></i>
+                  <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
                   <div>
                     <div class="user-alert-title">Certificado por vencer</div>
-                    <div class="user-alert-text">Vence en {{ certificadoDiasRestantes }} días</div>
+                    <div class="user-alert-text">
+                      Vence en {{ certificadoDiasRestantes }} días
+                    </div>
                   </div>
                 </div>
                 <div v-if="documentosFirmados > 0" class="user-alert info">
-                  <i class="fas fa-cloud-upload-alt"></i>
+                  <i class="fas fa-cloud-upload-alt" aria-hidden="true"></i>
                   <div>
                     <div class="user-alert-title">Documentos pendientes</div>
-                    <div class="user-alert-text">{{ documentosFirmados }} sin enviar al SRI</div>
+                    <div class="user-alert-text">
+                      {{ documentosFirmados }} sin enviar al SRI
+                    </div>
                   </div>
                 </div>
 
                 <!-- Acciones -->
                 <div class="user-menu-actions">
-                  <button class="user-action" @click="irPerfil">
-                    <i class="fas fa-id-card"></i>
+                  <button type="button" class="user-action" @click="irPerfil">
+                    <i class="fas fa-id-card" aria-hidden="true"></i>
                     <span>Mi perfil</span>
                   </button>
-                  <button v-if="puedeVerUsuarios" class="user-action" @click="irConfigEmpresa">
-                    <i class="fas fa-building"></i>
+                  <button
+                    v-if="puedeVerUsuarios"
+                    type="button"
+                    class="user-action"
+                    @click="irConfigEmpresa"
+                  >
+                    <i class="fas fa-building" aria-hidden="true"></i>
                     <span>Configuración empresa</span>
                   </button>
-                  <button v-if="puedeVerUsuarios" class="user-action" @click="irCertificado">
-                    <i class="fas fa-shield-alt"></i>
+                  <button
+                    v-if="puedeVerUsuarios"
+                    type="button"
+                    class="user-action"
+                    @click="irCertificado"
+                  >
+                    <i class="fas fa-shield-alt" aria-hidden="true"></i>
                     <span>Certificado firma</span>
                     <span v-if="certificadoPorVencer" class="badge-mini warning">⚠</span>
                   </button>
-                  <button v-if="puedeVerUsuarios" class="user-action" @click="irEnvioSri">
-                    <i class="fas fa-cloud-upload-alt"></i>
+                  <button
+                    v-if="puedeVerUsuarios"
+                    type="button"
+                    class="user-action"
+                    @click="irEnvioSri"
+                  >
+                    <i class="fas fa-cloud-upload-alt" aria-hidden="true"></i>
                     <span>Envío al SRI</span>
-                    <span v-if="documentosFirmados > 0" class="badge-mini info">{{ documentosFirmados }}</span>
+                    <span v-if="documentosFirmados > 0" class="badge-mini info">
+                      {{ documentosFirmados }}
+                    </span>
                   </button>
 
-                  <div class="user-divider"></div>
+                  <div class="user-divider" aria-hidden="true"></div>
 
-                  <button class="user-action" @click="reiniciarTour">
-                    <i class="fas fa-question-circle"></i>
+                  <button type="button" class="user-action" @click="reiniciarTour">
+                    <i class="fas fa-question-circle" aria-hidden="true"></i>
                     <span>Ver tour de nuevo</span>
                   </button>
                 </div>
@@ -451,19 +620,23 @@
                 <!-- Footer -->
                 <div class="user-panel-footer">
                   <div class="version-tag">
-                    <i class="fas fa-code-branch"></i>
+                    <i class="fas fa-code-branch" aria-hidden="true"></i>
                     v3.0
                   </div>
                   <div class="status-indicator">
-                    <span class="status-dot"></span>
+                    <span class="status-dot" aria-hidden="true"></span>
                     En línea
                   </div>
                 </div>
 
-                <div class="user-divider"></div>
+                <div class="user-divider" aria-hidden="true"></div>
 
-                <button class="user-action danger" @click="cerrarSesion">
-                  <i class="fas fa-sign-out-alt"></i>
+                <button
+                  type="button"
+                  class="user-action danger"
+                  @click="cerrarSesion"
+                >
+                  <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
                   <span>Cerrar sesión</span>
                 </button>
               </div>
@@ -476,7 +649,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
 import ThemeToggle from './ThemeToggle.vue'
@@ -488,9 +661,11 @@ const router = useRouter()
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
 
+// ===== STATE =====
 const navbarAbierto = ref(false)
 const userMenuOpen = ref(false)
 const scrolled = ref(false)
+
 const navbar = ref(null)
 const userDropdown = ref(null)
 const searchBar = ref(null)
@@ -506,6 +681,12 @@ const dropdowns = ref({
   retenciones: false,
   admin: false
 })
+
+// ===== GUARDS =====
+let unmounted = false
+let infoAbort = null
+let infoRefreshTimer = null
+let scrollRafId = null
 
 // ===== PERMISOS =====
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
@@ -525,27 +706,53 @@ const puedeVerAuditoria = computed(() => puede('auditoria', 'ver'))
 const puedeVerUsuarios = computed(() => puede('usuarios', 'ver'))
 
 // ===== CERTIFICADO =====
-const certificadoPorVencer = computed(() => certificadoInfo.value?.cargado && certificadoInfo.value?.por_vencer)
-const certificadoDiasRestantes = computed(() => certificadoInfo.value?.dias_restantes || 0)
-const documentosFirmados = computed(() => estadoSri.value?.documentos?.firmados || 0)
+const certificadoPorVencer = computed(
+  () => certificadoInfo.value?.cargado && certificadoInfo.value?.por_vencer
+)
+const certificadoDiasRestantes = computed(
+  () => Number(certificadoInfo.value?.dias_restantes) || 0
+)
+const documentosFirmados = computed(
+  () => Number(estadoSri.value?.documentos?.firmados) || 0
+)
 
+// ===== INFO DEL SISTEMA =====
 const cargarInfoSistema = async () => {
   if (!puedeVerUsuarios.value) return
+
+  if (infoAbort) {
+    try { infoAbort.abort() } catch { /* noop */ }
+  }
+  infoAbort = new AbortController()
+
   try {
-    const [cert, sri] = await Promise.all([
-      api.request('/certificado/info', { method: 'GET', skipLoader: true }).catch(() => null),
-      api.request('/sri/estado', { method: 'GET', skipLoader: true }).catch(() => null)
+    const [cert, sri] = await Promise.allSettled([
+      api.request('/certificado/info', {
+        method: 'GET',
+        skipLoader: true,
+        signal: infoAbort.signal
+      }),
+      api.request('/sri/estado', {
+        method: 'GET',
+        skipLoader: true,
+        signal: infoAbort.signal
+      })
     ])
-    certificadoInfo.value = cert
-    estadoSri.value = sri
-  } catch (e) {}
+
+    if (unmounted) return
+
+    if (cert.status === 'fulfilled') certificadoInfo.value = cert.value
+    if (sri.status === 'fulfilled') estadoSri.value = sri.value
+  } catch (e) {
+    /* silencioso */
+  }
 }
 
 // ===== TOGGLES =====
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
   if (!navbarAbierto.value) {
-    Object.keys(dropdowns.value).forEach(k => dropdowns.value[k] = false)
+    for (const k of Object.keys(dropdowns.value)) dropdowns.value[k] = false
   }
 }
 
@@ -554,22 +761,22 @@ const toggleDropdown = (nombre) => {
     dropdowns.value[nombre] = !dropdowns.value[nombre]
     return
   }
-  Object.keys(dropdowns.value).forEach(k => {
-    dropdowns.value[k] = (k === nombre) ? !dropdowns.value[nombre] : false
-  })
+  for (const k of Object.keys(dropdowns.value)) {
+    dropdowns.value[k] = k === nombre ? !dropdowns.value[nombre] : false
+  }
   if (userMenuOpen.value) userMenuOpen.value = false
 }
 
 const toggleUserMenu = () => {
   userMenuOpen.value = !userMenuOpen.value
   if (userMenuOpen.value) {
-    Object.keys(dropdowns.value).forEach(k => dropdowns.value[k] = false)
+    for (const k of Object.keys(dropdowns.value)) dropdowns.value[k] = false
   }
 }
 
 const cerrarTodo = () => {
   navbarAbierto.value = false
-  Object.keys(dropdowns.value).forEach(k => dropdowns.value[k] = false)
+  for (const k of Object.keys(dropdowns.value)) dropdowns.value[k] = false
   userMenuOpen.value = false
 }
 
@@ -579,38 +786,93 @@ const handleClickOutside = (e) => {
   cerrarTodo()
 }
 
-// ===== SCROLL =====
+// ===== SCROLL (con rAF para no saturar) =====
 const handleScroll = () => {
-  scrolled.value = window.scrollY > 8
+  if (scrollRafId) return
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
+    if (unmounted) return
+    const y = window.scrollY || window.pageYOffset || 0
+    const nuevo = y > 8
+    if (nuevo !== scrolled.value) scrolled.value = nuevo
+  })
 }
 
 // ===== ATAJOS =====
 const handleKeyboard = (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+  // Ignorar si el usuario está escribiendo en un campo
+  const tag = String(e.target?.tagName || '').toLowerCase()
+  const esInput =
+    tag === 'input' ||
+    tag === 'textarea' ||
+    tag === 'select' ||
+    e.target?.isContentEditable === true
+
+  // Ctrl/Cmd + K → buscador
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     if (searchBar.value?.$el) {
       const input = searchBar.value.$el.querySelector('input')
       if (input) input.focus()
     }
+    return
   }
-  if (e.key === 'Escape') cerrarTodo()
-  if (e.altKey && /^[1-9]$/.test(e.key)) {
+
+  // Escape → cerrar todo
+  if (e.key === 'Escape') {
+    if (navbarAbierto.value || userMenuOpen.value) {
+      cerrarTodo()
+      return
+    }
+    const anyDropdownOpen = Object.values(dropdowns.value).some(Boolean)
+    if (anyDropdownOpen) cerrarTodo()
+    return
+  }
+
+  // Alt + [1-9] → navegación rápida (solo si no está en un input)
+  if (e.altKey && !esInput && /^[1-9]$/.test(e.key)) {
     e.preventDefault()
     const shortcuts = {
-      '1': '/', '2': '/ventas', '3': '/compras',
-      '4': '/clientes', '5': '/productos', '6': '/consultar-documentos',
-      '7': '/reportes/ventas', '8': '/kardex', '9': '/auditoria'
+      '1': '/',
+      '2': '/ventas',
+      '3': '/compras',
+      '4': '/clientes',
+      '5': '/productos',
+      '6': '/consultar-documentos',
+      '7': '/reportes/ventas',
+      '8': '/kardex',
+      '9': '/auditoria'
     }
-    if (shortcuts[e.key]) router.push(shortcuts[e.key])
+    const to = shortcuts[e.key]
+    if (to) {
+      cerrarTodo()
+      router.push(to)
+    }
   }
 }
 
 // ===== NAVEGACIÓN =====
-const irPerfil = () => { cerrarTodo(); router.push('/mi-perfil') }
-const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
-const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
-const irEnvioSri = () => { cerrarTodo(); router.push('/envio-sri') }
-const cerrarSesion = () => { cerrarTodo(); logout() }
+const irPerfil = () => {
+  cerrarTodo()
+  router.push('/mi-perfil')
+}
+const irConfigEmpresa = () => {
+  cerrarTodo()
+  router.push('/configuracion-empresa')
+}
+const irCertificado = () => {
+  cerrarTodo()
+  router.push('/certificado-firma')
+}
+const irEnvioSri = () => {
+  cerrarTodo()
+  router.push('/envio-sri')
+}
+
+const cerrarSesion = () => {
+  cerrarTodo()
+  logout()
+}
 
 const reiniciarTour = () => {
   cerrarTodo()
@@ -619,25 +881,60 @@ const reiniciarTour = () => {
   }
 }
 
+// ===== HELPERS =====
 const getInitials = (nombre) => {
-  if (!nombre) return '?'
-  return String(nombre).split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  if (!nombre || typeof nombre !== 'string') return '?'
+  return (
+    nombre
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?'
+  )
 }
 
-// ===== CICLO =====
+// ===== LIFECYCLE =====
 onMounted(async () => {
-  try { await cargarPermisos() } catch (e) {}
+  try {
+    await cargarPermisos()
+  } catch { /* noop */ }
+
   await cargarInfoSistema()
+
+  // Refrescar info cada 5 minutos
+  infoRefreshTimer = setInterval(() => {
+    if (unmounted) return
+    cargarInfoSistema()
+  }, 5 * 60 * 1000)
+
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeyboard)
   window.addEventListener('scroll', handleScroll, { passive: true })
+
   handleScroll()
 })
 
 onBeforeUnmount(() => {
+  unmounted = true
+
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeyboard)
   window.removeEventListener('scroll', handleScroll)
+
+  if (scrollRafId) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
+  }
+  if (infoAbort) {
+    try { infoAbort.abort() } catch { /* noop */ }
+    infoAbort = null
+  }
+  if (infoRefreshTimer) {
+    clearInterval(infoRefreshTimer)
+    infoRefreshTimer = null
+  }
 })
 </script>
 
@@ -693,7 +990,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-color);
+  color: var(--accent-color, #f59e0b);
   font-size: 1.15rem;
   box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
   transition: all var(--transition);
@@ -707,19 +1004,19 @@ onBeforeUnmount(() => {
 .brand-text { display: flex; align-items: center; gap: 8px; }
 .brand-name {
   font-size: 1.05rem;
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   color: #fff;
-  letter-spacing: var(--ls-tight);
+  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 .brand-tag {
   font-size: 0.6rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   padding: 2px 7px;
-  border-radius: var(--radius-full);
+  border-radius: 999px;
   background: rgba(245, 158, 11, 0.18);
-  color: var(--accent-color);
-  letter-spacing: var(--ls-wider);
+  color: var(--accent-color, #f59e0b);
+  letter-spacing: 0.08em;
   border: 1px solid rgba(245, 158, 11, 0.28);
 }
 
@@ -780,13 +1077,13 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 7px;
   padding: 9px 14px;
-  border-radius: var(--radius-full);
+  border-radius: 999px;
   border: none;
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
   font-family: inherit;
   font-size: 0.875rem;
-  font-weight: var(--fw-medium);
+  font-weight: 500;
   cursor: pointer;
   transition: all var(--transition);
   white-space: nowrap;
@@ -824,8 +1121,8 @@ onBeforeUnmount(() => {
   margin-left: 4px;
   animation: pulse-dot 2s infinite;
 }
-.nav-alert-dot.warning { background: var(--warning); }
-.nav-alert-dot.info { background: var(--info); }
+.nav-alert-dot.warning { background: var(--warning, #f59e0b); }
+.nav-alert-dot.info { background: var(--info, #0ea5e9); }
 
 @keyframes pulse-dot {
   0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
@@ -852,7 +1149,7 @@ onBeforeUnmount(() => {
   list-style: none;
   margin: 0;
   z-index: 100;
-  animation: dropdown-in 0.2s var(--ease-out);
+  animation: dropdown-in 0.2s ease-out;
 }
 
 @keyframes dropdown-in {
@@ -862,10 +1159,10 @@ onBeforeUnmount(() => {
 
 .dropdown-section {
   font-size: 0.65rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   color: rgba(245, 158, 11, 0.9);
   text-transform: uppercase;
-  letter-spacing: var(--ls-widest);
+  letter-spacing: 0.12em;
   padding: 10px 14px 6px;
   pointer-events: none;
 }
@@ -879,14 +1176,14 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.88);
   text-decoration: none;
   font-size: 0.86rem;
-  font-weight: var(--fw-medium);
-  transition: all var(--transition-fast);
+  font-weight: 500;
+  transition: all 0.15s ease;
 }
 .dropdown-link > i {
   width: 18px;
-  color: var(--accent-color);
+  color: var(--accent-color, #f59e0b);
   font-size: 0.88rem;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 .dropdown-link > span:first-of-type { flex: 1; }
 .dropdown-link:hover {
@@ -900,30 +1197,33 @@ onBeforeUnmount(() => {
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.2);
 }
-.dropdown-link.highlight:hover { background: var(--accent-color); color: #1a2a3a; }
+.dropdown-link.highlight:hover {
+  background: var(--accent-color, #f59e0b);
+  color: #1a2a3a;
+}
 
 .shortcut {
   font-size: 0.65rem;
   padding: 2px 6px;
-  border-radius: var(--radius-xs);
+  border-radius: 4px;
   background: rgba(245, 158, 11, 0.15);
-  color: var(--accent-color);
-  font-family: var(--font-mono);
-  font-weight: var(--fw-bold);
+  color: var(--accent-color, #f59e0b);
+  font-family: monospace;
+  font-weight: 700;
   letter-spacing: 0.3px;
   border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 .badge-mini {
   font-size: 0.65rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   padding: 2px 7px;
-  border-radius: var(--radius-full);
+  border-radius: 999px;
   min-width: 22px;
   text-align: center;
 }
-.badge-mini.info { background: var(--info-bg); color: var(--info); }
-.badge-mini.warning { background: var(--warning-bg); color: var(--warning-hover); }
+.badge-mini.info { background: var(--info-bg, rgba(14,165,233,0.15)); color: var(--info, #0ea5e9); }
+.badge-mini.warning { background: var(--warning-bg, rgba(245,158,11,0.15)); color: var(--warning-hover, #d97706); }
 
 .dropdown-divider {
   height: 1px;
@@ -947,7 +1247,7 @@ onBeforeUnmount(() => {
 }
 
 /* ============================================================
-   USER BUTTON
+   USER
    ============================================================ */
 .user-wrapper { position: relative; }
 
@@ -958,7 +1258,7 @@ onBeforeUnmount(() => {
   padding: 5px 12px 5px 5px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-full);
+  border-radius: 999px;
   color: #fff;
   cursor: pointer;
   font-family: inherit;
@@ -978,7 +1278,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   font-size: 0.72rem;
   color: #1a2a3a;
   flex-shrink: 0;
@@ -986,11 +1286,11 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, #f59e0b, #d97706);
   box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35);
 }
-.user-avatar[data-rol="admin"] { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35); }
-.user-avatar[data-rol="contador"] { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35); }
-.user-avatar[data-rol="vendedor"] { background: linear-gradient(135deg, #10b981, #059669); color: #fff; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35); }
-.user-avatar[data-rol="bodeguero"] { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35); }
-.user-avatar[data-rol="auditor"] { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.35); }
+.user-avatar[data-rol="admin"] { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
+.user-avatar[data-rol="contador"] { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; }
+.user-avatar[data-rol="vendedor"] { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
+.user-avatar[data-rol="bodeguero"] { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; }
+.user-avatar[data-rol="auditor"] { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; }
 
 .user-details {
   display: flex;
@@ -1001,7 +1301,7 @@ onBeforeUnmount(() => {
 }
 .user-name {
   font-size: 0.82rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
@@ -1012,9 +1312,9 @@ onBeforeUnmount(() => {
 .user-role {
   font-size: 0.6rem;
   text-transform: uppercase;
-  letter-spacing: var(--ls-wider);
+  letter-spacing: 0.1em;
   color: rgba(245, 158, 11, 0.9);
-  font-weight: var(--fw-bold);
+  font-weight: 700;
 }
 
 .user-caret {
@@ -1041,7 +1341,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
   overflow: hidden;
   z-index: 100;
-  animation: dropdown-in 0.2s var(--ease-out);
+  animation: dropdown-in 0.2s ease-out;
 }
 
 .user-panel-header {
@@ -1060,7 +1360,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: var(--fw-extrabold);
+  font-weight: 800;
   font-size: 1.05rem;
   color: #1a2a3a;
   flex-shrink: 0;
@@ -1077,7 +1377,7 @@ onBeforeUnmount(() => {
 .user-panel-info { flex: 1; min-width: 0; }
 .user-panel-name {
   font-size: 0.95rem;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   color: #fff;
   margin-bottom: 2px;
   white-space: nowrap;
@@ -1096,10 +1396,10 @@ onBeforeUnmount(() => {
   display: inline-block;
   font-size: 0.62rem;
   padding: 3px 10px;
-  border-radius: var(--radius-full);
-  font-weight: var(--fw-bold);
+  border-radius: 999px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: var(--ls-wider);
+  letter-spacing: 0.1em;
 }
 .badge-rol-admin { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
 .badge-rol-contador { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
@@ -1116,11 +1416,16 @@ onBeforeUnmount(() => {
   align-items: flex-start;
 }
 .user-alert.warning { background: rgba(245, 158, 11, 0.08); }
-.user-alert.warning > i { color: var(--warning); }
+.user-alert.warning > i { color: var(--warning, #f59e0b); }
 .user-alert.info { background: rgba(14, 165, 233, 0.08); }
-.user-alert.info > i { color: var(--info); }
+.user-alert.info > i { color: var(--info, #0ea5e9); }
 .user-alert > i { font-size: 1rem; margin-top: 2px; flex-shrink: 0; }
-.user-alert-title { font-weight: var(--fw-bold); color: #fff; margin-bottom: 2px; font-size: 0.78rem; }
+.user-alert-title {
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 2px;
+  font-size: 0.78rem;
+}
 .user-alert-text { color: rgba(255, 255, 255, 0.55); font-size: 0.72rem; }
 
 .user-menu-actions { padding: 8px; }
@@ -1137,20 +1442,20 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.88);
   font-family: inherit;
   font-size: 0.86rem;
-  font-weight: var(--fw-medium);
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 .user-action > i {
   width: 18px;
-  color: var(--accent-color);
+  color: var(--accent-color, #f59e0b);
   font-size: 0.9rem;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 .user-action > span:first-of-type { flex: 1; }
 .user-action:hover { background: rgba(255, 255, 255, 0.06); }
-.user-action:hover > i { color: var(--accent-color); transform: scale(1.1); }
+.user-action:hover > i { color: var(--accent-color, #f59e0b); transform: scale(1.1); }
 .user-action.danger { color: #fca5a5; }
 .user-action.danger > i { color: #ef4444; }
 .user-action.danger:hover { background: rgba(239, 68, 68, 0.15); }
@@ -1175,9 +1480,9 @@ onBeforeUnmount(() => {
   padding: 4px 10px;
   background: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: var(--radius-full);
-  color: var(--accent-color);
-  font-weight: var(--fw-bold);
+  border-radius: 999px;
+  color: var(--accent-color, #f59e0b);
+  font-weight: 700;
   font-size: 0.65rem;
 }
 .status-indicator {
@@ -1185,7 +1490,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   color: rgba(255, 255, 255, 0.5);
-  font-weight: var(--fw-semibold);
+  font-weight: 600;
 }
 .status-dot {
   width: 8px;
@@ -1203,10 +1508,12 @@ onBeforeUnmount(() => {
 /* ============================================================
    TRANSICIONES
    ============================================================ */
-.dropdown-enter-active, .dropdown-leave-active {
-  transition: all 0.2s var(--ease-out);
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.2s ease-out;
 }
-.dropdown-enter-from, .dropdown-leave-to {
+.dropdown-enter-from,
+.dropdown-leave-to {
   opacity: 0;
   transform: translateY(-6px);
 }
@@ -1314,5 +1621,19 @@ onBeforeUnmount(() => {
   .brand-name { font-size: 0.95rem; }
   .brand-tag { display: none; }
   .navbar-inner { padding-top: 8px; padding-bottom: 8px; min-height: 58px; }
+}
+
+/* ============================================================
+   ACCESIBILIDAD
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .nav-alert-dot,
+  .status-dot {
+    animation: none;
+  }
+  .dropdown-panel,
+  .user-panel {
+    animation: none;
+  }
 }
 </style>

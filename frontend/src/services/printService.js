@@ -1,11 +1,19 @@
 // frontend/src/services/printService.js
+// ============================================================
 // Generador de RIDE (Representación Impresa del Documento Electrónico)
-// Incluye generador de código de barras Code128 real (sin dependencias externas).
+// ------------------------------------------------------------
+// Incluye:
+//   - Generador de código de barras Code128 subset C (SRI usa solo dígitos)
+//   - Escape HTML en TODOS los valores dinámicos (previene XSS)
+//   - Impresión robusta: espera `readyState` + `document.fonts.ready`
+//   - Soporte A4 / A2 / Ticket 80mm
+// ============================================================
+'use strict'
 
 // ============================================================
-// GENERADOR DE CÓDIGO DE BARRAS (Code128 subset C)
+// CÓDIGO DE BARRAS (Code128 subset C)
 // ============================================================
-// Patrones oficiales Code128. Cada símbolo son 11 módulos (el STOP son 13).
+// Patrones oficiales Code128. Cada símbolo son 11 módulos (STOP = 13).
 const CODE128_PATTERNS = [
   '11011001100', '11001101100', '11001100110', '10010011000', '10010001100',
   '10001001100', '10011001000', '10011000100', '10001100100', '11001001000',
@@ -29,72 +37,169 @@ const CODE128_PATTERNS = [
   '10111101000', '10111100010', '11110101000', '11110100010', '10111011110',
   '10111101110', '11101011110', '11110101110', '11010000100', '11010010000',
   '11010011100', '1100011101011'
-];
+]
 
-const CODE128_START_C = 105;
-const CODE128_STOP = 106;
+const CODE128_START_C = 105
+const CODE128_STOP = 106
 
+/**
+ * Genera la secuencia de bits (string de 0s y 1s) para Code128 subset C.
+ * Solo acepta dígitos. Si la longitud es impar, prepende un 0.
+ *
+ * @param {string} data  Cadena de solo dígitos
+ * @returns {string}
+ * @throws {Error} si contiene caracteres no numéricos
+ */
 function generarBitsCode128C(data) {
-  if (!/^\d+$/.test(data)) {
-    throw new Error('Code128C solo acepta dígitos');
-  }
-  if (data.length % 2 !== 0) data = '0' + data;
-
-  const symbols = [CODE128_START_C];
-  for (let i = 0; i < data.length; i += 2) {
-    symbols.push(parseInt(data.substr(i, 2), 10));
+  const str = String(data ?? '')
+  if (!/^\d+$/.test(str)) {
+    throw new Error('Code128C solo acepta dígitos')
   }
 
-  let checksum = CODE128_START_C;
+  // Code128C empaqueta 2 dígitos por símbolo → siempre par
+  const normalizada = str.length % 2 !== 0 ? '0' + str : str
+
+  const symbols = [CODE128_START_C]
+  for (let i = 0; i < normalizada.length; i += 2) {
+    symbols.push(parseInt(normalizada.substr(i, 2), 10))
+  }
+
+  // Checksum módulo 103 con pesos posicionales
+  let checksum = CODE128_START_C
   for (let i = 1; i < symbols.length; i++) {
-    checksum += symbols[i] * i;
+    checksum += symbols[i] * i
   }
-  checksum = checksum % 103;
-  symbols.push(checksum);
-  symbols.push(CODE128_STOP);
+  checksum %= 103
+  symbols.push(checksum)
+  symbols.push(CODE128_STOP)
 
-  let bits = '';
-  for (const sym of symbols) bits += CODE128_PATTERNS[sym];
-  return bits;
+  let bits = ''
+  for (const sym of symbols) bits += CODE128_PATTERNS[sym]
+  return bits
 }
 
+/**
+ * Genera el SVG del código de barras Code128C.
+ *
+ * @param {string} texto
+ * @param {'A4'|'A2'|'ticket'} formato
+ * @param {number} maxHeight  Alto en px del SVG renderizado
+ * @returns {string}  SVG inline (seguro para inyectar)
+ */
 function generarBarcodeSVG(texto, formato = 'A4', maxHeight = 45) {
-  if (!texto) return '';
+  if (!texto) return ''
 
-  let dataBarcode = String(texto);
+  let dataBarcode = String(texto)
+
+  // En ticket solo se ve la cola del código (22 dígitos → 22 módulos C ≈ 242 px)
   if (formato === 'ticket' && dataBarcode.length > 30) {
-    dataBarcode = dataBarcode.slice(-22);
+    dataBarcode = dataBarcode.slice(-22)
   }
 
   try {
-    const bits = generarBitsCode128C(dataBarcode);
-    const quietZone = 8;
-    const height = 60;
-    const totalModules = bits.length + quietZone * 2;
-    const totalWidth = totalModules;
+    const bits = generarBitsCode128C(dataBarcode)
+    // Quiet zone estándar: mínimo 10 módulos por lado
+    const quietZone = 10
+    const height = 60
+    const totalModules = bits.length + quietZone * 2
+    const totalWidth = totalModules
 
-    let svg = `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${height}" preserveAspectRatio="none" shape-rendering="crispEdges" style="width: 100%; height: ${maxHeight}px; display: block;">`;
-    svg += `<rect x="0" y="0" width="${totalWidth}" height="${height}" fill="#ffffff"/>`;
+    // `preserveAspectRatio="xMidYMid meet"` mantiene proporciones sin distorsionar
+    let svg =
+      `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" ` +
+      `viewBox="0 0 ${totalWidth} ${height}" ` +
+      `preserveAspectRatio="xMidYMid meet" ` +
+      `shape-rendering="crispEdges" ` +
+      `style="width: 100%; height: ${Number(maxHeight) || 45}px; display: block;">`
+    svg += `<rect x="0" y="0" width="${totalWidth}" height="${height}" fill="#ffffff"/>`
 
-    let x = quietZone;
-    let i = 0;
+    let x = quietZone
+    let i = 0
     while (i < bits.length) {
       if (bits[i] === '1') {
-        let w = 0;
-        while (i < bits.length && bits[i] === '1') { w++; i++; }
-        svg += `<rect x="${x}" y="0" width="${w}" height="${height}" fill="#1a1a1a"/>`;
-        x += w;
+        let w = 0
+        while (i < bits.length && bits[i] === '1') {
+          w++
+          i++
+        }
+        svg += `<rect x="${x}" y="0" width="${w}" height="${height}" fill="#1a1a1a"/>`
+        x += w
       } else {
-        let w = 0;
-        while (i < bits.length && bits[i] === '0') { w++; i++; }
-        x += w;
+        let w = 0
+        while (i < bits.length && bits[i] === '0') {
+          w++
+          i++
+        }
+        x += w
       }
     }
-    svg += '</svg>';
-    return svg;
+    svg += '</svg>'
+    return svg
   } catch (e) {
-    console.error('Error generando código de barras:', e);
-    return `<div style="font-size: 0.7em; color: #888; text-align: center;">[Código de barras no disponible]</div>`;
+    console.error('Error generando código de barras:', e?.message || e)
+    return `<div style="font-size: 0.7em; color: #888; text-align: center;">[Código de barras no disponible]</div>`
+  }
+}
+
+// ============================================================
+// HELPERS DE SEGURIDAD (previenen XSS/HTML injection)
+// ============================================================
+/**
+ * Escapa un valor para insertarlo en contenido HTML.
+ * NO usar en atributos (esos usan escAttr).
+ */
+function escHtml(v) {
+  if (v === null || v === undefined) return ''
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * Escapa un valor para insertarlo dentro de un atributo HTML.
+ * Es más estricto con comillas y saltos de línea.
+ */
+function escAttr(v) {
+  if (v === null || v === undefined) return ''
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r?\n/g, ' ')
+}
+
+/** Formatea un número a 2 decimales; devuelve '0.00' si es inválido. */
+function n2(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00'
+}
+
+/** Formatea fecha en formato es-EC (dd/mm/yyyy). */
+function fmtFecha(f) {
+  if (!f) return ''
+  try {
+    return new Date(f).toLocaleDateString('es-EC', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    })
+  } catch {
+    return ''
+  }
+}
+
+/** Formatea fecha+hora en formato es-EC. */
+function fmtFechaHora(f) {
+  if (!f) return ''
+  try {
+    return new Date(f).toLocaleString('es-EC')
+  } catch {
+    return ''
   }
 }
 
@@ -102,99 +207,167 @@ function generarBarcodeSVG(texto, formato = 'A4', maxHeight = 45) {
 // SERVICIO DE IMPRESIÓN
 // ============================================================
 export const printService = {
-  printDocument(doc, formato = 'A4', obtenerNombreProducto = (id) => 'Producto') {
-    const html = this.generarHTML(doc, formato, obtenerNombreProducto)
-    const ventana = window.open('', '_blank', 'width=900,height=700')
-    if (!ventana) {
-      alert('Por favor, permita ventanas emergentes para imprimir')
+  /**
+   * Abre una nueva ventana con el RIDE y dispara `window.print()`.
+   * @param {object} doc
+   * @param {'A4'|'A2'|'ticket'} formato
+   * @param {(id:string)=>string} obtenerNombreProducto
+   */
+  printDocument(doc, formato = 'A4', obtenerNombreProducto = () => 'Producto') {
+    if (!doc) {
+      console.warn('printDocument: doc vacío')
       return
     }
-    ventana.document.write(html)
-    ventana.document.close()
-    ventana.focus()
+
+    let html
+    try {
+      html = this.generarHTML(doc, formato, obtenerNombreProducto)
+    } catch (e) {
+      console.error('Error generando HTML del RIDE:', e?.message || e)
+      alert('No se pudo generar el documento para imprimir')
+      return
+    }
+
+    // `noopener` → evita que la nueva ventana manipule la actual
+    const ventana = window.open('', '_blank', 'noopener,noreferrer,width=900,height=700')
+
+    if (!ventana) {
+      alert(
+        'No se pudo abrir la ventana de impresión.\n\n' +
+        'Permita las ventanas emergentes para este sitio e intente de nuevo.'
+      )
+      return
+    }
+
+    try {
+      ventana.document.open()
+      ventana.document.write(html)
+      ventana.document.close()
+      ventana.focus()
+    } catch (e) {
+      console.error('Error escribiendo en la ventana de impresión:', e?.message || e)
+      try { ventana.close() } catch { /* noop */ }
+    }
   },
 
-  generarHTML(doc, formato, obtenerNombreProducto) {
-    const esVenta = !!doc.cliente
-    const nombreCliente = esVenta ? (doc.cliente?.nombre || 'Consumidor Final') : (doc.proveedor?.nombre || 'Proveedor N/A')
-    const rucCliente = esVenta ? (doc.cliente?.ruc || '9999999999999') : (doc.proveedor?.ruc || '')
-    const dirCliente = esVenta ? (doc.cliente?.direccion || '') : (doc.proveedor?.direccion || '')
-    const telCliente = esVenta ? (doc.cliente?.telefono || '') : (doc.proveedor?.telefono || '')
-    const emailCliente = esVenta ? (doc.cliente?.email || '') : (doc.proveedor?.email || '')
+  /**
+   * Construye el HTML del RIDE.
+   * @param {object} doc
+   * @param {'A4'|'A2'|'ticket'} formato
+   * @param {(id:string)=>string} obtenerNombreProducto
+   * @returns {string}
+   */
+  generarHTML(doc, formato = 'A4', obtenerNombreProducto = () => 'Producto') {
+    if (!doc || typeof doc !== 'object') {
+      throw new Error('generarHTML: doc inválido')
+    }
 
-    const tipoDoc = (doc.tipo_documento || 'factura').toUpperCase()
-    const numero = doc.numero_factura || doc.numero_guia || 'N/A'
-    const fechaEmision = doc.fecha_emision ? new Date(doc.fecha_emision).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
-    const claveAcceso = doc.clave_acceso || ''
-    const numeroAutorizacion = doc.numero_autorizacion || claveAcceso
-    const fechaAutorizacion = doc.fecha_emision ? new Date(doc.fecha_emision).toLocaleString('es-EC') : ''
-    const ambiente = doc.ambiente_sri === '2' ? 'PRODUCCIÓN' : 'PRUEBAS'
+    // ---- Determinar si es venta o compra ----
+    const esVenta = !!doc.cliente
+    const contraparte = esVenta ? doc.cliente : doc.proveedor
+
+    // ---- Extraer y escapar todos los campos dinámicos ----
+    const nombreCliente = escHtml(
+      contraparte?.nombre || (esVenta ? 'Consumidor Final' : 'Proveedor N/A')
+    )
+    const rucCliente = escHtml(
+      contraparte?.ruc || (esVenta ? '9999999999999' : '')
+    )
+    const dirCliente = escHtml(contraparte?.direccion || '')
+    const telCliente = escHtml(contraparte?.telefono || '')
+    const emailCliente = escHtml(contraparte?.email || '')
+
+    const tipoDoc = escHtml((doc.tipo_documento || 'factura').toUpperCase())
+    const numero = escHtml(doc.numero_factura || doc.numero_guia || 'N/A')
+    const fechaEmision = escHtml(fmtFecha(doc.fecha_emision))
+    const claveAcceso = String(doc.clave_acceso || '')
+    const numeroAutorizacion = escHtml(doc.numero_autorizacion || claveAcceso)
+    const fechaAutorizacion = escHtml(fmtFechaHora(doc.fecha_emision))
+    const esProduccion = doc.ambiente_sri === '2'
+    const ambiente = esProduccion ? 'PRODUCCIÓN' : 'PRUEBAS'
     const tipoEmision = 'NORMAL'
-    const razonSocialEmisor = doc.razon_social_emisor || "System Ozaet's Electronics"
-    const rucEmisor = doc.ruc_emisor || '1790012345001'
-    const dirMatriz = 'Av. Amazonas N34-451 y Av. Atahualpa, Quito, Ecuador'
-    const dirSucursal = 'Av. Amazonas N34-451, Quito'
+    const razonSocialEmisor = escHtml(
+      doc.razon_social_emisor || "System Ozaet's Electronics"
+    )
+    const rucEmisor = escHtml(doc.ruc_emisor || '1790012345001')
+    const dirMatriz = escHtml('Av. Amazonas N34-451 y Av. Atahualpa, Quito, Ecuador')
+    const dirSucursal = escHtml('Av. Amazonas N34-451, Quito')
     const contribuyenteEspecial = ''
     const obligadoContabilidad = 'NO'
 
-    const subtotal = parseFloat(doc.subtotal || 0)
-    const iva = parseFloat(doc.iva || 0)
-    const total = parseFloat(doc.total || 0)
+    const formaPago = escHtml(doc.forma_pago || 'Sin sistema financiero')
+    const estadoPago = escHtml((doc.estado_pago || 'pendiente').toUpperCase())
+    const observaciones = escHtml(doc.observaciones || '')
+
+    const subtotal = Number(doc.subtotal) || 0
+    const iva = Number(doc.iva) || 0
+    const total = Number(doc.total) || 0
 
     const esTicket = formato === 'ticket'
 
-    // Tabla de detalles
+    // ---- Tabla de detalles ----
+    const detalles = Array.isArray(doc.detalles) ? doc.detalles : []
     let detallesHtml = ''
-    if (doc.detalles && doc.detalles.length > 0) {
+
+    if (detalles.length > 0) {
       if (esTicket) {
-        detallesHtml = doc.detalles.map((d, idx) => {
-          const cantidad = parseFloat(d.cantidad || 0)
-          const precioUnit = parseFloat(d.precio_unitario || d.costo_unitario || 0)
-          const subtotalItem = cantidad * precioUnit
-          const aplicaIVA = d.aplica_iva !== false
-          const nombreProducto = d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
-          const codigo = d.codigo || ''
-          return `
-            <tr>
-              <td class="text-center">${idx + 1}</td>
-              <td>
-                <div class="product-name">${nombreProducto}</div>
-                ${codigo ? `<div class="product-code">${codigo}</div>` : ''}
-                <div class="product-meta">IVA ${aplicaIVA ? '15%' : '0%'}</div>
-              </td>
-              <td class="text-center">${cantidad}</td>
-              <td class="text-right">$${precioUnit.toFixed(2)}</td>
-              <td class="text-right fw-bold">$${subtotalItem.toFixed(2)}</td>
-            </tr>
-          `
-        }).join('')
+        detallesHtml = detalles
+          .map((d, idx) => {
+            const cantidad = Number(d.cantidad) || 0
+            const precioUnit =
+              Number(d.precio_unitario ?? d.costo_unitario) || 0
+            const subtotalItem = cantidad * precioUnit
+            const aplicaIVA = d.aplica_iva !== false
+            const nombreProducto = escHtml(
+              d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
+            )
+            const codigo = escHtml(d.codigo || '')
+            return `
+              <tr>
+                <td class="text-center">${idx + 1}</td>
+                <td>
+                  <div class="product-name">${nombreProducto}</div>
+                  ${codigo ? `<div class="product-code">${codigo}</div>` : ''}
+                  <div class="product-meta">IVA ${aplicaIVA ? '15%' : '0%'}</div>
+                </td>
+                <td class="text-center">${cantidad}</td>
+                <td class="text-right">$${n2(precioUnit)}</td>
+                <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
+              </tr>`
+          })
+          .join('')
       } else {
-        detallesHtml = doc.detalles.map((d, idx) => {
-          const cantidad = parseFloat(d.cantidad || 0)
-          const precioUnit = parseFloat(d.precio_unitario || d.costo_unitario || 0)
-          const descuento = 0
-          const subtotalItem = cantidad * precioUnit - descuento
-          const aplicaIVA = d.aplica_iva !== false
-          const nombreProducto = d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
-          const codigo = d.codigo || ''
-          return `
-            <tr>
-              <td class="text-center">${idx + 1}</td>
-              <td>
-                <div class="product-name">${nombreProducto}</div>
-                ${codigo ? `<div class="product-code">Código: ${codigo}</div>` : ''}
-              </td>
-              <td class="text-center">${cantidad}</td>
-              <td class="text-right">$${precioUnit.toFixed(2)}</td>
-              <td class="text-right">$${descuento.toFixed(2)}</td>
-              <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
-              <td class="text-right">$${subtotalItem.toFixed(2)}</td>
-            </tr>
-          `
-        }).join('')
+        detallesHtml = detalles
+          .map((d, idx) => {
+            const cantidad = Number(d.cantidad) || 0
+            const precioUnit =
+              Number(d.precio_unitario ?? d.costo_unitario) || 0
+            const descuento = Number(d.descuento) || 0
+            const subtotalItem = cantidad * precioUnit - descuento
+            const aplicaIVA = d.aplica_iva !== false
+            const nombreProducto = escHtml(
+              d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
+            )
+            const codigo = escHtml(d.codigo || '')
+            return `
+              <tr>
+                <td class="text-center">${idx + 1}</td>
+                <td>
+                  <div class="product-name">${nombreProducto}</div>
+                  ${codigo ? `<div class="product-code">Código: ${codigo}</div>` : ''}
+                </td>
+                <td class="text-center">${cantidad}</td>
+                <td class="text-right">$${n2(precioUnit)}</td>
+                <td class="text-right">$${n2(descuento)}</td>
+                <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
+                <td class="text-right">$${n2(subtotalItem)}</td>
+              </tr>`
+          })
+          .join('')
       }
     }
 
+    // ---- Configuración por formato ----
     let ancho = '210mm'
     let padding = '10mm'
     let fontSize = '11px'
@@ -215,16 +388,29 @@ export const printService = {
       barcodeHeight = 32
     }
 
-    const barcodeHtml = claveAcceso ? generarBarcodeSVG(claveAcceso, formato, barcodeHeight) : ''
+    // ---- Código de barras ----
+    const barcodeHtml = claveAcceso
+      ? generarBarcodeSVG(claveAcceso, formato, barcodeHeight)
+      : ''
 
+    // ---- Clave formateada en chunks ----
     const chunkSize = esTicket ? 12 : 16
-    const claveChunks = claveAcceso.match(new RegExp(`.{1,${chunkSize}}`, 'g')) || []
-    const claveFormateada = claveChunks.join(' ')
+    const claveChunks = String(claveAcceso).match(
+      new RegExp(`.{1,${chunkSize}}`, 'g')
+    ) || []
+    const claveFormateada = escHtml(claveChunks.join(' '))
 
+    // ---- Colores según ambiente ----
+    const ambienteColor = esProduccion ? '#27ae60' : '#e67e22'
+
+    // ============================================================
+    // HTML FINAL
+    // ============================================================
     return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${tipoDoc} ${numero}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -244,7 +430,7 @@ export const printService = {
     .doc-tipo { display: inline-block; padding: 6px 16px; background: #1a3a5c; color: #fff; border-radius: 5px; font-size: 1em; font-weight: 800; letter-spacing: 1.2px; margin-bottom: 5px; }
     .doc-numero { font-size: 0.95em; font-weight: 700; color: #c0392b; margin-bottom: 3px; font-family: 'Courier New', monospace; }
     .doc-meta { font-size: 0.72em; color: #555; }
-    .ambiente-badge { display: inline-block; padding: 3px 10px; background: ${ambiente === 'PRODUCCIÓN' ? '#27ae60' : '#e67e22'}; color: #fff; border-radius: 20px; font-size: 0.68em; font-weight: 700; letter-spacing: 0.4px; margin-top: 3px; }
+    .ambiente-badge { display: inline-block; padding: 3px 10px; background: ${ambienteColor}; color: #fff; border-radius: 20px; font-size: 0.68em; font-weight: 700; letter-spacing: 0.4px; margin-top: 3px; }
 
     .clave-section { display: flex; gap: 12px; align-items: center; padding: 10px 12px; background: #f8f9fa; border-left: 4px solid #1a3a5c; border-radius: 5px; margin-bottom: 10px; }
     .clave-left { flex: 1; min-width: 0; overflow: hidden; }
@@ -297,7 +483,7 @@ export const printService = {
     .footer { margin-top: 16px; padding-top: 8px; border-top: 2px solid #1a3a5c; text-align: center; font-size: 0.68em; color: #666; line-height: 1.6; }
     .footer strong { color: #1a3a5c; }
 
-    /* TICKET */
+    /* ===== TICKET 80mm ===== */
     .ticket { padding: 3mm; }
     .ticket .header { flex-direction: column; align-items: center; text-align: center; gap: 6px; padding-bottom: 8px; }
     .ticket .header-left, .ticket .header-center, .ticket .header-right { text-align: center; flex: none; width: 100%; }
@@ -343,7 +529,7 @@ export const printService = {
       .no-print { display: none !important; }
       .header, .clave-section, .cliente-section, .totales-section, .info-adicional { page-break-inside: avoid; }
       .detalles-table tr { page-break-inside: avoid; }
-      @page { size: ${formato === 'ticket' ? '80mm auto' : formato === 'A2' ? 'A2' : 'A4'}; margin: ${formato === 'ticket' ? '2mm' : '8mm'}; }
+      @page { size: ${esTicket ? '80mm auto' : formato === 'A2' ? 'A2' : 'A4'}; margin: ${esTicket ? '2mm' : '8mm'}; }
     }
   </style>
 </head>
@@ -369,7 +555,7 @@ export const printService = {
         <div class="doc-tipo">${tipoDoc}</div>
         <div class="doc-numero">Nº ${numero}</div>
         <div class="doc-meta"><div><strong>Fecha Emisión:</strong> ${fechaEmision}</div></div>
-        <div class="ambiente-badge">${ambiente === 'PRODUCCIÓN' ? '● PRODUCCIÓN' : '● PRUEBAS'}</div>
+        <div class="ambiente-badge">${esProduccion ? '● PRODUCCIÓN' : '● PRUEBAS'}</div>
       </div>
 
       <div class="header-right">
@@ -394,7 +580,7 @@ export const printService = {
       </div>
       <div class="barcode-container">
         ${barcodeHtml}
-        <div class="barcode-numero">${claveAcceso}</div>
+        <div class="barcode-numero">${escHtml(claveAcceso)}</div>
       </div>
     </div>
     ` : ''}
@@ -417,8 +603,8 @@ export const printService = {
         <div class="cliente-box-title">Datos de Contacto</div>
         ${telCliente ? `<div class="cliente-row"><span class="cliente-row-label">Teléfono:</span><span class="cliente-row-value">${telCliente}</span></div>` : ''}
         ${emailCliente ? `<div class="cliente-row"><span class="cliente-row-label">Email:</span><span class="cliente-row-value">${emailCliente}</span></div>` : ''}
-        <div class="cliente-row"><span class="cliente-row-label">Forma Pago:</span><span class="cliente-row-value">${doc.forma_pago || 'Sin sistema financiero'}</span></div>
-        <div class="cliente-row"><span class="cliente-row-label">Estado:</span><span class="cliente-row-value">${(doc.estado_pago || 'pendiente').toUpperCase()}</span></div>
+        <div class="cliente-row"><span class="cliente-row-label">Forma Pago:</span><span class="cliente-row-value">${formaPago}</span></div>
+        <div class="cliente-row"><span class="cliente-row-label">Estado:</span><span class="cliente-row-value">${estadoPago}</span></div>
       </div>
     </div>
 
@@ -438,14 +624,14 @@ export const printService = {
 
     <div class="totales-section">
       <div class="totales-box">
-        <div class="total-row"><span class="label">Subtotal</span><span class="value">$${subtotal.toFixed(2)}</span></div>
-        <div class="total-row"><span class="label">IVA 15%</span><span class="value">$${iva.toFixed(2)}</span></div>
+        <div class="total-row"><span class="label">Subtotal</span><span class="value">$${n2(subtotal)}</span></div>
+        <div class="total-row"><span class="label">IVA 15%</span><span class="value">$${n2(iva)}</span></div>
         <div class="total-row"><span class="label">Descuento</span><span class="value">$0.00</span></div>
-        <div class="total-final"><span class="label">TOTAL A PAGAR</span><span class="value">$${total.toFixed(2)}</span></div>
+        <div class="total-final"><span class="label">TOTAL A PAGAR</span><span class="value">$${n2(total)}</span></div>
       </div>
     </div>
 
-    ${doc.observaciones ? `<div class="info-adicional"><div class="info-adicional-title">Información Adicional</div><div>${doc.observaciones}</div></div>` : ''}
+    ${observaciones ? `<div class="info-adicional"><div class="info-adicional-title">Información Adicional</div><div>${observaciones}</div></div>` : ''}
 
     <div class="firma-section">
       <div class="firma-box"><div class="firma-line"></div><div class="firma-label">Firma del Cliente</div></div>
@@ -455,18 +641,50 @@ export const printService = {
     <div class="footer">
       <div><strong>Documento generado por Sistema Contable</strong></div>
       <div>${razonSocialEmisor} — RUC: ${rucEmisor}</div>
-      <div>Formato: ${formato} | Generado: ${new Date().toLocaleString('es-EC')}</div>
+      <div>Formato: ${escHtml(formato)} | Generado: ${escHtml(fmtFechaHora(new Date()))}</div>
       ${claveAcceso ? `<div style="margin-top:6px;font-size:0.9em;">Representación impresa de un comprobante electrónico autorizado por el SRI</div>` : ''}
     </div>
   </div>
 
   <script>
-    window.onload = function() {
-      setTimeout(function() {
-        window.print();
-        window.onafterprint = function() { window.close(); }
-      }, 300);
-    }
+    // Espera a que TODAS las fuentes y el DOM estén listos antes de imprimir
+    (function() {
+      function dispararImpresion() {
+        try {
+          window.focus()
+          window.print()
+        } catch (e) {
+          console.error('Error al imprimir:', e)
+        }
+      }
+
+      function cuandoListo(cb) {
+        if (document.readyState === 'complete') {
+          cb()
+          return
+        }
+        window.addEventListener('load', cb, { once: true })
+      }
+
+      cuandoListo(function() {
+        var fuentesListas = (document.fonts && document.fonts.ready)
+          ? document.fonts.ready
+          : Promise.resolve()
+
+        fuentesListas.then(function() {
+          // Pequeño delay para que el navegador pinte el layout
+          setTimeout(dispararImpresion, 200)
+        }).catch(function() {
+          setTimeout(dispararImpresion, 400)
+        })
+      })
+
+      window.onafterprint = function() {
+        setTimeout(function() {
+          try { window.close() } catch (e) {}
+        }, 100)
+      }
+    })()
   <\/script>
 </body>
 </html>`

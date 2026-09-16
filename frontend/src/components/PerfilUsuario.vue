@@ -3,41 +3,51 @@
     <!-- Header -->
     <div class="perfil-header">
       <h1 class="section-title">
-        <i class="fas fa-user-circle"></i>
+        <i class="fas fa-user-circle" aria-hidden="true"></i>
         Mi Perfil
       </h1>
     </div>
 
-    <div class="perfil-grid">
+    <!-- Loading inicial -->
+    <div v-if="cargandoInicial" class="loading-card">
+      <i class="fas fa-spinner fa-spin fa-2x" aria-hidden="true"></i>
+      <p class="mb-0 mt-2 text-muted">Cargando tu perfil…</p>
+    </div>
+
+    <div v-else class="perfil-grid">
       <!-- Tarjeta lateral con info del usuario -->
       <aside class="perfil-sidebar">
         <div class="user-card">
-          <div class="user-avatar-large">
+          <div class="user-avatar-large" aria-hidden="true">
             {{ getInitials(form.nombre) }}
           </div>
           <div class="user-name">{{ form.nombre || 'Usuario' }}</div>
           <div class="user-email">{{ form.email }}</div>
           <div class="user-role">
             <span class="badge-rol" :class="`badge-rol-${form.rol}`">
-              {{ form.rol || 'Sin rol' }}
+              {{ getRolLabel(form.rol) }}
             </span>
           </div>
 
           <div class="user-stats">
             <div class="user-stat">
-              <div class="stat-value"><i class="fas fa-check-circle text-success"></i></div>
+              <div class="stat-value">
+                <i class="fas fa-check-circle text-success" aria-hidden="true"></i>
+              </div>
               <div class="stat-label">Cuenta activa</div>
             </div>
             <div class="user-stat">
-              <div class="stat-value"><i class="fas fa-shield-alt text-primary"></i></div>
-              <div class="stat-label">2FA disponible</div>
+              <div class="stat-value">
+                <i class="fas fa-shield-alt text-primary" aria-hidden="true"></i>
+              </div>
+              <div class="stat-label">Seguridad</div>
             </div>
           </div>
         </div>
 
         <div class="info-card">
           <div class="info-card-title">
-            <i class="fas fa-lightbulb"></i>
+            <i class="fas fa-lightbulb" aria-hidden="true"></i>
             Consejos de seguridad
           </div>
           <ul class="tips-list">
@@ -51,138 +61,229 @@
 
       <!-- Formulario principal -->
       <main class="perfil-main">
-        <!-- Datos personales -->
-        <div class="card-cacao">
-          <div class="card-header">
-            <i class="fas fa-id-card"></i>
-            <span>Datos Personales</span>
-          </div>
-          <div class="card-body">
-            <form @submit.prevent="guardarPerfil">
+        <form @submit.prevent="guardarPerfil" novalidate>
+          <!-- Datos personales -->
+          <div class="card-cacao">
+            <div class="card-header">
+              <i class="fas fa-id-card" aria-hidden="true"></i>
+              <span>Datos Personales</span>
+            </div>
+            <div class="card-body">
               <div class="form-grid">
                 <div class="form-field">
-                  <label class="form-label">
+                  <label class="form-label" for="perfil-nombre">
                     <span class="text-danger">*</span> Nombre completo
                   </label>
                   <div class="input-wrapper">
-                    <i class="fas fa-user input-icon"></i>
+                    <i class="fas fa-user input-icon" aria-hidden="true"></i>
                     <input
+                      id="perfil-nombre"
                       type="text"
                       class="form-control"
+                      :class="{ 'is-invalid': mostrarError('nombre') }"
                       v-model="form.nombre"
                       placeholder="Tu nombre completo"
+                      maxlength="100"
+                      autocomplete="name"
+                      :disabled="cargando"
+                      @blur="touched.nombre = true"
                     />
+                  </div>
+                  <div v-if="mostrarError('nombre')" class="field-error">
+                    <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+                    {{ errores.nombre }}
                   </div>
                 </div>
 
                 <div class="form-field">
-                  <label class="form-label">
+                  <label class="form-label" for="perfil-email">
                     <span class="text-danger">*</span> Correo electrónico
                   </label>
                   <div class="input-wrapper">
-                    <i class="fas fa-envelope input-icon"></i>
+                    <i class="fas fa-envelope input-icon" aria-hidden="true"></i>
                     <input
+                      id="perfil-email"
                       type="email"
                       class="form-control"
+                      :class="{ 'is-invalid': mostrarError('email') }"
                       v-model="form.email"
                       placeholder="tu@correo.com"
+                      maxlength="200"
+                      autocomplete="email"
+                      :disabled="cargando"
+                      @input="onEmailInput"
+                      @blur="touched.email = true"
                     />
+                  </div>
+                  <div v-if="mostrarError('email')" class="field-error">
+                    <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+                    {{ errores.email }}
                   </div>
                 </div>
 
                 <div class="form-field">
-                  <label class="form-label">Teléfono</label>
+                  <label class="form-label" for="perfil-telefono">Teléfono</label>
                   <div class="input-wrapper">
-                    <i class="fas fa-phone input-icon"></i>
+                    <i class="fas fa-phone input-icon" aria-hidden="true"></i>
                     <input
+                      id="perfil-telefono"
                       type="text"
                       class="form-control"
                       v-model="form.telefono"
                       placeholder="09XXXXXXXX"
+                      maxlength="50"
+                      autocomplete="tel"
+                      :disabled="cargando"
                     />
                   </div>
                 </div>
 
                 <div class="form-field">
-                  <label class="form-label">Rol</label>
+                  <label class="form-label" for="perfil-rol">Rol</label>
                   <div class="input-wrapper">
-                    <i class="fas fa-user-tag input-icon"></i>
+                    <i class="fas fa-user-tag input-icon" aria-hidden="true"></i>
                     <input
+                      id="perfil-rol"
                       type="text"
                       class="form-control"
-                      :value="form.rol"
+                      :value="getRolLabel(form.rol)"
                       disabled
+                      aria-readonly="true"
                     />
                   </div>
+                  <small class="text-muted">
+                    El rol solo puede cambiarlo un administrador.
+                  </small>
                 </div>
               </div>
-            </form>
-          </div>
-        </div>
-
-        <!-- Cambio de contraseña -->
-        <div class="card-cacao">
-          <div class="card-header">
-            <i class="fas fa-lock"></i>
-            <span>Cambiar Contraseña</span>
-            <span class="header-hint">(opcional)</span>
-          </div>
-          <div class="card-body">
-            <div class="alert alert-info small mb-3">
-              <i class="fas fa-info-circle"></i>
-              Solo completa estos campos si deseas cambiar tu contraseña
             </div>
+          </div>
 
-            <form @submit.prevent="guardarPerfil">
+          <!-- Cambio de contraseña -->
+          <div class="card-cacao">
+            <div class="card-header">
+              <i class="fas fa-lock" aria-hidden="true"></i>
+              <span>Cambiar Contraseña</span>
+              <span class="header-hint">(opcional)</span>
+            </div>
+            <div class="card-body">
+              <div class="alert alert-info small mb-3">
+                <i class="fas fa-info-circle" aria-hidden="true"></i>
+                Solo completa estos campos si deseas cambiar tu contraseña
+              </div>
+
               <div class="form-grid">
                 <div class="form-field form-field-full">
-                  <label class="form-label">Contraseña actual</label>
+                  <label class="form-label" for="pass-actual">Contraseña actual</label>
                   <div class="input-wrapper">
-                    <i class="fas fa-key input-icon"></i>
+                    <i class="fas fa-key input-icon" aria-hidden="true"></i>
                     <input
+                      id="pass-actual"
                       :type="mostrarPasswords.actual ? 'text' : 'password'"
                       class="form-control"
+                      :class="{ 'is-invalid': mostrarError('passwordActual') }"
                       v-model="passwords.actual"
                       placeholder="••••••••"
                       autocomplete="current-password"
+                      maxlength="200"
+                      :disabled="cargando"
+                      @blur="touched.passwordActual = true"
                     />
-                    <button type="button" class="toggle-pass" @click="mostrarPasswords.actual = !mostrarPasswords.actual">
-                      <i :class="mostrarPasswords.actual ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                    <button
+                      type="button"
+                      class="toggle-pass"
+                      @click="mostrarPasswords.actual = !mostrarPasswords.actual"
+                      :aria-label="
+                        mostrarPasswords.actual ? 'Ocultar contraseña' : 'Mostrar contraseña'
+                      "
+                      tabindex="-1"
+                    >
+                      <i
+                        :class="
+                          mostrarPasswords.actual ? 'fas fa-eye-slash' : 'fas fa-eye'
+                        "
+                        aria-hidden="true"
+                      ></i>
                     </button>
+                  </div>
+                  <div v-if="mostrarError('passwordActual')" class="field-error">
+                    {{ errores.passwordActual }}
                   </div>
                 </div>
 
                 <div class="form-field">
-                  <label class="form-label">Nueva contraseña</label>
+                  <label class="form-label" for="pass-nueva">Nueva contraseña</label>
                   <div class="input-wrapper">
-                    <i class="fas fa-lock input-icon"></i>
+                    <i class="fas fa-lock input-icon" aria-hidden="true"></i>
                     <input
+                      id="pass-nueva"
                       :type="mostrarPasswords.nueva ? 'text' : 'password'"
                       class="form-control"
+                      :class="{ 'is-invalid': mostrarError('passwordNueva') }"
                       v-model="passwords.nueva"
                       placeholder="Mínimo 6 caracteres"
                       autocomplete="new-password"
+                      maxlength="200"
+                      :disabled="cargando"
+                      @blur="touched.passwordNueva = true"
                     />
-                    <button type="button" class="toggle-pass" @click="mostrarPasswords.nueva = !mostrarPasswords.nueva">
-                      <i :class="mostrarPasswords.nueva ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                    <button
+                      type="button"
+                      class="toggle-pass"
+                      @click="mostrarPasswords.nueva = !mostrarPasswords.nueva"
+                      :aria-label="
+                        mostrarPasswords.nueva ? 'Ocultar contraseña' : 'Mostrar contraseña'
+                      "
+                      tabindex="-1"
+                    >
+                      <i
+                        :class="
+                          mostrarPasswords.nueva ? 'fas fa-eye-slash' : 'fas fa-eye'
+                        "
+                        aria-hidden="true"
+                      ></i>
                     </button>
+                  </div>
+                  <div v-if="mostrarError('passwordNueva')" class="field-error">
+                    {{ errores.passwordNueva }}
                   </div>
                 </div>
 
                 <div class="form-field">
-                  <label class="form-label">Confirmar nueva</label>
+                  <label class="form-label" for="pass-confirmar">Confirmar nueva</label>
                   <div class="input-wrapper">
-                    <i class="fas fa-lock input-icon"></i>
+                    <i class="fas fa-lock input-icon" aria-hidden="true"></i>
                     <input
+                      id="pass-confirmar"
                       :type="mostrarPasswords.confirmar ? 'text' : 'password'"
                       class="form-control"
+                      :class="{ 'is-invalid': mostrarError('passwordConfirmar') }"
                       v-model="passwords.confirmar"
                       placeholder="Repite la contraseña"
                       autocomplete="new-password"
+                      maxlength="200"
+                      :disabled="cargando"
+                      @blur="touched.passwordConfirmar = true"
                     />
-                    <button type="button" class="toggle-pass" @click="mostrarPasswords.confirmar = !mostrarPasswords.confirmar">
-                      <i :class="mostrarPasswords.confirmar ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                    <button
+                      type="button"
+                      class="toggle-pass"
+                      @click="mostrarPasswords.confirmar = !mostrarPasswords.confirmar"
+                      :aria-label="
+                        mostrarPasswords.confirmar ? 'Ocultar contraseña' : 'Mostrar contraseña'
+                      "
+                      tabindex="-1"
+                    >
+                      <i
+                        :class="
+                          mostrarPasswords.confirmar ? 'fas fa-eye-slash' : 'fas fa-eye'
+                        "
+                        aria-hidden="true"
+                      ></i>
                     </button>
+                  </div>
+                  <div v-if="mostrarError('passwordConfirmar')" class="field-error">
+                    {{ errores.passwordConfirmar }}
                   </div>
                 </div>
 
@@ -191,7 +292,13 @@
                   <label class="form-label">Fortaleza de la contraseña</label>
                   <div class="password-strength">
                     <div class="strength-bar">
-                      <div class="strength-fill" :style="{ width: `${passwordStrength}%`, background: passwordColor }"></div>
+                      <div
+                        class="strength-fill"
+                        :style="{
+                          width: `${passwordStrength}%`,
+                          background: passwordColor
+                        }"
+                      ></div>
                     </div>
                     <div class="strength-text" :style="{ color: passwordColor }">
                       {{ passwordStrengthLabel }}
@@ -199,43 +306,68 @@
                   </div>
                 </div>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
 
-        <!-- Mensajes de error/éxito -->
-        <transition name="fade">
-          <div v-if="errorGeneral" class="alert alert-danger">
-            <i class="fas fa-exclamation-circle"></i>
-            {{ errorGeneral }}
+          <!-- Mensajes -->
+          <transition name="fade">
+            <div
+              v-if="errorGeneral"
+              class="alert alert-danger"
+              role="alert"
+              aria-live="polite"
+            >
+              <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+              {{ errorGeneral }}
+            </div>
+          </transition>
+
+          <transition name="fade">
+            <div
+              v-if="mensajeExito"
+              class="alert alert-success"
+              role="status"
+              aria-live="polite"
+            >
+              <i class="fas fa-check-circle" aria-hidden="true"></i>
+              {{ mensajeExito }}
+            </div>
+          </transition>
+
+          <!-- Acciones -->
+          <div class="perfil-actions">
+            <button
+              type="submit"
+              class="btn-save"
+              :disabled="cargando || !hayCambios"
+            >
+              <i
+                class="fas fa-save"
+                :class="{ 'fa-spin': cargando }"
+                aria-hidden="true"
+              ></i>
+              <span>{{ cargando ? 'Guardando…' : 'Guardar cambios' }}</span>
+            </button>
+            <router-link to="/" class="btn-cancel">
+              <i class="fas fa-times" aria-hidden="true"></i>
+              <span>Volver al inicio</span>
+            </router-link>
           </div>
-        </transition>
-
-        <transition name="fade">
-          <div v-if="mensajeExito" class="alert alert-success">
-            <i class="fas fa-check-circle"></i>
-            {{ mensajeExito }}
-          </div>
-        </transition>
-
-        <!-- Botones de acción -->
-        <div class="perfil-actions">
-          <button class="btn-save" @click="guardarPerfil" :disabled="cargando">
-            <i class="fas fa-save" :class="{ 'fa-spin': cargando }"></i>
-            <span>{{ cargando ? 'Guardando...' : 'Guardar cambios' }}</span>
-          </button>
-          <router-link to="/" class="btn-cancel">
-            <i class="fas fa-times"></i>
-            <span>Volver al inicio</span>
-          </router-link>
-        </div>
+        </form>
       </main>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import {
+  ref,
+  reactive,
+  computed,
+  onMounted,
+  onBeforeUnmount
+} from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useToast } from 'vue-toastification'
 import { api } from '../services/api'
 import { useAuth } from '../composables/useAuth'
@@ -243,6 +375,7 @@ import { useAuth } from '../composables/useAuth'
 const toast = useToast()
 const { user, updateUser } = useAuth()
 
+// ===== STATE =====
 const cargando = ref(false)
 const cargandoInicial = ref(true)
 const errorGeneral = ref('')
@@ -254,6 +387,9 @@ const form = ref({
   telefono: '',
   rol: ''
 })
+
+// Snapshot para detectar cambios sin guardar
+let snapshotInicial = null
 
 const passwords = ref({
   actual: '',
@@ -267,12 +403,57 @@ const mostrarPasswords = ref({
   confirmar: false
 })
 
+const errores = ref({
+  nombre: '',
+  email: '',
+  passwordActual: '',
+  passwordNueva: '',
+  passwordConfirmar: ''
+})
+
+const touched = reactive({
+  nombre: false,
+  email: false,
+  passwordActual: false,
+  passwordNueva: false,
+  passwordConfirmar: false
+})
+
+// ===== GUARDS =====
+let unmounted = false
+let abortController = null
+let timerExito = null
+
+// ===== HELPERS =====
 const getInitials = (nombre) => {
-  if (!nombre) return '?'
-  return String(nombre).split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  if (!nombre || typeof nombre !== 'string') return '?'
+  return (
+    nombre
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?'
+  )
 }
 
-// ===== FORTALEZA DE CONTRASEÑA =====
+const getRolLabel = (rol) =>
+  ({
+    admin: 'Administrador',
+    contador: 'Contador',
+    vendedor: 'Vendedor',
+    bodeguero: 'Bodeguero',
+    auditor: 'Auditor'
+  }[rol] || rol || 'Sin rol')
+
+const mostrarError = (campo) => Boolean(touched[campo] && errores.value[campo])
+
+const onEmailInput = () => {
+  form.value.email = String(form.value.email || '').toLowerCase().trim()
+}
+
+// ===== FORTALEZA =====
 const passwordStrength = computed(() => {
   const p = passwords.value.nueva
   if (!p) return 0
@@ -300,62 +481,182 @@ const passwordStrengthLabel = computed(() => {
   return 'Fuerte'
 })
 
-// ===== CARGAR PERFIL =====
-onMounted(async () => {
+// ===== CAMBIOS =====
+const hayCambios = computed(() => {
+  if (!snapshotInicial) return false
+  const formChanged =
+    JSON.stringify({
+      nombre: form.value.nombre.trim(),
+      email: form.value.email.trim().toLowerCase(),
+      telefono: (form.value.telefono || '').trim()
+    }) !== snapshotInicial
+
+  const passChanged =
+    Boolean(passwords.value.actual) ||
+    Boolean(passwords.value.nueva) ||
+    Boolean(passwords.value.confirmar)
+
+  return formChanged || passChanged
+})
+
+// ===== VALIDACIÓN =====
+const validarNombre = () => {
+  const v = String(form.value.nombre || '').trim()
+  if (!v) {
+    errores.value.nombre = 'El nombre es obligatorio'
+    return false
+  }
+  if (v.length < 3) {
+    errores.value.nombre = 'Mínimo 3 caracteres'
+    return false
+  }
+  if (v.length > 100) {
+    errores.value.nombre = 'Máximo 100 caracteres'
+    return false
+  }
+  errores.value.nombre = ''
+  return true
+}
+
+const validarEmail = () => {
+  const v = String(form.value.email || '').trim()
+  if (!v) {
+    errores.value.email = 'El correo es obligatorio'
+    return false
+  }
+  if (v.length > 200) {
+    errores.value.email = 'El correo es demasiado largo'
+    return false
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(v)) {
+    errores.value.email = 'Formato de correo inválido'
+    return false
+  }
+  errores.value.email = ''
+  return true
+}
+
+const validarPasswords = () => {
+  errores.value.passwordActual = ''
+  errores.value.passwordNueva = ''
+  errores.value.passwordConfirmar = ''
+
+  const intentaCambiar =
+    Boolean(passwords.value.nueva) ||
+    Boolean(passwords.value.confirmar) ||
+    Boolean(passwords.value.actual)
+
+  if (!intentaCambiar) return true
+
+  let ok = true
+
+  if (!passwords.value.actual) {
+    errores.value.passwordActual = 'Ingresa tu contraseña actual'
+    ok = false
+  }
+  if (!passwords.value.nueva) {
+    errores.value.passwordNueva = 'Ingresa la nueva contraseña'
+    ok = false
+  } else if (passwords.value.nueva.length < 6) {
+    errores.value.passwordNueva = 'Mínimo 6 caracteres'
+    ok = false
+  } else if (passwords.value.nueva.length > 200) {
+    errores.value.passwordNueva = 'Máximo 200 caracteres'
+    ok = false
+  }
+  if (passwords.value.nueva && passwords.value.confirmar !== passwords.value.nueva) {
+    errores.value.passwordConfirmar = 'Las contraseñas no coinciden'
+    ok = false
+  }
+
+  return ok
+}
+
+const validarTodo = () => {
+  const okNombre = validarNombre()
+  const okEmail = validarEmail()
+  const okPass = validarPasswords()
+  return okNombre && okEmail && okPass
+}
+
+// ===== CARGA INICIAL =====
+const cargarPerfil = async () => {
+  cargandoInicial.value = true
+
+  if (abortController) {
+    try { abortController.abort() } catch { /* noop */ }
+  }
+  abortController = new AbortController()
+
   try {
-    const usuarioDB = await api.request('/auth/perfil', { method: 'GET' })
+    const usuarioDB = await api.request('/auth/perfil', {
+      method: 'GET',
+      signal: abortController.signal
+    })
+    if (unmounted) return
+
     form.value = {
-      nombre: usuarioDB.nombre || '',
-      email: usuarioDB.email || '',
-      telefono: usuarioDB.telefono || '',
-      rol: usuarioDB.rol || 'vendedor'
+      nombre: usuarioDB?.nombre || '',
+      email: (usuarioDB?.email || '').toLowerCase(),
+      telefono: usuarioDB?.telefono || '',
+      rol: usuarioDB?.rol || 'vendedor'
     }
+
+    // Snapshot inicial
+    snapshotInicial = JSON.stringify({
+      nombre: form.value.nombre.trim(),
+      email: form.value.email.trim().toLowerCase(),
+      telefono: form.value.telefono.trim()
+    })
   } catch (e) {
+    const esAbort = e?.name === 'AbortError'
+    if (unmounted || esAbort) return
+
     console.error('Error cargando perfil:', e)
+
+    // Fallback al usuario en localStorage
     if (user.value) {
       form.value = {
         nombre: user.value.nombre || '',
-        email: user.value.email || '',
+        email: (user.value.email || '').toLowerCase(),
         telefono: user.value.telefono || '',
         rol: user.value.rol || 'vendedor'
       }
+      snapshotInicial = JSON.stringify({
+        nombre: form.value.nombre.trim(),
+        email: form.value.email.trim().toLowerCase(),
+        telefono: form.value.telefono.trim()
+      })
+    } else {
+      errorGeneral.value = 'No se pudo cargar tu perfil. Intenta recargar la página.'
     }
   } finally {
-    cargandoInicial.value = false
+    if (!unmounted) cargandoInicial.value = false
   }
-})
+}
 
 // ===== GUARDAR =====
 const guardarPerfil = async () => {
-  errorGeneral.value = ''
-  mensajeExito.value = ''
+  if (cargando.value) return
 
-  // Validaciones
-  if (passwords.value.nueva || passwords.value.confirmar || passwords.value.actual) {
-    if (!passwords.value.actual) {
-      errorGeneral.value = 'Debe ingresar la contraseña actual para cambiarla'
-      toast.warning(errorGeneral.value)
-      return
-    }
-    if (passwords.value.nueva !== passwords.value.confirmar) {
-      errorGeneral.value = 'Las contraseñas nuevas no coinciden'
-      toast.warning(errorGeneral.value)
-      return
-    }
-    if (passwords.value.nueva.length < 6) {
-      errorGeneral.value = 'La nueva contraseña debe tener al menos 6 caracteres'
-      toast.warning(errorGeneral.value)
-      return
-    }
+  // Marcar todo como tocado
+  for (const k of Object.keys(touched)) touched[k] = true
+
+  if (!validarTodo()) {
+    errorGeneral.value = 'Corrige los errores marcados en rojo'
+    toast.warning('Corrige los errores antes de guardar')
+    return
   }
 
+  errorGeneral.value = ''
+  mensajeExito.value = ''
   cargando.value = true
 
   try {
     const payload = {
-      nombre: form.value.nombre,
-      email: form.value.email,
-      telefono: form.value.telefono || ''
+      nombre: String(form.value.nombre || '').trim(),
+      email: String(form.value.email || '').trim().toLowerCase(),
+      telefono: String(form.value.telefono || '').trim()
     }
 
     if (passwords.value.nueva) {
@@ -363,43 +664,118 @@ const guardarPerfil = async () => {
       payload.passwordActual = passwords.value.actual
     }
 
-    await api.request('/auth/perfil', {
+    const res = await api.request('/auth/perfil', {
       method: 'PUT',
       body: JSON.stringify(payload),
-      loaderMessage: 'Guardando cambios...'
+      loaderMessage: 'Guardando cambios…'
     })
 
+    if (unmounted) return
+
+    // Actualizar localStorage + composable
     const userData = {
       id: user.value?.id,
-      nombre: form.value.nombre,
-      email: form.value.email,
-      telefono: form.value.telefono || '',
+      nombre: form.value.nombre.trim(),
+      email: form.value.email.trim().toLowerCase(),
+      telefono: form.value.telefono.trim(),
       rol: form.value.rol
     }
-    localStorage.setItem('user', JSON.stringify(userData))
+    try {
+      localStorage.setItem('user', JSON.stringify(userData))
+    } catch { /* noop */ }
     updateUser(userData)
 
-    mensajeExito.value = 'Perfil actualizado correctamente'
-    toast.success('Perfil actualizado correctamente')
+    // Actualizar snapshot
+    snapshotInicial = JSON.stringify({
+      nombre: userData.nombre,
+      email: userData.email,
+      telefono: userData.telefono
+    })
 
+    // Limpiar passwords
     passwords.value = { actual: '', nueva: '', confirmar: '' }
+    for (const k of Object.keys(touched)) touched[k] = false
 
-    setTimeout(() => {
-      mensajeExito.value = ''
+    // ¿Requiere re-login por cambio de contraseña?
+    if (res?.requiereRelogin) {
+      mensajeExito.value = 'Contraseña cambiada. Redirigiendo al login…'
+      toast.success('Contraseña cambiada correctamente')
+      setTimeout(() => {
+        if (!unmounted) window.location.href = '/login'
+      }, 2000)
+      return
+    }
+
+    mensajeExito.value = 'Perfil actualizado correctamente'
+    toast.success('Perfil actualizado')
+
+    // Auto-cleanup del mensaje
+    if (timerExito) clearTimeout(timerExito)
+    timerExito = setTimeout(() => {
+      if (!unmounted) mensajeExito.value = ''
+      timerExito = null
     }, 4000)
   } catch (e) {
-    errorGeneral.value = e.message
-    toast.error(e.message)
+    if (unmounted) return
+    const msg = e?.message || 'Error al guardar'
+    errorGeneral.value = msg
+    toast.error(msg)
   } finally {
-    cargando.value = false
+    if (!unmounted) cargando.value = false
   }
 }
+
+// ===== GUARDS DE NAVEGACIÓN =====
+const beforeUnloadHandler = (e) => {
+  if (hayCambios.value && !cargando.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
+onBeforeRouteLeave(() => {
+  if (!hayCambios.value || cargando.value) return true
+  return window.confirm('Tienes cambios sin guardar. ¿Salir de todos modos?')
+})
+
+// ===== LIFECYCLE =====
+onMounted(() => {
+  cargarPerfil()
+  window.addEventListener('beforeunload', beforeUnloadHandler)
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+
+  if (abortController) {
+    try { abortController.abort() } catch { /* noop */ }
+    abortController = null
+  }
+  if (timerExito) {
+    clearTimeout(timerExito)
+    timerExito = null
+  }
+
+  window.removeEventListener('beforeunload', beforeUnloadHandler)
+
+  // Limpiar datos sensibles
+  passwords.value = { actual: '', nueva: '', confirmar: '' }
+})
 </script>
 
 <style scoped>
 .perfil-page {
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.loading-card {
+  text-align: center;
+  padding: 60px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
 }
 
 .perfil-grid {
@@ -462,6 +838,7 @@ const guardarPerfil = async () => {
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 4px;
+  overflow-wrap: break-word;
 }
 .user-email {
   font-size: 0.82rem;
@@ -494,13 +871,8 @@ const guardarPerfil = async () => {
   padding-top: 16px;
   border-top: 1px solid var(--border-light);
 }
-.user-stat {
-  text-align: center;
-}
-.stat-value {
-  font-size: 1.3rem;
-  margin-bottom: 4px;
-}
+.user-stat { text-align: center; }
+.stat-value { font-size: 1.3rem; margin-bottom: 4px; }
 .stat-label {
   font-size: 0.68rem;
   color: var(--text-muted);
@@ -509,7 +881,6 @@ const guardarPerfil = async () => {
   font-weight: 600;
 }
 
-/* ===== INFO CARD ===== */
 .info-card {
   background: linear-gradient(135deg, rgba(52, 152, 219, 0.05), rgba(241, 196, 15, 0.03));
   border: 1px solid rgba(52, 152, 219, 0.2);
@@ -525,9 +896,7 @@ const guardarPerfil = async () => {
   align-items: center;
   gap: 8px;
 }
-.info-card-title i {
-  color: var(--warning);
-}
+.info-card-title i { color: var(--warning); }
 .tips-list {
   list-style: none;
   padding: 0;
@@ -579,9 +948,38 @@ const guardarPerfil = async () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 .form-field-full {
   grid-column: 1 / -1;
+}
+
+.form-control {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+  outline: none;
+}
+.form-control:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 4px var(--shadow-focus);
+  background: var(--bg-card);
+}
+.form-control.is-invalid {
+  border-color: #e74c3c;
+}
+.form-control.is-invalid:focus {
+  box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.15);
+}
+.form-control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .input-wrapper {
@@ -611,7 +1009,7 @@ const guardarPerfil = async () => {
   color: var(--text-muted);
   cursor: pointer;
   padding: 8px;
-  border-radius: var(--radius-xs);
+  border-radius: 6px;
   transition: all var(--transition-fast);
   display: flex;
   align-items: center;
@@ -620,6 +1018,16 @@ const guardarPerfil = async () => {
 .toggle-pass:hover {
   color: var(--primary-color);
   background: var(--bg-table-stripe);
+}
+
+.field-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #e74c3c;
+  font-weight: 500;
+  margin-top: 2px;
 }
 
 /* ===== FORTALEZA ===== */
@@ -638,7 +1046,7 @@ const guardarPerfil = async () => {
 .strength-fill {
   height: 100%;
   border-radius: inherit;
-  transition: all 0.3s var(--ease-out);
+  transition: all 0.3s ease;
 }
 .strength-text {
   font-size: 0.75rem;
@@ -684,7 +1092,7 @@ const guardarPerfil = async () => {
   box-shadow: 0 8px 20px rgba(39, 174, 96, 0.4);
 }
 .btn-save:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
 }
@@ -734,6 +1142,13 @@ const guardarPerfil = async () => {
   }
   .perfil-actions {
     flex-direction: column;
+  }
+}
+
+/* ===== ACCESIBILIDAD ===== */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
   }
 }
 </style>
