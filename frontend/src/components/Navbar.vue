@@ -513,7 +513,7 @@
           <ThemeToggle />
 
           <!-- USER MENU -->
-          <div class="user-wrapper" ref="userDropdown" data-tour="user-menu">
+          <div class="user-wrapper" data-tour="user-menu">
             <button
               type="button"
               class="user-btn"
@@ -655,7 +655,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
 import ThemeToggle from './ThemeToggle.vue'
@@ -1211,11 +1211,12 @@ onBeforeUnmount(() => {
 }
 
 /* Últimos dropdowns alineados a la derecha (no se salen) */
-.nav-list > .nav-dropdown:nth-last-child(-n+2) .dropdown-panel {
+@container (max-width: 1200px) {
+.nav-list > .nav-dropdown:nth-last-child(-n+3) .dropdown-panel {
   left: auto;
   right: 0;
 }
-
+}
 @keyframes dropdown-in {
   from { opacity: 0; transform: translateY(-8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -1308,7 +1309,7 @@ onBeforeUnmount(() => {
 }
 
 .search-container {
-  width: clamp(160px, 16vw, 260px);
+  width: clamp(200px, 20vw, 300px);
   min-width: 110px;
   flex-shrink: 1;
 }

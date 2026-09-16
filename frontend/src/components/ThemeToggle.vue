@@ -243,7 +243,7 @@ onBeforeUnmount(() => {
   top: calc(100% + 10px);
   right: 0;
   min-width: 264px;
-  max-width: min(320px, 92vw);
+  max-width: min(320px, calc(100vw - 24px));
   background: rgba(20, 30, 48, 0.98);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -323,14 +323,14 @@ onBeforeUnmount(() => {
 
 .theme-mode-btn-badge {
   font-size: 0.62rem;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(245, 158, 11, 0.15);
-  color: var(--accent-color, #f59e0b);
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 /* Colores */
