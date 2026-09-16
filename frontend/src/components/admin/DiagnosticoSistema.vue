@@ -432,7 +432,7 @@ const confirmState = reactive({
 let autoRefreshTimer = null
 let relativeTimeTimer = null
 let unmounted = false
-let refrescandoRelativo = false // tick para forzar recálculo de "hace X min"
+// tick para forzar recálculo de "hace X min"
 
 // ===== COMPUTED =====
 
