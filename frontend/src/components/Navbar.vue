@@ -664,7 +664,7 @@ import { usePermisos } from '../composables/usePermisos'
 import { api } from '../services/api'
 
 const router = useRouter()
-const route = useRoute()                                   // 🔧 para active-class
+const route = useRoute()
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
 
@@ -694,7 +694,7 @@ let unmounted = false
 let infoAbort = null
 let infoRefreshTimer = null
 let scrollRafId = null
-let visibilityHandler = null                            // 🔧
+let visibilityHandler = null
 
 // ===== PERMISOS =====
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
@@ -713,7 +713,7 @@ const puedeCrearRetenciones = computed(() => puede('retenciones', 'crear'))
 const puedeVerAuditoria = computed(() => puede('auditoria', 'ver'))
 const puedeVerUsuarios = computed(() => puede('usuarios', 'ver'))
 
-// ===== RUTA ACTIVA =====  🔧
+// ===== RUTA ACTIVA =====
 const rutaActiva = (prefijos) => {
   const lista = Array.isArray(prefijos) ? prefijos : [prefijos]
   const path = route.path || ''
@@ -772,7 +772,6 @@ const toggleNavbar = () => {
   }
 }
 
-// 🔧 toggleDropdown ahora mueve el foco al primer item del panel
 const toggleDropdown = async (nombre, event) => {
   const abriendo = !dropdowns.value[nombre]
 
@@ -814,7 +813,7 @@ const handleClickOutside = (e) => {
   cerrarTodo()
 }
 
-// ===== SCROLL (con rAF) =====
+// ===== SCROLL =====
 const handleScroll = () => {
   if (scrollRafId) return
   scrollRafId = requestAnimationFrame(() => {
@@ -826,7 +825,7 @@ const handleScroll = () => {
   })
 }
 
-// ===== ATAJOS =====  🔧 (filtrado en Mac + isTrusted)
+// ===== ATAJOS =====
 const esMac = typeof navigator !== 'undefined'
   && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '')
 
@@ -843,7 +842,6 @@ const handleKeyboard = (e) => {
   // Ctrl/Cmd + K → buscador
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
-    // 🔧 Preferimos el método expuesto del SearchBar
     if (typeof searchBar.value?.focus === 'function') {
       searchBar.value.focus()
     } else if (searchBar.value?.$el) {
@@ -865,7 +863,7 @@ const handleKeyboard = (e) => {
     return
   }
 
-  // Alt + [1-9] → navegación rápida (deshabilitado en Mac)  🔧
+  // Alt + [1-9] (deshabilitado en Mac)
   if (
     e.altKey &&
     !e.ctrlKey &&
@@ -926,7 +924,6 @@ const getInitials = (nombre) => {
   )
 }
 
-// 🔧 Helper para (re)iniciar el polling
 const iniciarPolling = () => {
   if (infoRefreshTimer || unmounted) return
   infoRefreshTimer = setInterval(() => {
@@ -951,7 +948,6 @@ onMounted(async () => {
   await cargarInfoSistema()
   iniciarPolling()
 
-  // 🔧 Pausar polling cuando la pestaña está oculta
   visibilityHandler = () => {
     if (document.hidden) {
       detenerPolling()
@@ -962,7 +958,6 @@ onMounted(async () => {
   }
   document.addEventListener('visibilitychange', visibilityHandler)
 
-  // 🔧 mousedown en vez de click para cerrar dropdowns más ágil
   document.addEventListener('mousedown', handleClickOutside)
   document.addEventListener('keydown', handleKeyboard)
   window.addEventListener('scroll', handleScroll, { passive: true })
@@ -1019,7 +1014,7 @@ onBeforeUnmount(() => {
   padding-top: 10px;
   padding-bottom: 10px;
   min-height: 64px;
-  min-width: 0;                                            /* 🔧 */
+  min-width: 0;
 }
 
 /* ============================================================
@@ -1116,10 +1111,11 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   flex: 1;
-  min-width: 0;                                            /* 🔧 */
+  min-width: 0;
   justify-content: space-between;
 }
 
+/* 🔧 NUNCA se encoge: evitaba el solape de "Retenciones"/"Admin" */
 .nav-list {
   display: flex;
   align-items: center;
@@ -1127,8 +1123,8 @@ onBeforeUnmount(() => {
   list-style: none;
   margin: 0;
   padding: 0;
-  min-width: 0;                                            /* 🔧 */
-  flex-shrink: 1;                                          /* 🔧 */
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .nav-item {
@@ -1198,7 +1194,7 @@ onBeforeUnmount(() => {
   top: calc(100% + 8px);
   left: 0;
   min-width: 260px;
-  max-width: min(360px, 92vw);                             /* 🔧 */
+  max-width: min(360px, 92vw);
   background: rgba(20, 30, 48, 0.98);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -1210,11 +1206,11 @@ onBeforeUnmount(() => {
   margin: 0;
   z-index: 100;
   animation: dropdown-in 0.2s ease-out;
-  max-height: calc(100vh - 100px);                         /* 🔧 */
-  overflow-y: auto;                                        /* 🔧 */
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
 }
 
-/* 🔧 Últimos dropdowns se alinean a la derecha para no salirse */
+/* Últimos dropdowns alineados a la derecha (no se salen) */
 .nav-list > .nav-dropdown:nth-last-child(-n+2) .dropdown-panel {
   left: auto;
   right: 0;
@@ -1307,20 +1303,20 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;                                          /* 🔧 */
-  min-width: 0;                                            /* 🔧 */
+  flex-shrink: 1;              /* puede encogerse */
+  min-width: 0;
 }
 
 .search-container {
-  width: clamp(160px, 18vw, 260px);                        /* 🔧 adaptativo */
-  min-width: 0;
-  flex-shrink: 1;                                          /* 🔧 puede encogerse */
+  width: clamp(160px, 16vw, 260px);
+  min-width: 110px;
+  flex-shrink: 1;
 }
 
 /* ============================================================
    USER
    ============================================================ */
-.user-wrapper { position: relative; flex-shrink: 0; }      /* 🔧 */
+.user-wrapper { position: relative; flex-shrink: 0; }
 
 .user-btn {
   display: flex;
@@ -1342,7 +1338,7 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-/* 🔧 Sistema de color por rol con CSS variables (elimina duplicación) */
+/* Colores por rol con CSS variables (sin duplicar) */
 .user-avatar,
 .user-avatar-lg {
   background: linear-gradient(
@@ -1413,9 +1409,9 @@ onBeforeUnmount(() => {
   top: calc(100% + 12px);
   right: 0;
   min-width: 320px;
-  max-width: min(360px, 92vw);                             /* 🔧 */
-  max-height: calc(100vh - 100px);                         /* 🔧 */
-  overflow-y: auto;                                        /* 🔧 */
+  max-width: min(360px, 92vw);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
   background: rgba(20, 30, 48, 0.99);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -1595,7 +1591,7 @@ onBeforeUnmount(() => {
 }
 
 /* ============================================================
-   ACCESIBILIDAD — FOCUS VISIBLE  🔧
+   FOCUS VISIBLE
    ============================================================ */
 .nav-item:focus-visible,
 .user-btn:focus-visible,
@@ -1611,28 +1607,35 @@ onBeforeUnmount(() => {
    RESPONSIVE
    ============================================================ */
 
-/* Pantallas grandes pero no XL: comprimimos paddings antes de ocultar */
+/* 1400px: comprimir paddings antes de recortar */
 @media (max-width: 1400px) {
+  .navbar-inner { gap: 12px; }
   .nav-list { gap: 0; }
-  .nav-item { padding: 8px 11px; font-size: 0.83rem; }
-  .nav-item > i:first-child { font-size: 0.85rem; }
+  .nav-item { padding: 8px 11px; font-size: 0.84rem; }
+  .nav-item > i:first-child { font-size: 0.86rem; }
+  .search-container { width: clamp(150px, 14vw, 220px); }
 }
 
-/* Portátiles pequeñas: iconos primero, texto colapsado */
+/* 1200px: textos del menú colapsan → solo iconos */
 @media (max-width: 1200px) {
   .navbar-inner { gap: 10px; }
-  .nav-item { padding: 8px 9px; }
-  .nav-item > span:not(.shortcut):not(.badge-mini) { display: none; }
-  .nav-item.active > span:not(.shortcut):not(.badge-mini) { display: inline; }
+  .nav-item { padding: 8px 10px; gap: 0; }
+  .nav-item > span:not(.shortcut):not(.badge-mini):not(.nav-alert-dot) {
+    display: none;
+  }
+  .nav-item.active > span:not(.shortcut):not(.badge-mini):not(.nav-alert-dot) {
+    display: inline;
+  }
   .nav-caret { display: none; }
   .nav-alert-dot { margin-left: 0; }
 
-  .search-container { width: 160px; }
+  .search-container { width: 150px; }
   .user-details { display: none; }
   .user-btn { padding: 4px; max-width: 44px; }
   .user-caret { display: none; }
 }
 
+/* 992px: hamburguesa + drawer */
 @media (max-width: 992px) {
   .burger { display: flex; }
 
@@ -1671,9 +1674,12 @@ onBeforeUnmount(() => {
     padding: 14px 16px;
     font-size: 0.95rem;
     border-radius: var(--radius-sm);
+    gap: 7px;
   }
   /* Restaurar textos ocultos en móvil */
-  .nav-item > span:not(.shortcut):not(.badge-mini) { display: inline; }
+  .nav-item > span:not(.shortcut):not(.badge-mini):not(.nav-alert-dot) {
+    display: inline;
+  }
   .nav-caret { display: inline; opacity: 1; }
   .nav-item.active { box-shadow: none; }
 
@@ -1743,7 +1749,7 @@ onBeforeUnmount(() => {
 }
 
 /* ============================================================
-   ACCESIBILIDAD — REDUCED MOTION
+   REDUCED MOTION
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   .nav-alert-dot,
