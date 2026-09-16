@@ -9,12 +9,13 @@
 //   POST /sincronizar      → recalcula el max desde documentos (admin)
 //
 // Convenciones:
-//   - Cada tipo tiene sus propios permisos (`PERMISO_POR_TIPO`).
+//   - Cada tipo tiene sus propios permisos.
 //   - `POST /siguiente` es la única operación que consume el contador.
 //   - Los contadores se guardan en `contadores` con `_id: tipo`.
 //   - El orden de las rutas importa: `/siguiente` y `/sincronizar`
 //     deben ir ANTES que `/:tipo` para evitar que el parámetro dinámico
 //     capture sus paths.
+//   - `POST /sincronizar` acepta `?dryRun=true` para simular.
 // ============================================================
 'use strict';
 
@@ -32,7 +33,7 @@ const CONFIG = Object.freeze({
   col: 'contadores',
   colVentas: 'ventas_v2',
   colCompras: 'compras_v2',
-  /** Tope del secuencial (6 dígitos → 999 999). SRI permite hasta 9. */
+  /** Tope del secuencial (9 dígitos → 999 999 999). */
   valorMax: 999_999_999,
   /** Tamaño del padding del código resultante. */
   padding: 6,
@@ -40,7 +41,6 @@ const CONFIG = Object.freeze({
 });
 
 // Tipos válidos + permisos requeridos + colección fuente para sincronizar.
-// Fuente única de verdad (evita duplicación con `sincronizar`).
 const TIPOS = Object.freeze({
   factura:       { modulo: 'ventas',      accion: 'crear', coleccion: 'ventas',  filtro: { tipo_documento: 'factura' } },
   nota_credito:  { modulo: 'ventas',      accion: 'crear', coleccion: 'ventas',  filtro: { tipo_documento: 'nota_credito' } },
@@ -120,7 +120,6 @@ function requierePermisoSegunTipo(req, res, next) {
     });
   }
 
-  // Guardamos la config en req para reusarla en el handler (evita re-parsear).
   req._tipoConfig = cfg;
   req._tipoNombre = tipo;
   return next();
@@ -128,8 +127,7 @@ function requierePermisoSegunTipo(req, res, next) {
 
 /**
  * Reserva el siguiente valor de un contador (atómico).
- * Maneja driver v3 (`{value: doc}`) y v4+ (doc directo).
- * @returns {Promise<number>} nuevo valor
+ * @returns {Promise<number>}
  */
 async function reservarSiguiente(db, tipo, session = null) {
   const opts = { upsert: true, returnDocument: 'after' };
@@ -181,35 +179,50 @@ router.post('/siguiente', requierePermisoSegunTipo, async (req, res, next) => {
 // ============================================================
 // POST /sincronizar  → recalcular el max desde documentos (admin)
 // ------------------------------------------------------------
-// ⚠️  Debe ir ANTES que `/:tipo` para no ser capturado por el parámetro.
+// 🔧 FIX: antes usaba requierePermiso('contadores', 'editar') que
+//    no existe en utils/permisos.js → warning al arrancar y 403
+//    para TODOS los roles. Ahora usa 'configuracion:editar' que
+//    solo lo tiene admin.
+//
+// 🔧 FIX: el aggregate usaba $toInt que REVIENTA con strings como
+//    "abc". Ahora usa $convert con onError: null.
+//
+// ✨ NUEVO: soporta ?dryRun=true para simular sin escribir.
 // ============================================================
 router.post(
   '/sincronizar',
-  requierePermiso('contadores', 'editar', { rolAlterno: 'admin' }),
+  requierePermiso('configuracion', 'editar'),
   async (req, res, next) => {
     try {
-      // Sincronizar todos los tipos EN PARALELO (antes era secuencial).
-      const entradas = Object.entries(TIPOS);
+      const dryRun = String(req.query.dryRun || '').toLowerCase() === 'true';
 
+      const entradas = Object.entries(TIPOS);
       const resultados = {};
+
       await Promise.all(entradas.map(async ([tipo, cfg]) => {
         try {
-          const col = cfg.coleccion === 'compras' ? CONFIG.colCompras : CONFIG.colVentas;
+          const col = cfg.coleccion === 'compras'
+            ? CONFIG.colCompras
+            : CONFIG.colVentas;
           const filtro = cfg.filtro || {};
 
           // Extrae el número más alto visto en `numero_factura`.
-          // Si el formato no tiene guiones o no es numérico, `$toInt` devuelve
-          // null → `$max` lo ignora.
+          // - "FAC-000001" → split('-') → "000001" → 1
+          // - "000001"     → 1
+          // - "abc"        → $convert onError: null
+          // - "FAC-abc"    → null
           const [doc] = await req.db.collection(col).aggregate([
             { $match: filtro },
             {
               $project: {
                 num: {
-                  $toInt: {
-                    $ifNull: [
-                      { $arrayElemAt: [{ $split: ['$numero_factura', '-'] }, -1] },
-                      0
-                    ]
+                  $convert: {
+                    input: {
+                      $arrayElemAt: [{ $split: ['$numero_factura', '-'] }, -1]
+                    },
+                    to: 'int',
+                    onError: null,
+                    onNull: null
                   }
                 }
               }
@@ -223,31 +236,50 @@ router.post(
           const valorActual = Number(actual?.valor) || 0;
 
           if (max > valorActual) {
-            // $max: nunca retrocede si otro worker ya subió más.
-            await req.db.collection(CONFIG.col).updateOne(
-              { _id: tipo },
-              { $max: { valor: max }, $set: { updatedAt: new Date() } },
-              { upsert: true }
-            );
-            resultados[tipo] = { anterior: valorActual, actualizado: max };
+            if (!dryRun) {
+              // $max: nunca retrocede si otro worker ya subió más.
+              await req.db.collection(CONFIG.col).updateOne(
+                { _id: tipo },
+                { $max: { valor: max }, $set: { updatedAt: new Date() } },
+                { upsert: true }
+              );
+            }
+            resultados[tipo] = {
+              anterior: valorActual,
+              actualizado: max,
+              dryRun: dryRun || undefined
+            };
           } else {
-            resultados[tipo] = { anterior: valorActual, actualizado: valorActual, sinCambio: true };
+            resultados[tipo] = {
+              anterior: valorActual,
+              actualizado: valorActual,
+              sinCambio: true
+            };
           }
         } catch (err) {
           resultados[tipo] = { error: err.message };
         }
       }));
 
-      await auditarSeguro(req.db, req, {
-        accion: 'sincronizar',
-        coleccion: CONFIG.col,
-        documentoNumero: 'global',
-        datosNuevos: resultados,
-        detalle: `Contadores sincronizados (${Object.keys(resultados).length} tipos)`
-      });
+      // Auditoría (solo si escribimos de verdad).
+      if (!dryRun) {
+        await auditarSeguro(req.db, req, {
+          accion: 'sincronizar',
+          coleccion: CONFIG.col,
+          documentoNumero: 'global',
+          datosNuevos: resultados,
+          detalle: `Contadores sincronizados (${Object.keys(resultados).length} tipos)`
+        });
+      }
 
       headersNoStore(res);
-      return res.json({ message: 'Contadores sincronizados', resultados });
+      return res.json({
+        message: dryRun
+          ? 'Simulación completada (no se escribió nada)'
+          : 'Contadores sincronizados',
+        dryRun: dryRun || undefined,
+        resultados
+      });
     } catch (err) {
       return next(err);
     }

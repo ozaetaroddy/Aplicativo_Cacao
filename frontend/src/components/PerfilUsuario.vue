@@ -2,10 +2,13 @@
   <div class="perfil-page">
     <!-- Header -->
     <div class="perfil-header">
-      <h1 class="section-title">
-        <i class="fas fa-user-circle" aria-hidden="true"></i>
-        Mi Perfil
-      </h1>
+      <div class="perfil-header-icon" aria-hidden="true">
+        <i class="fas fa-user-circle"></i>
+      </div>
+      <div class="perfil-header-text">
+        <h1 class="perfil-header-title">Mi Perfil</h1>
+        <p class="perfil-header-subtitle">Datos personales y seguridad de tu cuenta</p>
+      </div>
     </div>
 
     <!-- Loading inicial -->
@@ -221,7 +224,7 @@
                       class="form-control"
                       :class="{ 'is-invalid': mostrarError('passwordNueva') }"
                       v-model="passwords.nueva"
-                      placeholder="Mínimo 6 caracteres"
+                      placeholder="Mínimo 8 caracteres"
                       autocomplete="new-password"
                       maxlength="200"
                       :disabled="cargando"
@@ -247,6 +250,9 @@
                   <div v-if="mostrarError('passwordNueva')" class="field-error">
                     {{ errores.passwordNueva }}
                   </div>
+                  <small v-else class="form-hint">
+                    Mínimo 8 caracteres, con al menos una letra y un número.
+                  </small>
                 </div>
 
                 <div class="form-field">
@@ -458,8 +464,8 @@ const passwordStrength = computed(() => {
   const p = passwords.value.nueva
   if (!p) return 0
   let score = 0
-  if (p.length >= 6) score += 25
-  if (p.length >= 10) score += 15
+  if (p.length >= 8) score += 25
+  if (p.length >= 12) score += 15
   if (/[a-z]/.test(p)) score += 15
   if (/[A-Z]/.test(p)) score += 15
   if (/[0-9]/.test(p)) score += 15
@@ -557,8 +563,14 @@ const validarPasswords = () => {
   if (!passwords.value.nueva) {
     errores.value.passwordNueva = 'Ingresa la nueva contraseña'
     ok = false
-  } else if (passwords.value.nueva.length < 6) {
-    errores.value.passwordNueva = 'Mínimo 6 caracteres'
+  } else if (passwords.value.nueva.length < 8) {
+    errores.value.passwordNueva = 'Mínimo 8 caracteres'
+    ok = false
+  } else if (!/[A-Za-z]/.test(passwords.value.nueva)) {
+    errores.value.passwordNueva = 'Debe incluir al menos una letra'
+    ok = false
+  } else if (!/\d/.test(passwords.value.nueva)) {
+    errores.value.passwordNueva = 'Debe incluir al menos un número'
     ok = false
   } else if (passwords.value.nueva.length > 200) {
     errores.value.passwordNueva = 'Máximo 200 caracteres'
@@ -769,15 +781,63 @@ onBeforeUnmount(() => {
   margin: 0 auto;
 }
 
+/* ===== HEADER ===== */
+.perfil-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: var(--space-6, 24px);
+}
+
+.perfil-header-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md, 12px);
+  background: linear-gradient(135deg, var(--primary-color, #2563eb), var(--primary-hover, #1d4ed8));
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-glow-primary, 0 8px 24px rgba(37, 99, 235, 0.25));
+}
+
+.perfil-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.perfil-header-title {
+  font-size: clamp(1.25rem, 2.2vw, 1.6rem);
+  font-weight: var(--fw-extrabold, 800);
+  letter-spacing: var(--ls-tighter, -0.03em);
+  color: var(--text-primary, #0f172a);
+  line-height: 1.15;
+  margin: 0;
+}
+
+.perfil-header-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-muted, #94a3b8);
+  font-weight: var(--fw-regular, 400);
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* ===== LOADING ===== */
 .loading-card {
   text-align: center;
   padding: 60px 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  color: var(--text-muted);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-lg, 16px);
+  color: var(--text-muted, #94a3b8);
 }
 
+/* ===== GRID ===== */
 .perfil-grid {
   display: grid;
   grid-template-columns: 300px 1fr;
@@ -795,12 +855,12 @@ onBeforeUnmount(() => {
 }
 
 .user-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-lg, 16px);
   padding: 28px 20px;
   text-align: center;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
   position: relative;
   overflow: hidden;
 }
@@ -812,7 +872,7 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   height: 80px;
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  background: linear-gradient(135deg, var(--primary-color, #2563eb), var(--primary-dark, #1e3a8a));
 }
 
 .user-avatar-large {
@@ -827,7 +887,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   margin: 0 auto 14px;
-  border: 4px solid var(--bg-card);
+  border: 4px solid var(--bg-card, #fff);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   position: relative;
   z-index: 1;
@@ -836,46 +896,56 @@ onBeforeUnmount(() => {
 .user-name {
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-primary, #0f172a);
   margin-bottom: 4px;
   overflow-wrap: break-word;
+  text-decoration: none;
 }
+
 .user-email {
   font-size: 0.82rem;
-  color: var(--text-muted);
+  color: var(--text-muted, #94a3b8);
   word-break: break-all;
   margin-bottom: 12px;
+  text-decoration: none;
 }
+
 .user-role {
   margin-bottom: 20px;
+  text-decoration: none;
 }
+
 .badge-rol {
   display: inline-block;
   padding: 5px 14px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-full, 9999px);
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  /* Neutralizar line-through heredado de ancestros o extensiones */
+  text-decoration: none !important;
+  text-decoration-line: none !important;
 }
-.badge-rol-admin { background: rgba(231,76,60,0.15); color: #e74c3c; }
-.badge-rol-contador { background: rgba(52,152,219,0.15); color: #3498db; }
-.badge-rol-vendedor { background: rgba(39,174,96,0.15); color: #27ae60; }
-.badge-rol-bodeguero { background: rgba(243,156,18,0.15); color: #d68910; }
-.badge-rol-auditor { background: rgba(155,89,182,0.15); color: #8e44ad; }
+
+.badge-rol-admin { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+.badge-rol-contador { background: rgba(52, 152, 219, 0.15); color: #3498db; }
+.badge-rol-vendedor { background: rgba(39, 174, 96, 0.15); color: #27ae60; }
+.badge-rol-bodeguero { background: rgba(243, 156, 18, 0.15); color: #d68910; }
+.badge-rol-auditor { background: rgba(155, 89, 182, 0.15); color: #8e44ad; }
 
 .user-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   padding-top: 16px;
-  border-top: 1px solid var(--border-light);
+  border-top: 1px solid var(--border-light, #eef2f7);
 }
 .user-stat { text-align: center; }
 .stat-value { font-size: 1.3rem; margin-bottom: 4px; }
 .stat-label {
   font-size: 0.68rem;
-  color: var(--text-muted);
+  color: var(--text-muted, #94a3b8);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   font-weight: 600;
@@ -884,19 +954,19 @@ onBeforeUnmount(() => {
 .info-card {
   background: linear-gradient(135deg, rgba(52, 152, 219, 0.05), rgba(241, 196, 15, 0.03));
   border: 1px solid rgba(52, 152, 219, 0.2);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-lg, 16px);
   padding: 18px;
 }
 .info-card-title {
   font-weight: 700;
   font-size: 0.85rem;
-  color: var(--text-primary);
+  color: var(--text-primary, #0f172a);
   margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.info-card-title i { color: var(--warning); }
+.info-card-title i { color: var(--warning, #f59e0b); }
 .tips-list {
   list-style: none;
   padding: 0;
@@ -907,7 +977,7 @@ onBeforeUnmount(() => {
 }
 .tips-list li {
   font-size: 0.78rem;
-  color: var(--text-muted);
+  color: var(--text-muted, #94a3b8);
   padding-left: 18px;
   position: relative;
   line-height: 1.4;
@@ -916,7 +986,7 @@ onBeforeUnmount(() => {
   content: '•';
   position: absolute;
   left: 4px;
-  color: var(--primary-color);
+  color: var(--primary-color, #2563eb);
   font-weight: 700;
 }
 
@@ -934,7 +1004,7 @@ onBeforeUnmount(() => {
 }
 .header-hint {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-muted, #94a3b8);
   font-weight: 400;
   margin-left: auto;
 }
@@ -957,19 +1027,19 @@ onBeforeUnmount(() => {
 .form-control {
   width: 100%;
   padding: 11px 14px;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-input);
-  color: var(--text-primary);
+  border: 1.5px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 12px);
+  background: var(--bg-input, #fff);
+  color: var(--text-primary, #0f172a);
   font-size: 0.9rem;
   font-family: inherit;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-fast, 150ms);
   outline: none;
 }
 .form-control:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 4px var(--shadow-focus);
-  background: var(--bg-card);
+  border-color: var(--primary-color, #2563eb);
+  box-shadow: 0 0 0 4px var(--shadow-focus, rgba(37, 99, 235, 0.18));
+  background: var(--bg-card, #fff);
 }
 .form-control.is-invalid {
   border-color: #e74c3c;
@@ -990,13 +1060,13 @@ onBeforeUnmount(() => {
 .input-icon {
   position: absolute;
   left: 14px;
-  color: var(--text-muted);
+  color: var(--text-muted, #94a3b8);
   font-size: 0.85rem;
   pointer-events: none;
-  transition: color var(--transition-fast);
+  transition: color var(--transition-fast, 150ms);
 }
 .input-wrapper:focus-within .input-icon {
-  color: var(--primary-color);
+  color: var(--primary-color, #2563eb);
 }
 .input-wrapper .form-control {
   padding-left: 42px;
@@ -1006,18 +1076,18 @@ onBeforeUnmount(() => {
   right: 8px;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-muted, #94a3b8);
   cursor: pointer;
   padding: 8px;
   border-radius: 6px;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-fast, 150ms);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .toggle-pass:hover {
-  color: var(--primary-color);
-  background: var(--bg-table-stripe);
+  color: var(--primary-color, #2563eb);
+  background: var(--bg-table-stripe, #f8fafc);
 }
 
 .field-error {
@@ -1030,6 +1100,13 @@ onBeforeUnmount(() => {
   margin-top: 2px;
 }
 
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
 /* ===== FORTALEZA ===== */
 .password-strength {
   display: flex;
@@ -1039,8 +1116,8 @@ onBeforeUnmount(() => {
 .strength-bar {
   flex: 1;
   height: 6px;
-  background: var(--border-light);
-  border-radius: var(--radius-full);
+  background: var(--border-light, #eef2f7);
+  border-radius: var(--radius-full, 9999px);
   overflow: hidden;
 }
 .strength-fill {
@@ -1072,18 +1149,18 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 8px;
   padding: 12px 28px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-md, 12px);
   font-weight: 600;
   font-size: 0.9rem;
   text-decoration: none;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: all var(--transition, 250ms);
   border: none;
   font-family: inherit;
 }
 
 .btn-save {
-  background: linear-gradient(135deg, var(--success), #1e8449);
+  background: linear-gradient(135deg, var(--success, #10b981), #1e8449);
   color: #fff;
   box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
 }
@@ -1098,13 +1175,13 @@ onBeforeUnmount(() => {
 }
 
 .btn-cancel {
-  background: var(--bg-card);
-  border: 1.5px solid var(--border-color);
-  color: var(--text-secondary);
+  background: var(--bg-card, #fff);
+  border: 1.5px solid var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #475569);
 }
 .btn-cancel:hover {
-  background: var(--bg-table-stripe);
-  color: var(--text-primary);
+  background: var(--bg-table-stripe, #f8fafc);
+  color: var(--text-primary, #0f172a);
 }
 
 /* ===== TRANSICIONES ===== */
@@ -1128,6 +1205,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 576px) {
+  .perfil-header-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 1.15rem;
+  }
   .form-grid {
     grid-template-columns: 1fr;
   }

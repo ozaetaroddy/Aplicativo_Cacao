@@ -158,6 +158,22 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
 })
+// Al abrir el theme picker, emite el evento global:
+function abrir() {
+  if (!abierto.value) {
+    window.dispatchEvent(new CustomEvent('app:cerrar-dropdowns', {
+      detail: { origen: 'theme' }
+    }))
+  }
+  abierto.value = !abierto.value
+}
+
+// Y escucha el evento para cerrarse si otro abrió algo:
+onMounted(() => {
+  window.addEventListener('app:cerrar-dropdowns', (e) => {
+    if (e?.detail?.origen !== 'theme') abierto.value = false
+  })
+})
 </script>
 
 <style scoped>

@@ -655,7 +655,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import {
+  ref,
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  nextTick,
+  watch
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
 import ThemeToggle from './ThemeToggle.vue'
@@ -674,7 +681,6 @@ const userMenuOpen = ref(false)
 const scrolled = ref(false)
 
 const navbar = ref(null)
-const userDropdown = ref(null)
 const searchBar = ref(null)
 
 const certificadoInfo = ref(null)
@@ -764,7 +770,31 @@ const cargarInfoSistema = async () => {
   }
 }
 
-// ===== TOGGLES =====
+// ============================================================
+// EVENTO GLOBAL: cerrar dropdowns
+// ------------------------------------------------------------
+// Cualquier componente del navbar (o externos como ThemeToggle)
+// puede emitir `app:cerrar-dropdowns` para que se cierren los
+// dropdowns abiertos en TODO el sistema.
+// ============================================================
+function emitirCierreGlobal(origen = 'navbar') {
+  try {
+    window.dispatchEvent(
+      new CustomEvent('app:cerrar-dropdowns', { detail: { origen } })
+    )
+  } catch { /* noop */ }
+}
+
+function onCierreGlobal(e) {
+  // Si el evento viene del propio navbar, no hacemos nada (ya se cerró).
+  if (e?.detail?.origen === 'navbar') return
+  // Cualquier otro origen → cerramos todo.
+  cerrarTodoInterno()
+}
+
+// ============================================================
+// TOGGLES
+// ============================================================
 const toggleNavbar = () => {
   navbarAbierto.value = !navbarAbierto.value
   if (!navbarAbierto.value) {
@@ -775,45 +805,72 @@ const toggleNavbar = () => {
 const toggleDropdown = async (nombre, event) => {
   const abriendo = !dropdowns.value[nombre]
 
-  if (navbarAbierto.value) {
-    dropdowns.value[nombre] = !dropdowns.value[nombre]
-  } else {
+  if (abriendo) {
+    // Cerrar cualquier otro dropdown / user menu
     for (const k of Object.keys(dropdowns.value)) {
-      dropdowns.value[k] = k === nombre ? !dropdowns.value[nombre] : false
+      dropdowns.value[k] = k === nombre ? true : false
     }
     if (userMenuOpen.value) userMenuOpen.value = false
+    // Avisar al resto del sistema (ThemeToggle, etc.)
+    emitirCierreGlobal('navbar')
+  } else {
+    dropdowns.value[nombre] = false
+    return
   }
 
-  if (abriendo && !navbarAbierto.value) {
-    await nextTick()
-    const panel = event?.currentTarget
-      ?.closest('.nav-dropdown')
-      ?.querySelector('.dropdown-panel')
-    const first = panel?.querySelector('a, button')
+  await nextTick()
+
+  // ---- Ajustar posición si el panel se sale del viewport ----
+  const wrapper = event?.currentTarget?.closest('.nav-dropdown')
+  const panel = wrapper?.querySelector('.dropdown-panel')
+  if (panel) {
+    panel.classList.remove('dropdown-panel--right')
+    const rect = panel.getBoundingClientRect()
+    const margen = 12
+    if (rect.right > window.innerWidth - margen) {
+      panel.classList.add('dropdown-panel--right')
+    }
+    // Foco al primer item para accesibilidad
+    const first = panel.querySelector('a, button')
     first?.focus?.()
   }
 }
 
 const toggleUserMenu = () => {
-  userMenuOpen.value = !userMenuOpen.value
-  if (userMenuOpen.value) {
+  const abriendo = !userMenuOpen.value
+  userMenuOpen.value = abriendo
+
+  if (abriendo) {
+    // Cerrar todos los dropdowns del nav
     for (const k of Object.keys(dropdowns.value)) dropdowns.value[k] = false
+    emitirCierreGlobal('navbar')
   }
 }
 
-const cerrarTodo = () => {
+/** Cierra todo SIN emitir evento global (uso interno). */
+function cerrarTodoInterno() {
   navbarAbierto.value = false
   for (const k of Object.keys(dropdowns.value)) dropdowns.value[k] = false
   userMenuOpen.value = false
 }
 
-// ===== CLICK FUERA =====
-const handleClickOutside = (e) => {
-  if (navbar.value && navbar.value.contains(e.target)) return
-  cerrarTodo()
+/** Cierra todo Y emite evento global (uso desde el template). */
+const cerrarTodo = () => {
+  cerrarTodoInterno()
+  emitirCierreGlobal('navbar')
 }
 
-// ===== SCROLL =====
+// ============================================================
+// CLICK FUERA (dentro del navbar)
+// ============================================================
+const handleClickOutside = (e) => {
+  if (navbar.value && navbar.value.contains(e.target)) return
+  cerrarTodoInterno()
+}
+
+// ============================================================
+// SCROLL
+// ============================================================
 const handleScroll = () => {
   if (scrollRafId) return
   scrollRafId = requestAnimationFrame(() => {
@@ -825,7 +882,9 @@ const handleScroll = () => {
   })
 }
 
-// ===== ATAJOS =====
+// ============================================================
+// ATAJOS
+// ============================================================
 const esMac = typeof navigator !== 'undefined'
   && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '')
 
@@ -892,7 +951,9 @@ const handleKeyboard = (e) => {
   }
 }
 
-// ===== NAVEGACIÓN =====
+// ============================================================
+// NAVEGACIÓN
+// ============================================================
 const irPerfil = () => { cerrarTodo(); router.push('/mi-perfil') }
 const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
 const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
@@ -910,7 +971,9 @@ const reiniciarTour = () => {
   }
 }
 
-// ===== HELPERS =====
+// ============================================================
+// HELPERS
+// ============================================================
 const getInitials = (nombre) => {
   if (!nombre || typeof nombre !== 'string') return '?'
   return (
@@ -939,7 +1002,16 @@ const detenerPolling = () => {
   }
 }
 
-// ===== LIFECYCLE =====
+// ============================================================
+// WATCH: cerrar al cambiar de ruta
+// ============================================================
+watch(() => route.path, () => {
+  cerrarTodoInterno()
+})
+
+// ============================================================
+// LIFECYCLE
+// ============================================================
 onMounted(async () => {
   try {
     await cargarPermisos()
@@ -961,6 +1033,7 @@ onMounted(async () => {
   document.addEventListener('mousedown', handleClickOutside)
   document.addEventListener('keydown', handleKeyboard)
   window.addEventListener('scroll', handleScroll, { passive: true })
+  window.addEventListener('app:cerrar-dropdowns', onCierreGlobal)
 
   handleScroll()
 })
@@ -970,6 +1043,7 @@ onBeforeUnmount(() => {
 
   document.removeEventListener('mousedown', handleClickOutside)
   document.removeEventListener('keydown', handleKeyboard)
+  window.removeEventListener('app:cerrar-dropdowns', onCierreGlobal)
   if (visibilityHandler) {
     document.removeEventListener('visibilitychange', visibilityHandler)
     visibilityHandler = null
@@ -1115,11 +1189,11 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 
-/* 🔧 NUNCA se encoge: evitaba el solape de "Retenciones"/"Admin" */
+/* 🔧 gap más respirable que antes (era 2px) */
 .nav-list {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1194,7 +1268,7 @@ onBeforeUnmount(() => {
   top: calc(100% + 8px);
   left: 0;
   min-width: 260px;
-  max-width: min(360px, 92vw);
+  max-width: min(360px, calc(100vw - 24px));
   background: rgba(20, 30, 48, 0.98);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -1208,15 +1282,15 @@ onBeforeUnmount(() => {
   animation: dropdown-in 0.2s ease-out;
   max-height: calc(100vh - 100px);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
-/* Últimos dropdowns alineados a la derecha (no se salen) */
-@container (max-width: 1200px) {
-.nav-list > .nav-dropdown:nth-last-child(-n+3) .dropdown-panel {
+/* 🔧 Alineación a la derecha cuando el panel se desborda (vía JS) */
+.dropdown-panel.dropdown-panel--right {
   left: auto;
   right: 0;
 }
-}
+
 @keyframes dropdown-in {
   from { opacity: 0; transform: translateY(-8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -1287,8 +1361,8 @@ onBeforeUnmount(() => {
   min-width: 22px;
   text-align: center;
 }
-.badge-mini.info { background: var(--info-bg, rgba(14,165,233,0.15)); color: var(--info, #0ea5e9); }
-.badge-mini.warning { background: var(--warning-bg, rgba(245,158,11,0.15)); color: var(--warning-hover, #d97706); }
+.badge-mini.info { background: rgba(14,165,233,0.15); color: #0ea5e9; }
+.badge-mini.warning { background: rgba(245,158,11,0.15); color: #d97706; }
 
 .dropdown-divider {
   height: 1px;
@@ -1304,8 +1378,10 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 1;              /* puede encogerse */
+  flex-shrink: 1;
   min-width: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .search-container {
@@ -1339,7 +1415,6 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-/* Colores por rol con CSS variables (sin duplicar) */
 .user-avatar,
 .user-avatar-lg {
   background: linear-gradient(
@@ -1410,9 +1485,8 @@ onBeforeUnmount(() => {
   top: calc(100% + 12px);
   right: 0;
   min-width: 320px;
-  max-width: min(360px, 92vw);
+  max-width: min(360px, calc(100vw - 24px));
   max-height: calc(100vh - 100px);
-  overflow-y: auto;
   background: rgba(20, 30, 48, 0.99);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -1420,6 +1494,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
   overflow-x: hidden;
+  overflow-y: auto;
   z-index: 100;
   animation: dropdown-in 0.2s ease-out;
 }
@@ -1608,16 +1683,16 @@ onBeforeUnmount(() => {
    RESPONSIVE
    ============================================================ */
 
-/* 1400px: comprimir paddings antes de recortar */
+/* 1400px: comprimir paddings */
 @media (max-width: 1400px) {
   .navbar-inner { gap: 12px; }
-  .nav-list { gap: 0; }
+  .nav-list { gap: 2px; }
   .nav-item { padding: 8px 11px; font-size: 0.84rem; }
   .nav-item > i:first-child { font-size: 0.86rem; }
   .search-container { width: clamp(150px, 14vw, 220px); }
 }
 
-/* 1200px: textos del menú colapsan → solo iconos */
+/* 1200px: solo iconos */
 @media (max-width: 1200px) {
   .navbar-inner { gap: 10px; }
   .nav-item { padding: 8px 10px; gap: 0; }
@@ -1634,6 +1709,9 @@ onBeforeUnmount(() => {
   .user-details { display: none; }
   .user-btn { padding: 4px; max-width: 44px; }
   .user-caret { display: none; }
+
+  /* En pantallas medianas, todos los dropdowns alineados a la derecha */
+  .dropdown-panel { left: auto; right: 0; }
 }
 
 /* 992px: hamburguesa + drawer */
@@ -1677,33 +1755,27 @@ onBeforeUnmount(() => {
     border-radius: var(--radius-sm);
     gap: 7px;
   }
-  /* Restaurar textos ocultos en móvil */
   .nav-item > span:not(.shortcut):not(.badge-mini):not(.nav-alert-dot) {
     display: inline;
   }
   .nav-caret { display: inline; opacity: 1; }
   .nav-item.active { box-shadow: none; }
 
-  .dropdown-panel {
+  .dropdown-panel,
+  .dropdown-panel.dropdown-panel--right {
     position: static;
     background: rgba(0, 0, 0, 0.2) !important;
     border: none;
     box-shadow: none;
-    margin: 0;
+    margin: 0 0 8px 16px;
     padding: 0 0 8px 20px !important;
     border-radius: 0;
     border-left: 2px solid var(--primary-color);
-    margin-left: 16px;
-    margin-bottom: 8px;
     animation: none;
     min-width: 0;
     max-width: none;
     max-height: none;
     overflow: visible;
-  }
-
-  /* Reset del offset derecho para móvil */
-  .nav-list > .nav-dropdown:nth-last-child(-n+2) .dropdown-panel {
     left: auto;
     right: auto;
   }
