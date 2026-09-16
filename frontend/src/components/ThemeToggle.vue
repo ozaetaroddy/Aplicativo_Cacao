@@ -120,8 +120,36 @@ const triggerLabel = computed(() =>
     : 'Ajustes de apariencia (modo claro activo)'
 )
 
+// ============================================================
+// EVENTO GLOBAL: coordinar con otros dropdowns
+// ------------------------------------------------------------
+// Al abrirse, avisa al resto del sistema (Navbar, etc.) para que
+// cierren sus dropdowns.
+// Al escuchar el evento con origen != 'theme', se cierra solo.
+// ============================================================
+const ORIGEN = 'theme'
+
+function emitirCierreGlobal() {
+  try {
+    window.dispatchEvent(
+      new CustomEvent('app:cerrar-dropdowns', { detail: { origen: ORIGEN } })
+    )
+  } catch { /* noop */ }
+}
+
+function onCierreGlobal(e) {
+  // Solo cerrar si el evento viene de OTRO componente.
+  if (e?.detail?.origen === ORIGEN) return
+  panelOpen.value = false
+}
+
+// ============================================================
+// ACCIONES
+// ============================================================
 const togglePanel = () => {
-  panelOpen.value = !panelOpen.value
+  const abriendo = !panelOpen.value
+  if (abriendo) emitirCierreGlobal()
+  panelOpen.value = abriendo
 }
 
 const closePanel = () => {
@@ -136,43 +164,33 @@ const setColor = (color) => {
   try { themeStore.setThemeColor(color) } catch { /* noop */ }
 }
 
-// Cerrar al hacer click fuera
+// ============================================================
+// CLICK FUERA / ESCAPE
+// ============================================================
 const handleClickOutside = (e) => {
   if (!panelOpen.value) return
   if (wrapper.value && !wrapper.value.contains(e.target)) closePanel()
 }
 
-// Cerrar con Escape
 const handleKeydown = (e) => {
   if (e.key === 'Escape' && panelOpen.value) {
     closePanel()
   }
 }
 
+// ============================================================
+// LIFECYCLE
+// ============================================================
 onMounted(() => {
   document.addEventListener('mousedown', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
+  window.addEventListener('app:cerrar-dropdowns', onCierreGlobal)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
-})
-// Al abrir el theme picker, emite el evento global:
-function abrir() {
-  if (!abierto.value) {
-    window.dispatchEvent(new CustomEvent('app:cerrar-dropdowns', {
-      detail: { origen: 'theme' }
-    }))
-  }
-  abierto.value = !abierto.value
-}
-
-// Y escucha el evento para cerrarse si otro abrió algo:
-onMounted(() => {
-  window.addEventListener('app:cerrar-dropdowns', (e) => {
-    if (e?.detail?.origen !== 'theme') abierto.value = false
-  })
+  window.removeEventListener('app:cerrar-dropdowns', onCierreGlobal)
 })
 </script>
 
