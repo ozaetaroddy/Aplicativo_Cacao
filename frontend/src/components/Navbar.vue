@@ -1167,7 +1167,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ============================================================
