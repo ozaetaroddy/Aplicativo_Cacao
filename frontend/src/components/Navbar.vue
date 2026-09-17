@@ -1251,8 +1251,7 @@ onBeforeUnmount(() => {
   margin: 0 0 0 8px;
   padding: 0;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  
 }
 .nav-list::-webkit-scrollbar { display: none; }
 
@@ -1316,7 +1315,7 @@ onBeforeUnmount(() => {
 /* ============================================================
    DROPDOWN PANEL
    ============================================================ */
-.nav-dropdown { position: relative; }
+.nav-dropdown { position: relative; overflow: visible;}
 
 .dropdown-panel {
   position: absolute;
@@ -1337,7 +1336,7 @@ onBeforeUnmount(() => {
   animation: dropdown-in 0.2s ease-out;
   max-height: calc(100vh - 100px);
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: visible;
 }
 
 .dropdown-panel.dropdown-panel--right {
