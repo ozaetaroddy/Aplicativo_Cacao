@@ -70,16 +70,27 @@
 // Además, `require('dotenv')` y otros módulos pueden hacer DNS en
 // su init, así que este bloque va ANTES de cualquier require.
 // ------------------------------------------------------------
+// backend/server.js — al inicio, después de 'use strict';
+// ------------------------------------------------------------
+// 🔧 FIX IPv6 (parte 2): Node 20+ activa autoSelectFamily (Happy
+//    Eyeballs) por default, lo que HACE QUE LA OPCIÓN `family: 4`
+//    SEA IGNORADA. Hay que desactivarlo explícitamente para que
+//    `family: 4` (en nodemailer) y `ipv4first` surtan efecto.
+// ------------------------------------------------------------
 const dns = require('node:dns');
+const net = require('node:net');
+
 try {
   if (typeof dns.setDefaultResultOrder === 'function') {
     dns.setDefaultResultOrder('ipv4first');
   }
-} catch {
-  // Node <18 no tiene este método. En ese caso, hay que usar
-  // `require('dns').lookup` con opciones específicas o `--dns-result-order`
-  // en el comando de arranque. Silenciamos porque es opcional.
-}
+} catch { /* Node <18 */ }
+
+try {
+  if (typeof net.setDefaultAutoSelectFamily === 'function') {
+    net.setDefaultAutoSelectFamily(false);
+  }
+} catch { /* Node <18.13 */ }
 
 require('dotenv').config();
 
