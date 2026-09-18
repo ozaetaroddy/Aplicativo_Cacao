@@ -886,6 +886,14 @@ body.modal-open {
 
 /* ============================================================
    SECTION TITLES
+   ------------------------------------------------------------
+   El título con línea decorativa a la derecha SOLO se aplica
+   a nivel de página (ej: `.dashboard .section > .section-title`,
+   `.page-header .section-title`).
+
+   Dentro de `.card-cacao`, `.form-section` o `.section-header`
+   el título queda limpio (sin línea), porque rompe la estética
+   de los formularios y del encabezado de tarjetas.
    ============================================================ */
 .section-title {
   font-weight: var(--fw-extrabold);
@@ -899,6 +907,7 @@ body.modal-open {
   line-height: 1.2;
   position: relative;
 }
+
 .section-title i {
   color: var(--primary-color);
   font-size: 1.125rem;
@@ -911,7 +920,12 @@ body.modal-open {
   border-radius: var(--radius-md);
   flex-shrink: 0;
 }
-.section-title::after {
+
+/* 🎯 Línea decorativa: SOLO cuando el título está en un
+   contenedor de página, NO dentro de cards ni form-sections */
+.section > .section-title::after,
+.page-header .section-title::after,
+.section-title--with-divider::after {
   content: '';
   position: absolute;
   left: 52px;
@@ -921,8 +935,47 @@ body.modal-open {
   background: linear-gradient(90deg, var(--border-color), transparent);
   pointer-events: none;
 }
-.section-title > * { position: relative; z-index: 1; background: var(--bg-body); padding-right: 8px; }
 
+/* El texto del título tapa la línea con el color de fondo correcto.
+   Usamos `:where` para no romper especificidad y NO pintamos
+   hijos que no sean texto directo. */
+.section > .section-title > *,
+.page-header .section-title > * {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-body);
+  padding-right: 8px;
+}
+
+/* 🎯 Neutralizar explícitamente dentro de cards y forms,
+   incluso si el ancestro es `.section` (por si algún layout
+   envuelve la tarjeta dentro de un `.section`). */
+.card-cacao .section-title::after,
+.form-section .section-title::after,
+.section-header .section-title::after,
+.section-header-content .section-title::after,
+.check-card .section-title::after {
+  display: none !important;
+}
+
+/* Y quitar el background forzado cuando está dentro de un card,
+   para que no se pinte una "franja" con el color del body */
+.card-cacao .section-title > *,
+.form-section .section-title > *,
+.section-header .section-title > *,
+.section-header-content .section-title > *,
+.check-card .section-title > * {
+  background: transparent;
+  padding-right: 0;
+}
+
+/* Además, bajar el margin-bottom dentro de un card, porque
+   los formularios manejan su propio espaciado */
+.form-section .section-title,
+.section-header .section-title {
+  margin-bottom: 0;
+  font-size: 1rem;
+}
 /* ============================================================
    TOTAL BOX (KPI)
    ============================================================ */
