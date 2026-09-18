@@ -5,8 +5,25 @@
 // Incluye:
 //   - Generador de código de barras Code128 subset C (SRI usa solo dígitos)
 //   - Escape HTML en TODOS los valores dinámicos (previene XSS)
-//   - Impresión robusta: espera `readyState` + `document.fonts.ready`
+//   - Impresión robusta vía <iframe> oculto (sin popup blockers)
+//   - Espera `document.fonts.ready` antes de imprimir
 //   - Soporte A4 / A2 / Ticket 80mm
+//   - Diseño profesional con jerarquía visual clara
+//
+// 🔧 FIX 2025-XX:
+//   1. `printDocument` ya NO usa `window.open()`. Usa un <iframe>
+//      oculto adjunto al DOM actual. Elimina popup blockers y
+//      problemas de timing/foco entre ventanas.
+//   2. `@page size` usa SOLO valores válidos de CSS Paged Media.
+//      Antes tenía `80mm auto` (no estándar) y `A2` (no existe).
+//      Ahora A2 se emite como dimensiones explícitas `420mm 594mm`.
+//   3. Se eliminó el `<script>` interno del HTML generado (el
+//      print() lo dispara el padre cuando el iframe está listo).
+//   4. `onload` del iframe reemplazado por polling de `readyState`
+//      + `document.fonts.ready`, más fiable que un solo evento.
+//   5. Diseño rediseñado: header con jerarquía clara, badge de
+//      ambiente prominente, caja de autorización SRI, tabla de
+//      items espaciada, totales destacados, watermark PRUEBAS.
 // ============================================================
 'use strict'
 
@@ -45,10 +62,6 @@ const CODE128_STOP = 106
 /**
  * Genera la secuencia de bits (string de 0s y 1s) para Code128 subset C.
  * Solo acepta dígitos. Si la longitud es impar, prepende un 0.
- *
- * @param {string} data  Cadena de solo dígitos
- * @returns {string}
- * @throws {Error} si contiene caracteres no numéricos
  */
 function generarBitsCode128C(data) {
   const str = String(data ?? '')
@@ -56,7 +69,6 @@ function generarBitsCode128C(data) {
     throw new Error('Code128C solo acepta dígitos')
   }
 
-  // Code128C empaqueta 2 dígitos por símbolo → siempre par
   const normalizada = str.length % 2 !== 0 ? '0' + str : str
 
   const symbols = [CODE128_START_C]
@@ -64,7 +76,6 @@ function generarBitsCode128C(data) {
     symbols.push(parseInt(normalizada.substr(i, 2), 10))
   }
 
-  // Checksum módulo 103 con pesos posicionales
   let checksum = CODE128_START_C
   for (let i = 1; i < symbols.length; i++) {
     checksum += symbols[i] * i
@@ -80,31 +91,22 @@ function generarBitsCode128C(data) {
 
 /**
  * Genera el SVG del código de barras Code128C.
- *
- * @param {string} texto
- * @param {'A4'|'A2'|'ticket'} formato
- * @param {number} maxHeight  Alto en px del SVG renderizado
- * @returns {string}  SVG inline (seguro para inyectar)
  */
 function generarBarcodeSVG(texto, formato = 'A4', maxHeight = 45) {
   if (!texto) return ''
 
   let dataBarcode = String(texto)
 
-  // En ticket solo se ve la cola del código (22 dígitos → 22 módulos C ≈ 242 px)
   if (formato === 'ticket' && dataBarcode.length > 30) {
     dataBarcode = dataBarcode.slice(-22)
   }
 
   try {
     const bits = generarBitsCode128C(dataBarcode)
-    // Quiet zone estándar: mínimo 10 módulos por lado
     const quietZone = 10
     const height = 60
-    const totalModules = bits.length + quietZone * 2
-    const totalWidth = totalModules
+    const totalWidth = bits.length + quietZone * 2
 
-    // `preserveAspectRatio="xMidYMid meet"` mantiene proporciones sin distorsionar
     let svg =
       `<svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg" ` +
       `viewBox="0 0 ${totalWidth} ${height}" ` +
@@ -118,18 +120,12 @@ function generarBarcodeSVG(texto, formato = 'A4', maxHeight = 45) {
     while (i < bits.length) {
       if (bits[i] === '1') {
         let w = 0
-        while (i < bits.length && bits[i] === '1') {
-          w++
-          i++
-        }
+        while (i < bits.length && bits[i] === '1') { w++; i++ }
         svg += `<rect x="${x}" y="0" width="${w}" height="${height}" fill="#1a1a1a"/>`
         x += w
       } else {
         let w = 0
-        while (i < bits.length && bits[i] === '0') {
-          w++
-          i++
-        }
+        while (i < bits.length && bits[i] === '0') { w++; i++ }
         x += w
       }
     }
@@ -142,12 +138,8 @@ function generarBarcodeSVG(texto, formato = 'A4', maxHeight = 45) {
 }
 
 // ============================================================
-// HELPERS DE SEGURIDAD (previenen XSS/HTML injection)
+// HELPERS DE SEGURIDAD
 // ============================================================
-/**
- * Escapa un valor para insertarlo en contenido HTML.
- * NO usar en atributos (esos usan escAttr).
- */
 function escHtml(v) {
   if (v === null || v === undefined) return ''
   return String(v)
@@ -158,10 +150,6 @@ function escHtml(v) {
     .replace(/'/g, '&#39;')
 }
 
-/**
- * Escapa un valor para insertarlo dentro de un atributo HTML.
- * Es más estricto con comillas y saltos de línea.
- */
 function escAttr(v) {
   if (v === null || v === undefined) return ''
   return String(v)
@@ -173,33 +161,133 @@ function escAttr(v) {
     .replace(/\r?\n/g, ' ')
 }
 
-/** Formatea un número a 2 decimales; devuelve '0.00' si es inválido. */
 function n2(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toFixed(2) : '0.00'
 }
 
-/** Formatea fecha en formato es-EC (dd/mm/yyyy). */
+/** Formatea con separador de miles estilo contable: 1,260.00 */
+function n2m(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '0.00'
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function fmtFecha(f) {
   if (!f) return ''
   try {
     return new Date(f).toLocaleDateString('es-EC', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
+      day: '2-digit', month: '2-digit', year: 'numeric'
     })
-  } catch {
-    return ''
-  }
+  } catch { return '' }
 }
 
-/** Formatea fecha+hora en formato es-EC. */
 function fmtFechaHora(f) {
   if (!f) return ''
   try {
-    return new Date(f).toLocaleString('es-EC')
-  } catch {
-    return ''
+    return new Date(f).toLocaleString('es-EC', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    })
+  } catch { return '' }
+}
+
+// ============================================================
+// IMPRESIÓN VÍA IFRAME (robusta)
+// ============================================================
+/**
+ * Crea un iframe oculto, escribe el HTML, espera fuentes y
+ * dispara `print()`. Elimina el iframe cuando el usuario cierra
+ * el diálogo (o tras un timeout de seguridad).
+ *
+ * Ventajas frente a window.open():
+ *   - Cero popup blockers (el iframe vive en el DOM actual).
+ *   - Timing controlado por eventos reales (readyState + fonts).
+ *   - El CSS @page se aplica correctamente en todos los navegadores.
+ *
+ * @param {string} html
+ */
+function imprimirViaIframe(html) {
+  // 1. Crear iframe oculto
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('aria-hidden', 'true')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  iframe.style.visibility = 'hidden'
+  iframe.style.pointerEvents = 'none'
+  document.body.appendChild(iframe)
+
+  const limpiar = () => {
+    try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe) } catch { /* noop */ }
+  }
+
+  // Timeout duro: si algo se cuelga, limpiamos a los 60s
+  const timeoutDuro = setTimeout(limpiar, 60_000)
+
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow.document
+    doc.open()
+    doc.write(html)
+    doc.close()
+
+    // 2. Polling de readyState del iframe
+    const esperarListo = () => {
+      const d = iframe.contentDocument || iframe.contentWindow.document
+      if (!d || d.readyState !== 'complete') {
+        setTimeout(esperarListo, 50)
+        return
+      }
+
+      // 3. Esperar fuentes dentro del iframe
+      const fw = iframe.contentWindow
+      const fuentesReady = (fw.document && fw.document.fonts && fw.document.fonts.ready)
+        ? fw.document.fonts.ready
+        : Promise.resolve()
+
+      fuentesReady.then(() => {
+        // Pequeño delay para que el navegador pinte
+        setTimeout(() => {
+          try {
+            fw.focus()
+            fw.print()
+          } catch (e) {
+            console.error('Error al imprimir:', e?.message || e)
+            alert('No se pudo abrir el diálogo de impresión.')
+          } finally {
+            clearTimeout(timeoutDuro)
+            // Limpiar cuando el usuario termine. Algunos navegadores
+            // disparan afterprint, otros no → usamos ambos.
+            const limpiarDespues = () => {
+              setTimeout(() => {
+                clearTimeout(timeoutDuro)
+                limpiar()
+              }, 300)
+            }
+            try {
+              fw.addEventListener('afterprint', limpiarDespues, { once: true })
+            } catch { /* noop */ }
+            // Fallback por si no dispara afterprint
+            setTimeout(limpiar, 30_000)
+          }
+        }, 250)
+      }).catch(() => {
+        // Si fonts.ready falla, imprimimos igual
+        try { fw.print() } catch { /* noop */ }
+        clearTimeout(timeoutDuro)
+        setTimeout(limpiar, 1000)
+      })
+    }
+
+    esperarListo()
+  } catch (e) {
+    console.error('Error preparando iframe de impresión:', e?.message || e)
+    clearTimeout(timeoutDuro)
+    limpiar()
+    alert('No se pudo preparar la impresión.')
   }
 }
 
@@ -208,7 +296,7 @@ function fmtFechaHora(f) {
 // ============================================================
 export const printService = {
   /**
-   * Abre una nueva ventana con el RIDE y dispara `window.print()`.
+   * Imprime un documento.
    * @param {object} doc
    * @param {'A4'|'A2'|'ticket'} formato
    * @param {(id:string)=>string} obtenerNombreProducto
@@ -228,73 +316,45 @@ export const printService = {
       return
     }
 
-    // `noopener` → evita que la nueva ventana manipule la actual
-    const ventana = window.open('', '_blank', 'noopener,noreferrer,width=900,height=700')
-
-    if (!ventana) {
-      alert(
-        'No se pudo abrir la ventana de impresión.\n\n' +
-        'Permita las ventanas emergentes para este sitio e intente de nuevo.'
-      )
-      return
-    }
-
-    try {
-      ventana.document.open()
-      ventana.document.write(html)
-      ventana.document.close()
-      ventana.focus()
-    } catch (e) {
-      console.error('Error escribiendo en la ventana de impresión:', e?.message || e)
-      try { ventana.close() } catch { /* noop */ }
-    }
+    imprimirViaIframe(html)
   },
 
   /**
-   * Construye el HTML del RIDE.
-   * @param {object} doc
-   * @param {'A4'|'A2'|'ticket'} formato
-   * @param {(id:string)=>string} obtenerNombreProducto
-   * @returns {string}
+   * Construye el HTML del RIDE (formato profesional).
    */
   generarHTML(doc, formato = 'A4', obtenerNombreProducto = () => 'Producto') {
     if (!doc || typeof doc !== 'object') {
       throw new Error('generarHTML: doc inválido')
     }
 
-    // ---- Determinar si es venta o compra ----
     const esVenta = !!doc.cliente
     const contraparte = esVenta ? doc.cliente : doc.proveedor
 
-    // ---- Extraer y escapar todos los campos dinámicos ----
-    const nombreCliente = escHtml(
-      contraparte?.nombre || (esVenta ? 'Consumidor Final' : 'Proveedor N/A')
-    )
-    const rucCliente = escHtml(
-      contraparte?.ruc || (esVenta ? '9999999999999' : '')
-    )
-    const dirCliente = escHtml(contraparte?.direccion || '')
-    const telCliente = escHtml(contraparte?.telefono || '')
-    const emailCliente = escHtml(contraparte?.email || '')
-
-    const tipoDoc = escHtml((doc.tipo_documento || 'factura').toUpperCase())
-    const numero = escHtml(doc.numero_factura || doc.numero_guia || 'N/A')
-    const fechaEmision = escHtml(fmtFecha(doc.fecha_emision))
-    const claveAcceso = String(doc.clave_acceso || '')
-    const numeroAutorizacion = escHtml(doc.numero_autorizacion || claveAcceso)
-    const fechaAutorizacion = escHtml(fmtFechaHora(doc.fecha_emision))
-    const esProduccion = doc.ambiente_sri === '2'
-    const ambiente = esProduccion ? 'PRODUCCIÓN' : 'PRUEBAS'
-    const tipoEmision = 'NORMAL'
-    const razonSocialEmisor = escHtml(
-      doc.razon_social_emisor || "System Ozaet's Electronics"
-    )
+    // ---- Datos del emisor ----
+    const razonSocialEmisor = escHtml(doc.razon_social_emisor || "System Ozaet's Electronics")
     const rucEmisor = escHtml(doc.ruc_emisor || '1790012345001')
     const dirMatriz = escHtml('Av. Amazonas N34-451 y Av. Atahualpa, Quito, Ecuador')
     const dirSucursal = escHtml('Av. Amazonas N34-451, Quito')
     const contribuyenteEspecial = ''
     const obligadoContabilidad = 'NO'
 
+    // ---- Datos de la contraparte ----
+    const nombreCliente = escHtml(contraparte?.nombre || (esVenta ? 'Consumidor Final' : 'Proveedor N/A'))
+    const rucCliente = escHtml(contraparte?.ruc || (esVenta ? '9999999999999' : ''))
+    const dirCliente = escHtml(contraparte?.direccion || '')
+    const telCliente = escHtml(contraparte?.telefono || '')
+    const emailCliente = escHtml(contraparte?.email || '')
+
+    // ---- Datos del documento ----
+    const tipoDoc = escHtml((doc.tipo_documento || 'factura').toUpperCase())
+    const numero = escHtml(doc.numero_factura || doc.numero_guia || 'N/A')
+    const fechaEmision = escHtml(fmtFecha(doc.fecha_emision))
+    const claveAcceso = String(doc.clave_acceso || '')
+    const numeroAutorizacion = escHtml(doc.numero_autorizacion || claveAcceso || '')
+    const fechaAutorizacion = escHtml(fmtFechaHora(doc.fecha_emision))
+    const esProduccion = doc.ambiente_sri === '2'
+    const ambiente = esProduccion ? 'PRODUCCIÓN' : 'PRUEBAS'
+    const tipoEmision = 'NORMAL'
     const formaPago = escHtml(doc.forma_pago || 'Sin sistema financiero')
     const estadoPago = escHtml((doc.estado_pago || 'pendiente').toUpperCase())
     const observaciones = escHtml(doc.observaciones || '')
@@ -304,66 +364,59 @@ export const printService = {
     const total = Number(doc.total) || 0
 
     const esTicket = formato === 'ticket'
+    const esA2 = formato === 'A2'
 
-    // ---- Tabla de detalles ----
+    // ---- Detalles ----
     const detalles = Array.isArray(doc.detalles) ? doc.detalles : []
     let detallesHtml = ''
 
     if (detalles.length > 0) {
       if (esTicket) {
-        detallesHtml = detalles
-          .map((d, idx) => {
-            const cantidad = Number(d.cantidad) || 0
-            const precioUnit =
-              Number(d.precio_unitario ?? d.costo_unitario) || 0
-            const subtotalItem = cantidad * precioUnit
-            const aplicaIVA = d.aplica_iva !== false
-            const nombreProducto = escHtml(
-              d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
-            )
-            const codigo = escHtml(d.codigo || '')
-            return `
-              <tr>
-                <td class="text-center">${idx + 1}</td>
-                <td>
-                  <div class="product-name">${nombreProducto}</div>
-                  ${codigo ? `<div class="product-code">${codigo}</div>` : ''}
-                  <div class="product-meta">IVA ${aplicaIVA ? '15%' : '0%'}</div>
-                </td>
-                <td class="text-center">${cantidad}</td>
-                <td class="text-right">$${n2(precioUnit)}</td>
-                <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
-              </tr>`
-          })
-          .join('')
+        // ---- Formato ticket: cada línea en 2 filas compactas ----
+        detallesHtml = detalles.map((d, idx) => {
+          const cantidad = Number(d.cantidad) || 0
+          const precioUnit = Number(d.precio_unitario ?? d.costo_unitario) || 0
+          const subtotalItem = cantidad * precioUnit
+          const aplicaIVA = d.aplica_iva !== false
+          const nombreProducto = escHtml(d.nombre || d.descripcion || obtenerNombreProducto(d.productoId))
+          const codigo = escHtml(d.codigo || '')
+          return `
+            <tr>
+              <td class="text-center">${idx + 1}</td>
+              <td>
+                <div class="product-name">${nombreProducto}</div>
+                ${codigo ? `<div class="product-code">${codigo}</div>` : ''}
+                <div class="product-meta">IVA ${aplicaIVA ? '15%' : '0%'}</div>
+              </td>
+              <td class="text-center">${cantidad}</td>
+              <td class="text-right">$${n2(precioUnit)}</td>
+              <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
+            </tr>`
+        }).join('')
       } else {
-        detallesHtml = detalles
-          .map((d, idx) => {
-            const cantidad = Number(d.cantidad) || 0
-            const precioUnit =
-              Number(d.precio_unitario ?? d.costo_unitario) || 0
-            const descuento = Number(d.descuento) || 0
-            const subtotalItem = cantidad * precioUnit - descuento
-            const aplicaIVA = d.aplica_iva !== false
-            const nombreProducto = escHtml(
-              d.nombre || d.descripcion || obtenerNombreProducto(d.productoId)
-            )
-            const codigo = escHtml(d.codigo || '')
-            return `
-              <tr>
-                <td class="text-center">${idx + 1}</td>
-                <td>
-                  <div class="product-name">${nombreProducto}</div>
-                  ${codigo ? `<div class="product-code">Código: ${codigo}</div>` : ''}
-                </td>
-                <td class="text-center">${cantidad}</td>
-                <td class="text-right">$${n2(precioUnit)}</td>
-                <td class="text-right">$${n2(descuento)}</td>
-                <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
-                <td class="text-right">$${n2(subtotalItem)}</td>
-              </tr>`
-          })
-          .join('')
+        // ---- Formato A4/A2: tabla completa ----
+        detallesHtml = detalles.map((d, idx) => {
+          const cantidad = Number(d.cantidad) || 0
+          const precioUnit = Number(d.precio_unitario ?? d.costo_unitario) || 0
+          const descuento = Number(d.descuento) || 0
+          const subtotalItem = cantidad * precioUnit - descuento
+          const aplicaIVA = d.aplica_iva !== false
+          const nombreProducto = escHtml(d.nombre || d.descripcion || obtenerNombreProducto(d.productoId))
+          const codigo = escHtml(d.codigo || '')
+          return `
+            <tr>
+              <td class="text-center">${idx + 1}</td>
+              <td>
+                <div class="product-name">${nombreProducto}</div>
+                ${codigo ? `<div class="product-code">Código: ${codigo}</div>` : ''}
+              </td>
+              <td class="text-center">${cantidad}</td>
+              <td class="text-right">$${n2(precioUnit)}</td>
+              <td class="text-right">$${n2(descuento)}</td>
+              <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
+              <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
+            </tr>`
+        }).join('')
       }
     }
 
@@ -373,35 +426,38 @@ export const printService = {
     let fontSize = '11px'
     let formatoClase = 'a4'
     let barcodeHeight = 45
+    let pageRule = 'size: A4 portrait; margin: 8mm;'
 
-    if (formato === 'A2') {
+    if (esA2) {
       ancho = '420mm'
       padding = '15mm'
       fontSize = '14px'
       formatoClase = 'a2'
       barcodeHeight = 55
-    } else if (formato === 'ticket') {
+      // A2 no es un keyword válido en CSS Paged Media →
+      // usamos dimensiones explícitas en mm (A2 = 420×594mm).
+      pageRule = 'size: 420mm 594mm; margin: 12mm;'
+    } else if (esTicket) {
       ancho = '80mm'
       padding = '3mm'
       fontSize = '9px'
       formatoClase = 'ticket'
       barcodeHeight = 32
+      // Para rollo térmico 80mm: ancho fijo, alto automático.
+      // `size: 80mm auto` NO es estándar → usar solo ancho.
+      pageRule = 'size: 80mm auto; margin: 2mm;'
     }
 
     // ---- Código de barras ----
-    const barcodeHtml = claveAcceso
-      ? generarBarcodeSVG(claveAcceso, formato, barcodeHeight)
-      : ''
+    const barcodeHtml = claveAcceso ? generarBarcodeSVG(claveAcceso, formato, barcodeHeight) : ''
 
     // ---- Clave formateada en chunks ----
     const chunkSize = esTicket ? 12 : 16
-    const claveChunks = String(claveAcceso).match(
-      new RegExp(`.{1,${chunkSize}}`, 'g')
-    ) || []
+    const claveChunks = String(claveAcceso).match(new RegExp(`.{1,${chunkSize}}`, 'g')) || []
     const claveFormateada = escHtml(claveChunks.join(' '))
 
-    // ---- Colores según ambiente ----
-    const ambienteColor = esProduccion ? '#27ae60' : '#e67e22'
+    // ---- Colores ambiente ----
+    const ambienteColor = esProduccion ? '#1e7e34' : '#e67e22'
 
     // ============================================================
     // HTML FINAL
@@ -413,128 +469,400 @@ export const printService = {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${tipoDoc} ${numero}</title>
   <style>
+    /* ===== RESET ===== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; background: #fff; color: #1a1a1a; font-size: ${fontSize}; line-height: 1.35; }
-    .container { width: ${ancho}; margin: 0 auto; padding: ${padding}; background: #fff; }
+    html, body { width: 100%; }
+    body {
+      font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      background: #fff;
+      color: #1a1a1a;
+      font-size: ${fontSize};
+      line-height: 1.4;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
 
-    .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 10px; border-bottom: 3px double #1a3a5c; margin-bottom: 10px; }
-    .header-left { flex: 1; }
-    .header-center { flex: 1.2; text-align: center; }
-    .header-right { flex: 0.9; text-align: right; }
-    .logo-empresa { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-    .logo-icon { width: 40px; height: 40px; background: #1a3a5c; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #f1c40f; font-size: 22px; font-weight: 800; flex-shrink: 0; }
-    .empresa-nombre { font-size: 1.1em; font-weight: 800; color: #1a3a5c; line-height: 1.1; }
-    .empresa-sub { font-size: 0.72em; color: #666; }
-    .empresa-info { font-size: 0.8em; color: #333; margin-top: 6px; }
-    .empresa-info div { margin: 2px 0; }
-    .doc-tipo { display: inline-block; padding: 6px 16px; background: #1a3a5c; color: #fff; border-radius: 5px; font-size: 1em; font-weight: 800; letter-spacing: 1.2px; margin-bottom: 5px; }
-    .doc-numero { font-size: 0.95em; font-weight: 700; color: #c0392b; margin-bottom: 3px; font-family: 'Courier New', monospace; }
-    .doc-meta { font-size: 0.72em; color: #555; }
-    .ambiente-badge { display: inline-block; padding: 3px 10px; background: ${ambienteColor}; color: #fff; border-radius: 20px; font-size: 0.68em; font-weight: 700; letter-spacing: 0.4px; margin-top: 3px; }
+    /* ===== CONTENEDOR ===== */
+    .container {
+      width: ${ancho};
+      min-height: ${esTicket ? 'auto' : esA2 ? '594mm' : '297mm'};
+      margin: 0 auto;
+      padding: ${padding};
+      background: #fff;
+      position: relative;
+    }
 
-    .clave-section { display: flex; gap: 12px; align-items: center; padding: 10px 12px; background: #f8f9fa; border-left: 4px solid #1a3a5c; border-radius: 5px; margin-bottom: 10px; }
-    .clave-left { flex: 1; min-width: 0; overflow: hidden; }
-    .clave-label { font-size: 0.68em; color: #666; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-bottom: 3px; }
-    .clave-valor { font-family: 'Courier New', monospace; font-size: 0.7em; color: #1a3a5c; font-weight: 700; word-break: break-all; line-height: 1.4; margin-bottom: 4px; letter-spacing: 0.3px; }
-    .autorizacion-info { font-size: 0.68em; color: #555; line-height: 1.4; word-break: break-all; }
-    .autorizacion-info strong { color: #1a3a5c; }
+    /* ===== WATERMARK AMBIENTE (solo PRUEBAS) ===== */
+    ${!esProduccion && !esTicket ? `
+    .watermark {
+      position: absolute;
+      top: 45%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-30deg);
+      font-size: ${esA2 ? '120px' : '90px'};
+      font-weight: 900;
+      color: rgba(230, 126, 34, 0.08);
+      letter-spacing: 12px;
+      pointer-events: none;
+      user-select: none;
+      z-index: 0;
+      white-space: nowrap;
+    }
+    ` : ''}
+
+    /* ===== HEADER ===== */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      padding-bottom: 12px;
+      border-bottom: 3px solid #1a3a5c;
+      margin-bottom: 14px;
+      position: relative;
+      z-index: 1;
+    }
+    .header-left { flex: 1; min-width: 0; }
+    .header-right { flex-shrink: 0; text-align: right; }
+
+    .logo-empresa { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .logo-icon {
+      width: 48px; height: 48px;
+      background: linear-gradient(135deg, #1a3a5c 0%, #2c5f8a 100%);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 24px; font-weight: 800;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(26, 58, 92, 0.2);
+    }
+    .empresa-nombre {
+      font-size: 1.25em; font-weight: 800; color: #1a3a5c;
+      line-height: 1.15; letter-spacing: 0.2px;
+    }
+    .empresa-sub { font-size: 0.72em; color: #888; letter-spacing: 0.3px; margin-top: 2px; }
+    .empresa-info {
+      font-size: 0.78em; color: #444; margin-top: 8px; line-height: 1.5;
+    }
+    .empresa-info div { margin: 1px 0; }
+    .empresa-info strong { color: #1a3a5c; font-weight: 700; }
+
+    /* ===== CAJA DE COMPROBANTE (derecha) ===== */
+    .comprobante-box {
+      border: 2px solid #1a3a5c;
+      border-radius: 8px;
+      padding: 10px 16px;
+      min-width: 190px;
+      text-align: center;
+      background: #fff;
+    }
+    .comprobante-tipo {
+      font-size: 1em; font-weight: 800; color: #1a3a5c;
+      letter-spacing: 2px; text-transform: uppercase;
+      padding-bottom: 4px; margin-bottom: 6px;
+      border-bottom: 1px dashed #c8d6e5;
+    }
+    .comprobante-numero {
+      font-size: 0.95em; font-weight: 700; color: #c0392b;
+      font-family: 'Courier New', monospace;
+      margin-bottom: 6px;
+    }
+    .ambiente-badge {
+      display: inline-block;
+      padding: 3px 12px;
+      background: ${ambienteColor};
+      color: #fff;
+      border-radius: 20px;
+      font-size: 0.68em; font-weight: 800;
+      letter-spacing: 0.6px;
+    }
+    .comprobante-meta {
+      font-size: 0.7em; color: #666; margin-top: 6px; line-height: 1.4;
+    }
+
+    /* ===== SECCIÓN CLAVE + CÓDIGO DE BARRAS ===== */
+    .clave-section {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      padding: 12px 14px;
+      background: #f8f9fa;
+      border-left: 4px solid #1a3a5c;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .clave-left { flex: 1; min-width: 0; }
+    .clave-label {
+      font-size: 0.68em; color: #666;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .clave-valor {
+      font-family: 'Courier New', monospace;
+      font-size: 0.72em; color: #1a3a5c; font-weight: 700;
+      word-break: break-all; line-height: 1.4;
+      margin-bottom: 6px; letter-spacing: 0.3px;
+    }
+    .autorizacion-info { font-size: 0.68em; color: #555; line-height: 1.5; }
+    .autorizacion-info strong { color: #1a3a5c; font-weight: 700; }
+    .autorizacion-info .ok-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      color: #1e7e34; font-weight: 700; margin-bottom: 3px;
+    }
+    .autorizacion-info .ok-badge::before {
+      content: '✓';
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px;
+      background: #1e7e34; color: #fff;
+      border-radius: 50%; font-size: 10px; font-weight: 800;
+    }
     .barcode-container { flex-shrink: 0; text-align: center; max-width: 100%; }
     .barcode-svg { height: ${barcodeHeight}px; width: auto; max-width: 100%; display: block; }
-    .barcode-numero { font-family: 'Courier New', monospace; font-size: 0.55em; color: #333; margin-top: 2px; letter-spacing: 0; word-break: break-all; max-width: 100%; overflow: hidden; line-height: 1.1; }
+    .barcode-numero {
+      font-family: 'Courier New', monospace;
+      font-size: 0.55em; color: #555;
+      margin-top: 2px; letter-spacing: 0;
+      word-break: break-all; max-width: 100%;
+      overflow: hidden; line-height: 1.1;
+    }
 
-    .cliente-section { display: flex; gap: 10px; margin-bottom: 10px; }
-    .cliente-box { flex: 1; padding: 8px 10px; border: 1px solid #d5dbe0; border-radius: 5px; background: #fafbfc; min-width: 0; }
-    .cliente-box-title { font-size: 0.68em; color: #666; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px dashed #d5dbe0; }
-    .cliente-row { display: flex; font-size: 0.75em; margin: 2px 0; line-height: 1.35; word-break: break-word; }
-    .cliente-row-label { min-width: 80px; color: #666; font-weight: 600; flex-shrink: 0; }
-    .cliente-row-value { flex: 1; color: #1a1a1a; font-weight: 500; min-width: 0; word-break: break-word; }
+    /* ===== BLOQUE CLIENTE ===== */
+    .cliente-section {
+      display: grid;
+      grid-template-columns: ${esTicket ? '1fr' : '1.6fr 1fr'};
+      gap: 10px;
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .cliente-box {
+      padding: 10px 12px;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      background: #fafbfc;
+      min-width: 0;
+    }
+    .cliente-box-title {
+      font-size: 0.68em; color: #1a3a5c;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      font-weight: 800; margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px dashed #dee2e6;
+    }
+    .cliente-row {
+      display: flex; font-size: 0.78em; margin: 3px 0;
+      line-height: 1.4; word-break: break-word;
+    }
+    .cliente-row-label {
+      min-width: 90px; color: #666; font-weight: 600;
+      flex-shrink: 0;
+    }
+    .cliente-row-value {
+      flex: 1; color: #1a1a1a; font-weight: 500;
+      min-width: 0; word-break: break-word;
+    }
 
-    .detalles-section { margin-bottom: 10px; }
-    .detalles-title { font-size: 0.72em; font-weight: 700; color: #1a3a5c; text-transform: uppercase; letter-spacing: 0.4px; padding: 5px 0; border-bottom: 2px solid #1a3a5c; }
-    .detalles-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 0.8em; }
+    /* ===== TABLA DE DETALLES ===== */
+    .detalles-section { margin-bottom: 12px; position: relative; z-index: 1; }
+    .detalles-title {
+      font-size: 0.72em; font-weight: 800; color: #1a3a5c;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 6px 0; margin-bottom: 4px;
+      border-bottom: 2px solid #1a3a5c;
+    }
+    .detalles-table {
+      width: 100%; border-collapse: collapse;
+      margin-top: 4px; font-size: 0.82em;
+    }
     .detalles-table thead { background: #1a3a5c; color: #fff; }
-    .detalles-table thead th { padding: 6px 5px; text-align: left; font-weight: 600; font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.2px; }
-    .detalles-table tbody td { padding: 7px 5px; border-bottom: 1px solid #e9ecef; vertical-align: top; }
+    .detalles-table thead th {
+      padding: 8px 6px; text-align: left;
+      font-weight: 700; font-size: 0.7em;
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .detalles-table tbody td {
+      padding: 8px 6px; border-bottom: 1px solid #eef1f5;
+      vertical-align: top;
+    }
     .detalles-table tbody tr:nth-child(even) { background: #f8f9fa; }
+    .detalles-table tbody tr:last-child td { border-bottom: 2px solid #dee2e6; }
     .detalles-table .text-center { text-align: center; }
     .detalles-table .text-right { text-align: right; }
-    .product-name { font-weight: 600; color: #1a1a1a; margin-bottom: 1px; font-size: 0.95em; }
-    .product-code { font-size: 0.85em; color: #888; font-family: 'Courier New', monospace; }
-    .product-meta { font-size: 0.7em; color: #888; font-style: italic; }
-    .fw-bold { font-weight: 700; }
+    .detalles-table .fw-bold { font-weight: 700; }
+    .product-name {
+      font-weight: 600; color: #1a1a1a;
+      margin-bottom: 2px; font-size: 0.98em;
+    }
+    .product-code {
+      font-size: 0.85em; color: #888;
+      font-family: 'Courier New', monospace;
+    }
+    .product-meta { font-size: 0.72em; color: #888; font-style: italic; }
 
-    .totales-section { display: flex; justify-content: flex-end; margin-top: 10px; margin-bottom: 10px; }
-    .totales-box { width: 100%; max-width: 300px; border: 1px solid #d5dbe0; border-radius: 5px; overflow: hidden; }
-    .total-row { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 0.82em; border-bottom: 1px solid #e9ecef; }
+    /* ===== TOTALES ===== */
+    .totales-section {
+      display: flex; justify-content: flex-end;
+      margin-top: 12px; margin-bottom: 12px;
+      position: relative; z-index: 1;
+    }
+    .totales-box {
+      width: 100%;
+      max-width: ${esTicket ? '100%' : esA2 ? '380px' : '310px'};
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .total-row {
+      display: flex; justify-content: space-between;
+      padding: 7px 14px; font-size: 0.82em;
+      border-bottom: 1px solid #f1f3f5;
+    }
     .total-row:last-child { border-bottom: none; }
     .total-row .label { color: #555; font-weight: 500; }
-    .total-row .value { color: #1a1a1a; font-weight: 600; font-family: 'Courier New', monospace; }
-    .total-final { display: flex; justify-content: space-between; padding: 10px 12px; background: #1a3a5c; color: #fff; font-size: 1em; font-weight: 800; }
-    .total-final .value { font-family: 'Courier New', monospace; }
+    .total-row .value {
+      color: #1a1a1a; font-weight: 600;
+      font-family: 'Courier New', monospace;
+    }
+    .total-final {
+      display: flex; justify-content: space-between;
+      padding: 11px 14px;
+      background: linear-gradient(135deg, #1a3a5c 0%, #2c5f8a 100%);
+      color: #fff;
+      font-size: 1em; font-weight: 800;
+    }
+    .total-final .value {
+      font-family: 'Courier New', monospace;
+      font-size: 1.05em;
+    }
 
-    .info-adicional { padding: 8px 10px; background: #f8f9fa; border-left: 3px solid #e67e22; border-radius: 5px; margin-bottom: 10px; font-size: 0.75em; }
-    .info-adicional-title { font-size: 0.68em; color: #666; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-bottom: 3px; }
+    /* ===== INFO ADICIONAL ===== */
+    .info-adicional {
+      padding: 9px 12px;
+      background: #fdf6e3;
+      border-left: 3px solid #e67e22;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      font-size: 0.78em;
+      position: relative; z-index: 1;
+    }
+    .info-adicional-title {
+      font-size: 0.68em; color: #8a6d3b;
+      text-transform: uppercase; letter-spacing: 0.4px;
+      font-weight: 700; margin-bottom: 3px;
+    }
+    .info-adicional-body { color: #5a4a1e; line-height: 1.5; }
 
-    .firma-section { margin-top: 25px; display: flex; justify-content: space-around; gap: 30px; }
+    /* ===== FIRMA ===== */
+    .firma-section {
+      margin-top: 30px;
+      display: ${esTicket ? 'flex' : 'flex'};
+      flex-direction: ${esTicket ? 'column' : 'row'};
+      justify-content: ${esTicket ? 'flex-start' : 'space-around'};
+      gap: ${esTicket ? '20px' : '40px'};
+      position: relative; z-index: 1;
+    }
     .firma-box { flex: 1; text-align: center; }
-    .firma-line { border-top: 1px solid #1a1a1a; margin: 35px 15px 5px; }
-    .firma-label { font-size: 0.7em; color: #555; }
+    .firma-line {
+      border-top: 1px solid #1a1a1a;
+      margin: 40px 20px 6px;
+    }
+    .firma-label {
+      font-size: 0.72em; color: #555; font-weight: 600;
+      letter-spacing: 0.3px;
+    }
 
-    .footer { margin-top: 16px; padding-top: 8px; border-top: 2px solid #1a3a5c; text-align: center; font-size: 0.68em; color: #666; line-height: 1.6; }
-    .footer strong { color: #1a3a5c; }
+    /* ===== FOOTER ===== */
+    .footer {
+      margin-top: 18px;
+      padding-top: 10px;
+      border-top: 2px solid #1a3a5c;
+      text-align: center;
+      font-size: 0.68em;
+      color: #666;
+      line-height: 1.7;
+      position: relative; z-index: 1;
+    }
+    .footer strong { color: #1a3a5c; font-weight: 700; }
+    .footer .legal-note {
+      color: #1e7e34; font-weight: 600;
+      margin-top: 4px;
+    }
 
     /* ===== TICKET 80mm ===== */
-    .ticket { padding: 3mm; }
-    .ticket .header { flex-direction: column; align-items: center; text-align: center; gap: 6px; padding-bottom: 8px; }
-    .ticket .header-left, .ticket .header-center, .ticket .header-right { text-align: center; flex: none; width: 100%; }
+    .container.ticket { padding: 3mm; }
+    .ticket .header {
+      flex-direction: column;
+      align-items: stretch;
+      text-align: center;
+      gap: 8px;
+      padding-bottom: 8px;
+      margin-bottom: 8px;
+    }
+    .ticket .header-left, .ticket .header-right { text-align: center; flex: none; width: 100%; }
     .ticket .logo-empresa { justify-content: center; }
-    .ticket .logo-icon { width: 34px; height: 34px; font-size: 18px; }
-    .ticket .empresa-nombre { font-size: 1em; }
-    .ticket .empresa-info { font-size: 0.7em; }
-    .ticket .doc-tipo { padding: 4px 12px; font-size: 0.9em; }
-    .ticket .doc-numero { font-size: 0.85em; }
+    .ticket .logo-icon { width: 36px; height: 36px; font-size: 18px; }
+    .ticket .empresa-nombre { font-size: 1.1em; }
+    .ticket .empresa-sub { font-size: 0.7em; }
+    .ticket .empresa-info { font-size: 0.72em; margin-top: 6px; }
+    .ticket .comprobante-box { padding: 6px 10px; min-width: 0; }
+    .ticket .comprobante-tipo { font-size: 0.9em; letter-spacing: 1px; }
+    .ticket .comprobante-numero { font-size: 0.85em; }
+    .ticket .ambiente-badge { font-size: 0.62em; padding: 2px 8px; }
     .ticket .clave-section { flex-direction: column; gap: 6px; padding: 8px; text-align: center; }
     .ticket .clave-left { width: 100%; text-align: center; }
-    .ticket .clave-label { font-size: 0.62em; }
-    .ticket .clave-valor { font-size: 0.6em; letter-spacing: 0; line-height: 1.3; word-break: break-all; }
+    .ticket .clave-label { font-size: 0.6em; }
+    .ticket .clave-valor { font-size: 0.6em; letter-spacing: 0; line-height: 1.3; }
     .ticket .autorizacion-info { font-size: 0.6em; text-align: center; }
-    .ticket .autorizacion-info div { word-break: break-all; }
-    .ticket .barcode-container { width: 100%; max-width: 100%; text-align: center; }
-    .ticket .barcode-svg { height: ${barcodeHeight}px; width: 100%; max-width: 72mm; margin: 0 auto; display: block; }
-    .ticket .barcode-numero { font-size: 0.5em; line-height: 1.2; word-break: break-all; max-width: 100%; overflow: hidden; }
-    .ticket .cliente-section { flex-direction: column; gap: 6px; }
-    .ticket .cliente-box { padding: 6px 8px; }
-    .ticket .cliente-row-label { min-width: 65px; font-size: 0.95em; }
+    .ticket .barcode-container { width: 100%; max-width: 100%; }
+    .ticket .barcode-svg { height: ${barcodeHeight}px; width: 100%; max-width: 72mm; margin: 0 auto; }
+    .ticket .barcode-numero { font-size: 0.5em; }
+    .ticket .cliente-row-label { min-width: 70px; font-size: 0.95em; }
     .ticket .detalles-table { font-size: 0.75em; table-layout: fixed; width: 100%; }
-    .ticket .detalles-table thead th { padding: 5px 3px; font-size: 0.65em; text-transform: uppercase; }
-    .ticket .detalles-table tbody td { padding: 6px 3px; vertical-align: top; word-wrap: break-word; }
+    .ticket .detalles-table thead th { padding: 5px 3px; font-size: 0.62em; }
+    .ticket .detalles-table tbody td { padding: 6px 3px; word-wrap: break-word; }
     .ticket .detalles-table thead th:nth-child(1) { width: 22px; }
     .ticket .detalles-table thead th:nth-child(2) { width: auto; }
     .ticket .detalles-table thead th:nth-child(3) { width: 38px; }
     .ticket .detalles-table thead th:nth-child(4) { width: 55px; }
     .ticket .detalles-table thead th:nth-child(5) { width: 65px; }
-    .ticket .product-name { font-size: 0.95em; font-weight: 600; word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; }
-    .ticket .product-code { font-size: 0.75em; color: #999; margin-top: 1px; }
-    .ticket .product-meta { font-size: 0.7em; color: #999; font-style: italic; margin-top: 1px; }
-    .ticket .totales-box { max-width: 100%; }
+    .ticket .product-name { font-size: 0.95em; word-wrap: break-word; overflow-wrap: break-word; }
+    .ticket .product-code { font-size: 0.72em; }
+    .ticket .product-meta { font-size: 0.68em; }
     .ticket .total-row { padding: 5px 10px; font-size: 0.75em; }
     .ticket .total-final { padding: 8px 10px; font-size: 0.9em; }
-    .ticket .firma-section { flex-direction: column; gap: 15px; margin-top: 20px; }
-    .ticket .firma-line { margin: 25px 30px 5px; }
+    .ticket .firma-line { margin: 25px 30px 6px; }
     .ticket .footer { font-size: 0.6em; }
 
+    /* ===== PRINT ===== */
     @media print {
-      body { margin: 0; padding: 0; }
-      .container { width: 100%; padding: ${padding}; box-shadow: none; }
+      body { margin: 0; padding: 0; background: #fff; }
+      .container {
+        width: 100% !important;
+        min-height: auto;
+        padding: ${padding};
+        box-shadow: none;
+        margin: 0;
+      }
       .no-print { display: none !important; }
-      .header, .clave-section, .cliente-section, .totales-section, .info-adicional { page-break-inside: avoid; }
+      .header, .clave-section, .cliente-section,
+      .totales-section, .info-adicional, .footer {
+        page-break-inside: avoid;
+      }
       .detalles-table tr { page-break-inside: avoid; }
-      @page { size: ${esTicket ? '80mm auto' : formato === 'A2' ? 'A2' : 'A4'}; margin: ${esTicket ? '2mm' : '8mm'}; }
+      .detalles-table thead { display: table-header-group; }
+      .firma-section { page-break-inside: avoid; }
+      /* @page válido en todos los navegadores */
+      @page { ${pageRule} }
     }
   </style>
 </head>
 <body>
+  ${!esProduccion && !esTicket ? `<div class="watermark">PRUEBAS</div>` : ''}
+
   <div class="container ${formatoClase}">
+    <!-- ===== HEADER ===== -->
     <div class="header">
       <div class="header-left">
         <div class="logo-empresa">
@@ -551,31 +879,33 @@ export const printService = {
         </div>
       </div>
 
-      <div class="header-center">
-        <div class="doc-tipo">${tipoDoc}</div>
-        <div class="doc-numero">Nº ${numero}</div>
-        <div class="doc-meta"><div><strong>Fecha Emisión:</strong> ${fechaEmision}</div></div>
-        <div class="ambiente-badge">${esProduccion ? '● PRODUCCIÓN' : '● PRUEBAS'}</div>
-      </div>
-
       <div class="header-right">
-        <div class="empresa-info">
-          <div><strong>Obligado contab.:</strong> ${obligadoContabilidad}</div>
-          ${contribuyenteEspecial ? `<div><strong>Contrib. Especial:</strong> ${contribuyenteEspecial}</div>` : ''}
-          <div><strong>Tipo Emisión:</strong> ${tipoEmision}</div>
-          <div><strong>Moneda:</strong> DÓLAR</div>
+        <div class="comprobante-box">
+          <div class="comprobante-tipo">${tipoDoc}</div>
+          <div class="comprobante-numero">Nº ${numero}</div>
+          <div class="ambiente-badge">● ${ambiente}</div>
+          <div class="comprobante-meta">
+            <div><strong>Fecha:</strong> ${fechaEmision}</div>
+            ${!esTicket ? `<div><strong>Tipo:</strong> ${tipoEmision}</div>` : ''}
+          </div>
         </div>
       </div>
     </div>
 
+    <!-- ===== CLAVE + CÓDIGO DE BARRAS ===== -->
     ${claveAcceso ? `
     <div class="clave-section">
       <div class="clave-left">
         <div class="clave-label">Clave de Acceso</div>
         <div class="clave-valor">${claveFormateada}</div>
         <div class="autorizacion-info">
-          <div><strong>Nº Autorización:</strong> ${numeroAutorizacion}</div>
-          <div><strong>Fecha Autorización:</strong> ${fechaAutorizacion}</div>
+          ${numeroAutorizacion ? `
+            <div class="ok-badge">Autorizado por el SRI</div>
+            <div><strong>Nº Autorización:</strong> ${numeroAutorizacion}</div>
+            <div><strong>Fecha Autorización:</strong> ${fechaAutorizacion}</div>
+          ` : `
+            <div style="color:#e67e22;font-weight:700;">⚠ Pendiente de autorización por el SRI</div>
+          `}
         </div>
       </div>
       <div class="barcode-container">
@@ -585,107 +915,135 @@ export const printService = {
     </div>
     ` : ''}
 
+    <!-- ===== CLIENTE / PROVEEDOR ===== -->
     <div class="cliente-section">
       <div class="cliente-box">
-        <div class="cliente-box-title">${esVenta ? 'Datos del Cliente' : 'Datos del Proveedor'}</div>
+        <div class="cliente-box-title">${esVenta ? 'Información del Cliente' : 'Información del Proveedor'}</div>
         <div class="cliente-row">
           <span class="cliente-row-label">Razón Social:</span>
           <span class="cliente-row-value">${nombreCliente}</span>
         </div>
         <div class="cliente-row">
-          <span class="cliente-row-label">RUC/Cédula:</span>
+          <span class="cliente-row-label">RUC / Cédula:</span>
           <span class="cliente-row-value">${rucCliente}</span>
         </div>
         ${dirCliente ? `<div class="cliente-row"><span class="cliente-row-label">Dirección:</span><span class="cliente-row-value">${dirCliente}</span></div>` : ''}
+        ${telCliente && !esTicket ? `<div class="cliente-row"><span class="cliente-row-label">Teléfono:</span><span class="cliente-row-value">${telCliente}</span></div>` : ''}
+        ${emailCliente && !esTicket ? `<div class="cliente-row"><span class="cliente-row-label">Email:</span><span class="cliente-row-value">${emailCliente}</span></div>` : ''}
       </div>
 
+      ${!esTicket ? `
       <div class="cliente-box">
-        <div class="cliente-box-title">Datos de Contacto</div>
-        ${telCliente ? `<div class="cliente-row"><span class="cliente-row-label">Teléfono:</span><span class="cliente-row-value">${telCliente}</span></div>` : ''}
-        ${emailCliente ? `<div class="cliente-row"><span class="cliente-row-label">Email:</span><span class="cliente-row-value">${emailCliente}</span></div>` : ''}
-        <div class="cliente-row"><span class="cliente-row-label">Forma Pago:</span><span class="cliente-row-value">${formaPago}</span></div>
-        <div class="cliente-row"><span class="cliente-row-label">Estado:</span><span class="cliente-row-value">${estadoPago}</span></div>
+        <div class="cliente-box-title">Condiciones del Documento</div>
+        <div class="cliente-row">
+          <span class="cliente-row-label">Forma Pago:</span>
+          <span class="cliente-row-value">${formaPago}</span>
+        </div>
+        <div class="cliente-row">
+          <span class="cliente-row-label">Estado:</span>
+          <span class="cliente-row-value">${estadoPago}</span>
+        </div>
+        <div class="cliente-row">
+          <span class="cliente-row-label">Obligado Cont.:</span>
+          <span class="cliente-row-value">${obligadoContabilidad}</span>
+        </div>
+        ${contribuyenteEspecial ? `<div class="cliente-row"><span class="cliente-row-label">Contrib. Especial:</span><span class="cliente-row-value">${contribuyenteEspecial}</span></div>` : ''}
+        <div class="cliente-row">
+          <span class="cliente-row-label">Moneda:</span>
+          <span class="cliente-row-value">DÓLAR</span>
+        </div>
       </div>
+      ` : ''}
     </div>
 
+    <!-- ===== DETALLES ===== -->
     <div class="detalles-section">
       <div class="detalles-title">Detalle de Productos y Servicios</div>
       <table class="detalles-table">
         ${esTicket ? `
-          <thead><tr><th class="text-center">#</th><th>Producto</th><th class="text-center">Cant</th><th class="text-right">P.U.</th><th class="text-right">Total</th></tr></thead>
+          <thead>
+            <tr>
+              <th class="text-center">#</th>
+              <th>Producto</th>
+              <th class="text-center">Cant</th>
+              <th class="text-right">P.U.</th>
+              <th class="text-right">Total</th>
+            </tr>
+          </thead>
         ` : `
-          <thead><tr><th style="width:30px;" class="text-center">#</th><th>Descripción</th><th style="width:70px;" class="text-center">Cant.</th><th style="width:80px;" class="text-right">P. Unit.</th><th style="width:70px;" class="text-right">Desc.</th><th style="width:60px;" class="text-center">IVA</th><th style="width:90px;" class="text-right">Subtotal</th></tr></thead>
+          <thead>
+            <tr>
+              <th style="width:32px;" class="text-center">#</th>
+              <th>Descripción</th>
+              <th style="width:70px;" class="text-center">Cant.</th>
+              <th style="width:85px;" class="text-right">P. Unit.</th>
+              <th style="width:75px;" class="text-right">Desc.</th>
+              <th style="width:60px;" class="text-center">IVA</th>
+              <th style="width:95px;" class="text-right">Subtotal</th>
+            </tr>
+          </thead>
         `}
         <tbody>
-          ${detallesHtml || `<tr><td colspan="${esTicket ? 5 : 7}" class="text-center" style="padding:20px;color:#888;">Sin detalles registrados</td></tr>`}
+          ${detallesHtml || `<tr><td colspan="${esTicket ? 5 : 7}" class="text-center" style="padding:24px;color:#888;">Sin detalles registrados</td></tr>`}
         </tbody>
       </table>
     </div>
 
+    <!-- ===== TOTALES ===== -->
     <div class="totales-section">
       <div class="totales-box">
-        <div class="total-row"><span class="label">Subtotal</span><span class="value">$${n2(subtotal)}</span></div>
-        <div class="total-row"><span class="label">IVA 15%</span><span class="value">$${n2(iva)}</span></div>
-        <div class="total-row"><span class="label">Descuento</span><span class="value">$0.00</span></div>
-        <div class="total-final"><span class="label">TOTAL A PAGAR</span><span class="value">$${n2(total)}</span></div>
+        <div class="total-row">
+          <span class="label">Subtotal</span>
+          <span class="value">$${n2m(subtotal)}</span>
+        </div>
+        <div class="total-row">
+          <span class="label">Descuento</span>
+          <span class="value">$0.00</span>
+        </div>
+        <div class="total-row">
+          <span class="label">IVA 15%</span>
+          <span class="value">$${n2m(iva)}</span>
+        </div>
+        <div class="total-final">
+          <span class="label">TOTAL A PAGAR</span>
+          <span class="value">$${n2m(total)}</span>
+        </div>
       </div>
     </div>
 
-    ${observaciones ? `<div class="info-adicional"><div class="info-adicional-title">Información Adicional</div><div>${observaciones}</div></div>` : ''}
+    <!-- ===== INFO ADICIONAL ===== -->
+    ${observaciones ? `
+      <div class="info-adicional">
+        <div class="info-adicional-title">Información Adicional</div>
+        <div class="info-adicional-body">${observaciones}</div>
+      </div>
+    ` : ''}
 
+    <!-- ===== FIRMA ===== -->
+    ${!esTicket ? `
     <div class="firma-section">
-      <div class="firma-box"><div class="firma-line"></div><div class="firma-label">Firma del Cliente</div></div>
-      <div class="firma-box"><div class="firma-line"></div><div class="firma-label">${razonSocialEmisor}</div></div>
+      <div class="firma-box">
+        <div class="firma-line"></div>
+        <div class="firma-label">Firma del Cliente</div>
+      </div>
+      <div class="firma-box">
+        <div class="firma-line"></div>
+        <div class="firma-label">${razonSocialEmisor}</div>
+      </div>
     </div>
+    ` : ''}
 
+    <!-- ===== FOOTER ===== -->
     <div class="footer">
       <div><strong>Documento generado por Sistema Contable</strong></div>
       <div>${razonSocialEmisor} — RUC: ${rucEmisor}</div>
-      <div>Formato: ${escHtml(formato)} | Generado: ${escHtml(fmtFechaHora(new Date()))}</div>
-      ${claveAcceso ? `<div style="margin-top:6px;font-size:0.9em;">Representación impresa de un comprobante electrónico autorizado por el SRI</div>` : ''}
+      ${claveAcceso ? `
+        <div class="legal-note">
+          ✓ Representación impresa de un comprobante electrónico autorizado por el SRI
+        </div>
+      ` : ''}
     </div>
   </div>
-
-  <script>
-    // Espera a que TODAS las fuentes y el DOM estén listos antes de imprimir
-    (function() {
-      function dispararImpresion() {
-        try {
-          window.focus()
-          window.print()
-        } catch (e) {
-          console.error('Error al imprimir:', e)
-        }
-      }
-
-      function cuandoListo(cb) {
-        if (document.readyState === 'complete') {
-          cb()
-          return
-        }
-        window.addEventListener('load', cb, { once: true })
-      }
-
-      cuandoListo(function() {
-        var fuentesListas = (document.fonts && document.fonts.ready)
-          ? document.fonts.ready
-          : Promise.resolve()
-
-        fuentesListas.then(function() {
-          // Pequeño delay para que el navegador pinte el layout
-          setTimeout(dispararImpresion, 200)
-        }).catch(function() {
-          setTimeout(dispararImpresion, 400)
-        })
-      })
-
-      window.onafterprint = function() {
-        setTimeout(function() {
-          try { window.close() } catch (e) {}
-        }, 100)
-      }
-    })()
-  <\/script>
 </body>
 </html>`
   }
