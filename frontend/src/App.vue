@@ -85,6 +85,7 @@ import OnboardingTour from './components/OnboardingTour.vue'
 import { useInactivityTimeout } from './composables/useInactivityTimeout'
 import { usePermisos } from './composables/usePermisos'
 import { useOnboarding } from './composables/useOnboarding'
+import { useAuth } from './composables/useAuth'
 
 // ============================================================
 // DEPENDENCIAS
@@ -107,13 +108,9 @@ const isLoginPage = computed(() => route.path === '/login')
  * de `token` en localStorage. El backend usa cookies httpOnly,
  * así que el frontend NUNCA debe almacenar el JWT.
  */
-const isAuthenticated = computed(() => {
-  try {
-    return localStorage.getItem('auth_hint') === '1'
-  } catch {
-    return false
-  }
-})
+// ✅ DESPUÉS
+
+const { user, isAuthenticated } = useAuth()
 
 const onboardingProgramado = ref(false)
 

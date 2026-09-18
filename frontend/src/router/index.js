@@ -482,7 +482,6 @@ router.beforeEach(async (to) => {
 
   // ---- 3. Redirigir desde /login si ya hay sesión ----
   if (to.path === '/login' && tieneHint) {
-    // Validar que el redirect sea seguro (evita open-redirect)
     const queryRedirect = to.query?.redirect
     const destino = esRedirectSeguro(queryRedirect) ? queryRedirect : '/'
     return destino
@@ -496,25 +495,27 @@ router.beforeEach(async (to) => {
     }
   }
 
-  // ---- 5. Verificar permisos específicos ----
-  if (to.meta?.modulo && to.meta?.accion) {
+  // ---- 5. 🆕 Cargar permisos SIEMPRE que sea ruta protegida ----
+  // (Antes solo se cargaban si la ruta tenía `meta.modulo`.
+  //  Eso dejaba el Dashboard con permisos vacíos tras un
+  //  logout/login sin recargar la página.)
+  if (!esPublica) {
     try {
       const { cargarPermisos, puede } = usePermisos()
       await cargarPermisos()
 
-      if (!puede(to.meta.modulo, to.meta.accion)) {
-        // Log estructurado en lugar de console.warn suelto
-        if (import.meta.env.DEV) {
-          console.warn(
-            `🚫 Acceso denegado a ${to.path} — falta "${to.meta.modulo}:${to.meta.accion}"`
-          )
+      // Verificación específica de permisos si la ruta lo pide
+      if (to.meta?.modulo && to.meta?.accion) {
+        if (!puede(to.meta.modulo, to.meta.accion)) {
+          if (import.meta.env.DEV) {
+            console.warn(
+              `🚫 Acceso denegado a ${to.path} — falta "${to.meta.modulo}:${to.meta.accion}"`
+            )
+          }
+          return '/'
         }
-        // Redirigir al home (donde el usuario sí tiene acceso)
-        return '/'
       }
     } catch (e) {
-      // Si falla la carga de permisos → sesión inválida probable
-      // (el composable ya limpia su cache en error 401)
       if (import.meta.env.DEV) {
         console.warn('⚠️ Error verificando permisos:', e?.message || e)
       }
@@ -527,7 +528,6 @@ router.beforeEach(async (to) => {
     }
   }
 
-  // Todo OK
   return true
 })
 

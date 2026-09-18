@@ -117,6 +117,24 @@ export function useAuth() {
       usePermisos().limpiarCache()
     } catch { /* noop */ }
 
+    // 🆕 3.5 Invalidar cache de estadísticas.
+    //     Sin esto, después de un logout + login (sin recargar la
+    //     página), el nuevo usuario ve las estadísticas del anterior.
+    //     Además, el Dashboard no vuelve a pedirlas porque cree que
+    //     siguen vigentes (cache de 60s).
+    try {
+      const { useEstadisticas } = await import('./useEstadisticas')
+      useEstadisticas().invalidarCache()
+    } catch { /* noop */ }
+
+    // 🆕 3.6 Invalidar cache de catálogos SRI.
+    //     Los catálogos del SRI son iguales para todos los usuarios
+    //     pero por consistencia los limpiamos al cambiar de sesión.
+    try {
+      const { useCatalogosSRI } = await import('./useCatalogosSRI')
+      useCatalogosSRI().limpiarCache()
+    } catch { /* noop */ }
+
     // 4. Avisar a otras pestañas
     broadcast('logout')
 
