@@ -207,6 +207,8 @@ describe('escapeRegex', () => {
   test('null/undefined → "null"/"undefined" (comportamiento previo)', () => {
     assert.strictEqual(escapeRegex(null), 'null');
     assert.strictEqual(escapeRegex(undefined), 'undefined');
+    assert.strictEqual(new RegExp(escapeRegex(null), 'i').test('null'), false);
+  assert.strictEqual(new RegExp(escapeRegex(null), 'i').test('cualquier cosa'), false);
   });
 });
 

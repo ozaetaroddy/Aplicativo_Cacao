@@ -21,6 +21,15 @@
 //   parseBool(valor, default?)         → boolean
 //   buildSort(query, default?)         → alias de parseSort
 //   escapeRegexCached(texto)           → versión con cache
+//
+// 🔧 FIX 2025-XX:
+//   `escapeRegex(null)` y `escapeRegex(undefined)` devolvían las strings
+//   literales `'null'` / `'undefined'`. Eso creaba un regex como `/null/i`
+//   que silenciosamente matcheaba el texto literal "null" en cualquier
+//   campo → resultados inesperados si un caller olvidaba chequear el
+//   search. Ahora se devuelve `(?!)` (un patrón que NUNCA matchea), que
+//   fuerza al caller a manejar el caso "sin filtro" explícitamente en
+//   lugar de obtener un resultado sutilmente incorrecto.
 // ============================================================
 'use strict';
 
@@ -37,26 +46,16 @@ function envNum(nombre, fallback) {
 }
 
 const CONFIG = Object.freeze({
-  /** Límite por defecto si no se especifica `limit`. */
   defaultLimit: envNum('PAGINATION_DEFAULT_LIMIT', 20),
-
-  /** Tope superior para `limit` (evita payloads enormes). */
   maxLimit: envNum('PAGINATION_MAX_LIMIT', 200),
-
-  /** Tope superior para `page` (evita `skip` gigantes que cuelgan Mongo). */
   maxPage: envNum('PAGINATION_MAX_PAGE', 100_000),
-
-  /** Máx. días de rango en `buildDateRange` (0 = sin tope). */
   maxDiasRango: envNum('PAGINATION_MAX_DIAS_RANGO', 366 * 3),
-
-  /** Máx. entradas del cache LRU de `escapeRegexCached`. */
   cacheMaxSize: envNum('PAGINATION_CACHE_MAX', 500)
 });
 
 // ============================================================
 // HELPERS INTERNOS
 // ============================================================
-/** Solo acepta strings no vacíos; el resto se descarta. */
 function soloString(v) {
   return typeof v === 'string' ? v : undefined;
 }
@@ -84,9 +83,7 @@ function parseEnteroEstricto(valor, { min = 1, max = Number.MAX_SAFE_INTEGER } =
 
   const s = valor.trim();
   if (!s) return null;
-  // Solo dígitos, sin signos ni decimales ni notación científica.
   if (!/^[1-9]\d*$/.test(s)) {
-    // Aceptamos un único '0' explícito para casos especiales.
     if (s === '0' && min <= 0) return 0;
     return null;
   }
@@ -97,7 +94,6 @@ function parseEnteroEstricto(valor, { min = 1, max = Number.MAX_SAFE_INTEGER } =
   return n;
 }
 
-/** `true` si el valor es un string con contenido. */
 function tieneValor(v) {
   return typeof v === 'string' && v.trim().length > 0;
 }
@@ -105,17 +101,6 @@ function tieneValor(v) {
 // ============================================================
 // PAGINACIÓN
 // ============================================================
-/**
- * Parsea `page` y `limit` desde el query.
- * Acota `page` a `maxPage` y `limit` a `maxLimit`.
- *
- * @param {object} query            `req.query`
- * @param {object} [opts]
- * @param {number} [opts.defaultLimit]
- * @param {number} [opts.maxLimit]
- * @param {number} [opts.maxPage]
- * @returns {{ page: number, limit: number, skip: number }}
- */
 function parsePagination(query = {}, opts = {}) {
   const {
     defaultLimit = CONFIG.defaultLimit,
@@ -133,33 +118,11 @@ function parsePagination(query = {}, opts = {}) {
   return { page, limit, skip };
 }
 
-/**
- * Indica si el cliente pidió paginación explícitamente.
- * Un `?page=` vacío NO cuenta como pedido de paginación.
- *
- * @param {object} query
- * @returns {boolean}
- */
 function wantsPagination(query = {}) {
   if (!query || typeof query !== 'object') return false;
   return tieneValor(query.page) || tieneValor(query.limit);
 }
 
-/**
- * Devuelve los metadatos de paginación listos para enviar en la respuesta.
- *
- * @param {object} query
- * @param {number} total
- * @param {object} [opts]
- * @returns {{
- *   total: number,
- *   page: number,
- *   limit: number,
- *   totalPages: number,
- *   hasNext: boolean,
- *   hasPrev: boolean
- * }}
- */
 function getPaginationMeta(query = {}, total = 0, opts = {}) {
   const { page, limit } = parsePagination(query, opts);
   const totalSafe = Number.isFinite(total) && total > 0 ? Math.floor(total) : 0;
@@ -178,23 +141,10 @@ function getPaginationMeta(query = {}, total = 0, opts = {}) {
 // ============================================================
 // FECHAS
 // ============================================================
-/**
- * Parsea una fecha `YYYY-MM-DD` o ISO.
- * Rechaza fechas imposibles (`2024-02-30`).
- *
- * ⚠️  Los strings `YYYY-MM-DD` se interpretan como fecha **local**,
- *     no UTC — de lo contrario `.getDate()` da off-by-one en TZ -05:00.
- *
- * @param {*} valor
- * @param {object} [opts]
- * @param {boolean} [opts.finDelDia=false]
- * @returns {Date|null}
- */
 function parseFecha(valor, { finDelDia = false } = {}) {
   if (!tieneValor(valor)) return null;
   const s = String(valor).trim();
 
-  // ---- String YYYY-MM-DD → fecha local ----
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   let d;
   if (m) {
@@ -207,7 +157,7 @@ function parseFecha(valor, { finDelDia = false } = {}) {
     ) {
       return null;
     }
-    d = new Date(y, mo - 1, dd); // local
+    d = new Date(y, mo - 1, dd);
   } else {
     d = new Date(s);
     if (Number.isNaN(d.getTime())) return null;
@@ -218,16 +168,6 @@ function parseFecha(valor, { finDelDia = false } = {}) {
   return d;
 }
 
-/**
- * Construye un filtro de rango de fechas para Mongo.
- *
- * @param {object} query                `req.query`
- * @param {string} [field='fecha_emision']
- * @param {object} [opts]
- * @param {boolean} [opts.strict=false]  Si `true`, lanza en rango inválido.
- * @param {number}  [opts.maxDias=CONFIG.maxDiasRango]  0 = sin tope.
- * @returns {object|null} `{ [field]: { $gte, $lte } }` o `null`.
- */
 function buildDateRange(query = {}, field = 'fecha_emision', opts = {}) {
   const { strict = false, maxDias = CONFIG.maxDiasRango } = opts;
 
@@ -237,7 +177,6 @@ function buildDateRange(query = {}, field = 'fecha_emision', opts = {}) {
   const desde = parseFecha(desdeRaw, { finDelDia: false });
   const hasta = parseFecha(hastaRaw, { finDelDia: true });
 
-  // Si el usuario pasó algo y no se pudo parsear → error (o null).
   if (tieneValor(desdeRaw) && !desde) {
     if (strict) {
       const err = new Error(`Fecha "desde" inválida: ${desdeRaw}`);
@@ -269,7 +208,6 @@ function buildDateRange(query = {}, field = 'fecha_emision', opts = {}) {
     return null;
   }
 
-  // Tope de días (evita escanear años accidentalmente).
   if (desde && hasta && maxDias > 0) {
     const dias = Math.ceil((hasta - desde) / 86_400_000);
     if (dias > maxDias) {
@@ -293,55 +231,32 @@ function buildDateRange(query = {}, field = 'fecha_emision', opts = {}) {
 // ============================================================
 // ORDENAMIENTO
 // ============================================================
-/**
- * Whitelist global de campos ordenables.
- * Si `sortBy` no está aquí, se ignora silenciosamente.
- */
 const CAMPOS_ORDENABLES = new Set([
-  // Fechas
   'fecha', 'fecha_emision', 'fecha_pago', 'fecha_firma', 'fecha_autorizacion',
   'fecha_vencimiento', 'ultimo_envio_sri', 'ultima_consulta_sri',
   'createdAt', 'updatedAt', 'fecha_cierre', 'anio', 'mes',
 
-  // Documentos
   'numero_factura', 'numero_recibo', 'numero_guia', 'numero_retencion',
   'numero_comprobante', 'numero_autorizacion', 'numero_exportacion',
   'clave_acceso', 'referencia',
 
-  // Montos
   'total', 'subtotal', 'iva', 'monto', 'monto_pagado',
   'precio_unitario', 'precio_venta', 'precio_compra',
   'cantidad', 'saldo', 'saldoPendiente', 'retencion_valor', 'porcentaje',
 
-  // Entidades
   'nombre', 'nombreNorm', 'razon_social', 'nombre_comercial',
   'ruc', 'codigo', 'codigoNorm', 'codigo_barras', 'email',
 
-  // Inventario
   'stock', 'stock_minimo', 'saldo_stock',
 
-  // Estados
   'estado_sri', 'estado_pago', 'tipo_documento', 'tipo_compra', 'tipo',
   'anulado', 'activo', 'rol',
 
-  // Auditoría
   'accion', 'coleccion', 'usuarioEmail', 'documentoNumero', 'ip',
 
-  // Otros
   'dias', 'diasUltimaFactura'
 ]);
 
-/**
- * Parsea `sortBy`/`sortDir` desde el query.
- *
- * @param {object} query
- * @param {object} [defaultSort={fecha_emision: -1}]
- * @param {object} [opts]
- * @param {Iterable<string>} [opts.permitidos]     Whitelist custom.
- * @param {boolean} [opts.array=false]             Devuelve array de `{campo: dir}`.
- * @param {string} [opts.defaultDir='desc']
- * @returns {object|Array<object>}
- */
 function parseSort(query = {}, defaultSort = { fecha_emision: -1 }, opts = {}) {
   const {
     permitidos = CAMPOS_ORDENABLES,
@@ -352,12 +267,10 @@ function parseSort(query = {}, defaultSort = { fecha_emision: -1 }, opts = {}) {
   const sortBy = tieneValor(query?.sortBy) ? String(query.sortBy).trim() : null;
   if (!sortBy) return defaultSort;
 
-  // Soporta whitelist como Set o array.
   const permitidosSet = permitidos instanceof Set
     ? permitidos
     : new Set(permitidos);
 
-  // Puede venir como `?sortBy=a,b,c` para múltiples campos.
   const campos = sortBy.split(',').map(c => c.trim()).filter(Boolean);
   const direccionBase = tieneValor(query?.sortDir)
     ? String(query.sortDir).trim().toLowerCase()
@@ -371,13 +284,11 @@ function parseSort(query = {}, defaultSort = { fecha_emision: -1 }, opts = {}) {
 
   if (validos.length === 0) return defaultSort;
 
-  // Un solo campo → mismo formato de siempre.
   if (validos.length === 1 && !array) {
     const dir = direccionBase === 'asc' ? 1 : -1;
     return { [validos[0]]: dir };
   }
 
-  // Múltiples → array (o merge de objetos).
   const dir = direccionBase === 'asc' ? 1 : -1;
   if (array) {
     return validos.map(c => ({ [c]: dir }));
@@ -387,7 +298,6 @@ function parseSort(query = {}, defaultSort = { fecha_emision: -1 }, opts = {}) {
   return merged;
 }
 
-/** Alias semántico de `parseSort`. */
 function buildSort(query, defaultSort, opts) {
   return parseSort(query, defaultSort, opts);
 }
@@ -397,29 +307,43 @@ function buildSort(query, defaultSort, opts) {
 // ============================================================
 /**
  * Escapa caracteres especiales de regex (evita ReDoS).
+ *
+ * 🔧 FIX: si `texto` es `null` o `undefined`, ahora devuelve `(?!)`
+ *    (patrón que NUNCA matchea) en lugar de la string literal
+ *    `'null'` / `'undefined'`. Esto:
+ *      a) Obliga al caller a manejar el caso "sin filtro"
+ *         explícitamente (`if (search) { ... }`) en lugar de
+ *         obtener un resultado sutilmente incorrecto.
+ *      b) Elimina un footgun silencioso: `new RegExp('null', 'i')`
+ *         matchearía la palabra "null" en cualquier campo.
+ *
  * @param {*} texto
- * @returns {string}
+ * @returns {string} Patrón seguro para `new RegExp(...)`.
  */
 function escapeRegex(texto) {
+  if (texto === null || texto === undefined) {
+    // `(?!)` es un negative lookahead con cuerpo vacío: nunca matchea.
+    // Es preferible a devolver `''` (que matchearía TODO).
+    return '(?!)';
+  }
   return String(texto).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Cache LRU de regex escapados.
 const _cacheEscape = new Map();
 
 /**
- * Igual que `escapeRegex` pero cachea el resultado (útil cuando el
- * mismo `search` se usa en varias queries de una request).
+ * Igual que `escapeRegex` pero cachea el resultado.
  * @param {*} texto
  * @returns {string}
  */
 function escapeRegexCached(texto) {
+  if (texto === null || texto === undefined) return '(?!)';
+
   const s = String(texto);
   if (_cacheEscape.has(s)) return _cacheEscape.get(s);
 
   const out = escapeRegex(s);
   if (_cacheEscape.size >= CONFIG.cacheMaxSize) {
-    // FIFO simple: elimina la primera entrada.
     const firstKey = _cacheEscape.keys().next().value;
     if (firstKey !== undefined) _cacheEscape.delete(firstKey);
   }
@@ -430,15 +354,6 @@ function escapeRegexCached(texto) {
 // ============================================================
 // PROYECCIONES Y FILTROS
 // ============================================================
-/**
- * Convierte `?fields=a,b,c` en un objeto de proyección Mongo.
- * Solo incluye los campos si están en la whitelist (evita
- * exponer campos sensibles).
- *
- * @param {*} valor
- * @param {Set<string>|string[]|null} permitidos   `null` = cualquier campo.
- * @returns {object|null}
- */
 function parseFields(valor, permitidos = null) {
   if (!tieneValor(valor)) return null;
 
@@ -451,23 +366,13 @@ function parseFields(valor, permitidos = null) {
 
   const proyeccion = {};
   for (const c of campos) {
-    if (!/^[a-zA-Z_][\w.]*$/.test(c)) continue;    // solo nombres válidos
+    if (!/^[a-zA-Z_][\w.]*$/.test(c)) continue;
     if (permitidosSet && !permitidosSet.has(c)) continue;
     proyeccion[c] = 1;
   }
   return Object.keys(proyeccion).length > 0 ? proyeccion : null;
 }
 
-/**
- * Convierte `?ids=a,b,c` en un array de ObjectId (o strings si
- * `comoObjectId=false`).
- *
- * @param {*} valor
- * @param {object} [opts]
- * @param {boolean} [opts.comoObjectId=true]
- * @param {number}  [opts.max=100]
- * @returns {Array<ObjectId|string>|null}
- */
 function parseIdsList(valor, opts = {}) {
   const { comoObjectId = true, max = 100 } = opts;
 
@@ -487,14 +392,6 @@ function parseIdsList(valor, opts = {}) {
   return out.length > 0 ? out : null;
 }
 
-/**
- * Parsea un booleano de query.
- * Acepta: `'true'|'1'|true` → true; `'false'|'0'|false` → false.
- *
- * @param {*} valor
- * @param {boolean} [fallback=false]
- * @returns {boolean}
- */
 function parseBool(valor, fallback = false) {
   if (valor === undefined || valor === null || valor === '') return fallback;
   if (typeof valor === 'boolean') return valor;
@@ -510,7 +407,6 @@ function parseBool(valor, fallback = false) {
 // EXPORTS
 // ============================================================
 module.exports = {
-  // ---- API original ----
   parsePagination,
   wantsPagination,
   buildDateRange,
@@ -518,7 +414,6 @@ module.exports = {
   escapeRegex,
   CAMPOS_ORDENABLES,
 
-  // ---- Extensiones ----
   getPaginationMeta,
   parseFecha,
   buildSort,
@@ -527,7 +422,6 @@ module.exports = {
   parseIdsList,
   parseBool,
 
-  // ---- Constantes ----
   CONFIG
 };
 

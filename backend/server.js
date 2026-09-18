@@ -6,8 +6,8 @@
 //   1. Validar env → si falla, exit(1).
 //   2. Setup de Express (helmet, cors, body, rate limit).
 //   3. Conexión a Mongo.
-//   4. En background: asegurar índices, arrancar scheduler.
-//   5. Listen en `PORT`.
+//   4. Listen en `PORT`.
+//   5. Post-arranque en background: asegurar índices, scheduler.
 //   6. Montar rutas protegidas (ya con `req.db` disponible).
 //
 // Shutdown (SIGTERM/SIGINT):
@@ -22,6 +22,20 @@
 //   GET /healthz             → alias liveness
 //   GET /api/health/detailed → readiness (503 si Mongo no responde)
 //   GET /readyz              → alias readiness
+//
+// 🔧 FIX 2025-XX:
+//   1. El timer de "shutdown excedió 10 s" estaba a nivel de MÓDULO.
+//      Se disparaba 10 s después del arranque, cuando `cerrando` era
+//      siempre `false` → código muerto. Ahora vive dentro de
+//      `shutdown()` y se reinicia en cada invocación.
+//   2. El bootstrap se ejecutaba incondicionalmente al `require` el
+//      módulo. Cualquier test que hiciera `require('./server')`
+//      arrancaba Mongo y, si fallaba, `process.exit(1)` reventaba
+//      toda la suite. Ahora solo se ejecuta si es el módulo principal
+//      (`require.main === module`).
+//   3. `intentosHandshake` (rate limit del handshake WebSocket) nunca
+//      se limpiaba. Ahora hay un intervalo `unref()` que purga
+//      entradas expiradas cada minuto.
 // ============================================================
 'use strict';
 
@@ -210,7 +224,10 @@ async function trabajoPostArranque() {
   try {
     const r = await asegurarIndices(db);
     if (r.salteado) log.info({ version: r.version }, '⏭️  Índices sin cambios');
-    else log.info({ total: r.total, creados: r.creados, fallidos: r.fallidos?.length || 0 }, '✅ Índices verificados');
+    else log.info(
+      { total: r.total, creados: r.creados, fallidos: r.fallidos?.length || 0 },
+      '✅ Índices verificados'
+    );
   } catch (e) {
     log.warn({ err: e.message }, '⚠️  Error creando índices (el server sigue activo)');
   }
@@ -284,6 +301,16 @@ function parseCookies(header) {
 const intentosHandshake = new Map(); // ip → { count, resetAt }
 const HANDSHAKE_LIMIT = 30;
 const HANDSHAKE_WINDOW_MS = 60_000;
+
+// 🔧 FIX: limpieza periódica de entradas expiradas.
+//    Sin esto, el Map crecía indefinidamente con cada IP nueva.
+const _limpiezaHandshake = setInterval(() => {
+  const ahora = Date.now();
+  for (const [ip, entry] of intentosHandshake) {
+    if (entry.resetAt < ahora) intentosHandshake.delete(ip);
+  }
+}, HANDSHAKE_WINDOW_MS);
+if (_limpiezaHandshake.unref) _limpiezaHandshake.unref();
 
 io.use(async (socket, next) => {
   // ---- Rate limit de handshake ----
@@ -447,7 +474,7 @@ app.use('/api/retenciones', require('./routes/retenciones'));
 app.use('/api/kardex', require('./routes/kardex'));
 app.use('/api/contadores', require('./routes/contadores'));
 app.use('/api/secuencias', require('./routes/secuencias'));
-app.use('/api/inventario', require('./routes/inventario')); // 🆕 NUEVO
+app.use('/api/inventario', require('./routes/inventario'));
 
 // ---- Dominio fiscal / SRI ----
 app.use('/api/sri', require('./routes/sri'));
@@ -494,9 +521,10 @@ app.use('/api', (req, res) => {
 app.use(errorHandler);
 
 // ============================================================
-// BOOTSTRAP
+// BOOTSTRAP (solo se ejecuta si es el módulo principal)
 // ============================================================
 let serverInstancia = null;
+let cerrando = false;
 
 async function bootstrap() {
   // ---- 1. Validar env ----
@@ -552,8 +580,6 @@ async function bootstrap() {
 // ============================================================
 // GRACEFUL SHUTDOWN
 // ============================================================
-let cerrando = false;
-
 function conTimeout(promesa, ms, mensaje) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(mensaje || 'timeout')), ms);
@@ -570,6 +596,16 @@ async function shutdown(signal) {
   cerrando = true;
 
   log.info({ signal }, `Señal ${signal} recibida. Cerrando servidor...`);
+
+  // 🔧 FIX: timer duro para forzar salida si algo se cuelga.
+  //    Antes vivía a NIVEL DE MÓDULO y se disparaba 10 s después del
+  //    arranque (cuando `cerrando` era siempre false). Ahora vive acá
+  //    y solo se activa durante el shutdown real.
+  const timeoutDuro = setTimeout(() => {
+    log.error('⚠️  Shutdown excedió 10 s, forzando salida');
+    process.exit(1);
+  }, 10_000);
+  if (timeoutDuro.unref) timeoutDuro.unref();
 
   // ---- 1. Scheduler ----
   try { detenerScheduler(); } catch { /* noop */ }
@@ -608,67 +644,67 @@ async function shutdown(signal) {
     log.warn({ err: e.message }, 'Error cerrando Mongo');
   }
 
+  clearTimeout(timeoutDuro);
   log.info('✅ Servidor cerrado limpiamente');
   process.exit(0);
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
-
-// Timeout duro: si algo se cuelga, salir a la fuerza.
-setTimeout(() => {
-  if (cerrando) {
-    log.error('⚠️  Shutdown excedió 10 s, forzando salida');
-    process.exit(1);
-  }
-}, 10_000).unref();
-
 // ============================================================
-// PROCESO — Manejo de errores no capturados
+// ARRANQUE + HANDLERS DE PROCESO
+// ------------------------------------------------------------
+// 🔧 FIX: todo este bloque se ejecuta SOLO cuando se corre
+//    `node server.js`. Si alguien hace `require('./server')` desde
+//    un test (p. ej. con supertest), no arranca Mongo ni el listener.
 // ============================================================
+if (require.main === module) {
+  /**
+   * Racha de rechazos: si llegan más de N en T ms, consideramos
+   * el proceso en estado inconsistente y cerramos.
+   */
+  const RACHA_MAX = 20;
+  const RACHA_VENTANA_MS = 60_000;
+  let rachaRechazos = [];
 
-/**
- * Racha de rechazos: si llegan más de N en T ms, consideramos
- * el proceso en estado inconsistente y cerramos.
- */
-const RACHA_MAX = 20;
-const RACHA_VENTANA_MS = 60_000;
-let rachaRechazos = [];
+  process.on('unhandledRejection', (reason) => {
+    const ahora = Date.now();
+    rachaRechazos = rachaRechazos.filter(t => ahora - t < RACHA_VENTANA_MS);
+    rachaRechazos.push(ahora);
 
-process.on('unhandledRejection', (reason) => {
-  const ahora = Date.now();
-  rachaRechazos = rachaRechazos.filter(t => ahora - t < RACHA_VENTANA_MS);
-  rachaRechazos.push(ahora);
-
-  log.error(
-    { reason: reason?.stack || String(reason), racha: rachaRechazos.length },
-    '❌ unhandledRejection'
-  );
-
-  if (rachaRechazos.length >= RACHA_MAX) {
     log.error(
-      { racha: rachaRechazos.length, ventanaMs: RACHA_VENTANA_MS },
-      'Demasiados rechazos no capturados en poco tiempo. Cerrando...'
+      { reason: reason?.stack || String(reason), racha: rachaRechazos.length },
+      '❌ unhandledRejection'
     );
-    shutdown('unhandledRejection');
-  }
-});
 
-process.on('uncaughtException', (err) => {
-  log.error({ err: err.stack || err.message }, '❌ uncaughtException');
-  // Estado del proceso indefinido → cerrar siempre.
-  shutdown('uncaughtException');
-});
+    if (rachaRechazos.length >= RACHA_MAX) {
+      log.error(
+        { racha: rachaRechazos.length, ventanaMs: RACHA_VENTANA_MS },
+        'Demasiados rechazos no capturados en poco tiempo. Cerrando...'
+      );
+      shutdown('unhandledRejection');
+    }
+  });
+
+  process.on('uncaughtException', (err) => {
+    log.error({ err: err.stack || err.message }, '❌ uncaughtException');
+    // Estado del proceso indefinido → cerrar siempre.
+    shutdown('uncaughtException');
+  });
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
+  bootstrap().catch(err => {
+    log.error({ err: err.message }, '❌ Error en bootstrap');
+    process.exit(1);
+  });
+}
 
 // ============================================================
-// ARRANQUE
+// EXPORTS (siempre disponibles, para tests y para reuso)
 // ============================================================
-bootstrap().catch(err => {
-  log.error({ err: err.message }, '❌ Error en bootstrap');
-  process.exit(1);
-});
-
-// ---- Solo para tests ----
 module.exports = app;
 module.exports._io = io;
 module.exports._server = server;
+module.exports.bootstrap = bootstrap;
+module.exports.shutdown = shutdown;
+module.exports.validarEnv = validarEnv;

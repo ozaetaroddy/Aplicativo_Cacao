@@ -26,6 +26,17 @@
 //   - Una venta ya enviada al SRI (intentos_envio_sri > 0) NO se
 //     puede editar/eliminar: se requiere nota de crédito.
 //   - Errores delegados al `errorHandler` central.
+//
+// 🔧 FIX 2025-XX: `asegurarClaveYXml` ahora:
+//    1. Usa un filtro atómico (`$or` sobre clave vacía) para evitar
+//       que dos GETs concurrentes generen claves DIFERENTES con la
+//       misma venta. El que pierde la carrera refetchea y usa la
+//       clave ganadora — importante para el QR.
+//    2. Recibe `{ persistir }` para que un endpoint de solo lectura
+//       pueda generar sin escribir (default true por compatibilidad).
+//    3. Devuelve `xmlFirmado` para que los GET usen el XML firmado
+//       que ya está en el doc (si existe) sin depender del objeto
+//       original que quedó obsoleto tras el update.
 // ============================================================
 'use strict';
 
@@ -90,19 +101,15 @@ const CONFIG = Object.freeze({
   maxDetallesPorDocumento: envNum('VENTAS_MAX_DETALLES', 500),
   maxSinPaginar: envNum('VENTAS_MAX_SIN_PAGINAR', 5000),
 
-  /** Máx. docs procesados por /migrar-claves (protege de scans gigantes). */
   migrarMaxDocs: envNum('VENTAS_MIGRAR_MAX_DOCS', 5000),
 
-  /** Si `true`, /migrar-claves exige `?confirmar=true`. */
   migrarRequiereConfirmacion:
     String(process.env.VENTAS_MIGRAR_CONFIRM ?? 'false').toLowerCase() === 'true',
 
-  /** Estado SRI que bloquea edición/eliminación. */
   estadosSriBloqueadosDelete: Object.freeze(
     new Set(['FIRMADO', 'AUTORIZADO', 'RECHAZADA', 'DEVUELTA'])
   ),
 
-  /** Proyección estándar para listados: sin los XMLs (pesan MB). */
   proyeccionLista: Object.freeze({
     xml_generado: 0,
     xml_firmado: 0,
@@ -118,21 +125,18 @@ function soloString(v) {
   return typeof v === 'string' ? v : undefined;
 }
 
-/** Número finito o fallback. NO silencia negativos. */
 function toNumber(v, fallback = 0) {
   if (v === null || v === undefined || v === '') return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** Redondeo a 2 decimales. */
 function round2(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return 0;
   return Math.round((v + Number.EPSILON) * 100) / 100;
 }
 
-/** Parsea entero seguro. Nunca silencia 0 con `|| fallback`. */
 function parseEnteroSeguro(v, fallback = 1) {
   if (v === null || v === undefined || v === '') return fallback;
   const n = Number(v);
@@ -143,7 +147,6 @@ function headersNoStore(res) {
   res.set('Cache-Control', 'no-store');
 }
 
-/** Valida ObjectId o lanza error tipado (400). */
 function requireObjectId(id, mensaje = 'ID inválido') {
   if (!ObjectId.isValid(id)) {
     const err = new Error(mensaje);
@@ -154,7 +157,6 @@ function requireObjectId(id, mensaje = 'ID inválido') {
   return new ObjectId(id);
 }
 
-/** Auditoría que NUNCA rompe la request. */
 async function auditarSeguro(db, req, payload) {
   try {
     await logAudit(db, req, payload);
@@ -163,7 +165,6 @@ async function auditarSeguro(db, req, payload) {
   }
 }
 
-/** Extrae `valor` compatible driver v3 (`{value}`) y v4+ (doc directo). */
 function extraerValor(result) {
   if (!result) return null;
   const doc = result && result.value !== undefined ? result.value : result;
@@ -174,29 +175,20 @@ function extraerValor(result) {
 // ============================================================
 // HELPERS DE NEGOCIO
 // ============================================================
-
-/** ¿Este tipo de documento afecta stock? */
 function afectaStock(tipoDoc) {
   return !TIPOS_SIN_MOVIMIENTO_STOCK.has(tipoDoc);
 }
 
-/** Signo del movimiento de stock según tipo. */
 function signoStock(tipoDoc) {
   return tipoDoc === 'nota_credito' ? +1 : -1;
 }
 
-/** Resuelve la serie `EEE-PPP` a partir de la venta + config. */
 function resolverSerieEmision(venta, config) {
   const est = venta.establecimiento || config?.establecimiento || '001';
   const pe = venta.punto_emision || config?.punto_emision || '001';
   return formatearSerie(est, pe);
 }
 
-/**
- * Resuelve el secuencial numérico a partir de la venta.
- * Prioriza `secuencial_sri`, luego extrae el último bloque numérico
- * de `numero_factura`. Nunca devuelve 0 silenciosamente.
- */
 function resolverSecuencial(venta) {
   if (venta?.secuencial_sri !== undefined && venta?.secuencial_sri !== null) {
     const n = parseInt(String(venta.secuencial_sri), 10);
@@ -212,12 +204,10 @@ function resolverSecuencial(venta) {
   return 1;
 }
 
-/** Formatea el secuencial a 9 dígitos. */
 function formatearSecuencial(n) {
   return String(parseEnteroSeguro(n, 1)).padStart(9, '0');
 }
 
-/** Verifica que la empresa tenga RUC configurado (13 dígitos). */
 function configRucValido(config) {
   return Boolean(config && config.ruc && String(config.ruc).length === 13);
 }
@@ -225,10 +215,6 @@ function configRucValido(config) {
 // ============================================================
 // HELPERS DE CERTIFICADO
 // ============================================================
-/**
- * Carga el certificado descifrando el password.
- * @returns {Promise<{privateKeyPem, certificatePem}|null>}
- */
 async function cargarCertificadoSeguro(db) {
   try {
     const cert = await db.collection(CONFIG.colCertificados).findOne({ _id: 'empresa' });
@@ -245,7 +231,6 @@ async function cargarCertificadoSeguro(db) {
   }
 }
 
-/** Firma un XML con el certificado de la empresa. */
 async function firmarXMLConCertificado(db, xmlSinFirma) {
   const pems = await cargarCertificadoSeguro(db);
   if (!pems) {
@@ -260,10 +245,6 @@ async function firmarXMLConCertificado(db, xmlSinFirma) {
 // ============================================================
 // HELPERS DE STOCK
 // ============================================================
-/**
- * Reserva un número secuencial atómico para el tipo de documento.
- * @returns {Promise<number>} nuevo valor
- */
 async function reservarContador(db, tipoDoc, session = null) {
   const opts = { upsert: true, returnDocument: 'after' };
   if (session) opts.session = session;
@@ -284,10 +265,6 @@ async function reservarContador(db, tipoDoc, session = null) {
   return valor;
 }
 
-/**
- * Actualiza el stock atómicamente con guard de cantidad.
- * @throws {Error} si no hay stock suficiente o el producto no existe
- */
 async function actualizarStockAtomico(db, productoId, cantidad, signo, session) {
   const cant = Math.abs(Number(cantidad));
   const filtro = signo < 0
@@ -313,20 +290,6 @@ async function actualizarStockAtomico(db, productoId, cantidad, signo, session) 
   return db.collection(CONFIG.colProductos).findOne({ _id: productoId }, { session });
 }
 
-/**
- * Aplica movimientos de stock + kardex para una venta.
- * Es idempotente respecto a la firma del tipoDoc:
- *   - Si `afectaStock(tipoDoc)` es false, no hace nada.
- *
- * @param {object} opts
- * @param {object} opts.db
- * @param {ObjectId} opts.ventaId
- * @param {Array}  opts.detalles
- * @param {string} opts.tipoDoc
- * @param {Date}   opts.fechaEmision
- * @param {ClientSession} opts.session
- * @param {boolean} [opts.reversion=false]  Si true, REVIERTE el stock.
- */
 async function moverStockVenta({ db, ventaId, detalles, tipoDoc, fechaEmision, session, reversion = false }) {
   if (!afectaStock(tipoDoc)) return;
 
@@ -339,7 +302,7 @@ async function moverStockVenta({ db, ventaId, detalles, tipoDoc, fechaEmision, s
       db, productoId, detalle.cantidad, signo, session
     );
 
-    if (reversion) continue; // al revertir no generamos kardex aquí; el caller borra los existentes.
+    if (reversion) continue;
 
     const costoUnitario = toNumber(productoActualizado.precio_compra);
     const precioVentaUnitario = toNumber(detalle.precio_unitario);
@@ -359,7 +322,6 @@ async function moverStockVenta({ db, ventaId, detalles, tipoDoc, fechaEmision, s
   }
 }
 
-/** Borra los movimientos de kardex de una venta. */
 async function borrarKardexVenta(db, ventaId, session) {
   await db.collection(CONFIG.colKardex).deleteMany(
     { referencia_id: ventaId, referencia_tipo: 'venta' },
@@ -386,7 +348,7 @@ function validarFechaNoFutura(fecha) {
   if (Number.isNaN(d.getTime())) return 'Fecha inválida';
   const limite = new Date();
   limite.setHours(23, 59, 59, 999);
-  limite.setDate(limite.getDate() + 1); // margen por zona horaria
+  limite.setDate(limite.getDate() + 1);
   if (d > limite) return 'La fecha de emisión no puede ser futura';
   return null;
 }
@@ -408,10 +370,6 @@ function validarDetalleCantidadPrecio(detalle) {
   }
 }
 
-/**
- * Normaliza fechas de retención a DD/MM/YYYY.
- * @returns {{ok:true}|{ok:false,error:string}}
- */
 function normalizarFechasRetencion(body) {
   if (!body || body.tipo_documento !== 'retencion') return { ok: true };
 
@@ -439,10 +397,6 @@ function normalizarFechasRetencion(body) {
   return { ok: true };
 }
 
-/**
- * Verifica unicidad de `numero_factura` para un tipo de doc + RUC emisor.
- * @returns {Promise<{ok:true}|{ok:false,error,codigo,documentoExistenteId}>}
- */
 async function verificarNumeroUnico(db, { tipoDoc, numeroFactura, rucEmisor, excluirId = null }) {
   if (!numeroFactura) return { ok: true };
   const numeroLimpio = String(numeroFactura).trim();
@@ -578,7 +532,6 @@ router.get('/', requierePermiso('ventas', 'ver'), async (req, res, next) => {
     const sort = parseSort(req.query, { fecha_emision: -1, _id: -1 });
     const col = req.db.collection(CONFIG.colVentas);
 
-    // ---- Sin paginación (compatibilidad legacy) ----
     if (!paginar) {
       const data = await col.aggregate([
         ...pipeline,
@@ -590,7 +543,6 @@ router.get('/', requierePermiso('ventas', 'ver'), async (req, res, next) => {
       return res.json(data);
     }
 
-    // ---- Paginado ----
     const [countRes, data] = await Promise.all([
       col.aggregate([...pipeline, { $count: 'total' }]).toArray(),
       col.aggregate([
@@ -686,7 +638,6 @@ router.post(
   },
   async (req, res, next) => {
     try {
-      // Confirmación opcional (activable vía env).
       if (CONFIG.migrarRequiereConfirmacion && req.query.confirmar !== 'true') {
         return res.status(400).json({
           error: 'Debe enviar ?confirmar=true para ejecutar la migración',
@@ -795,7 +746,6 @@ router.post(
         }
       }
 
-      // Actualizar contador de facturas con el máximo usado (nunca retrocede).
       if (maxSecuencialUsado > 0) {
         await req.db.collection(CONFIG.colContadores).updateOne(
           { _id: 'factura' },
@@ -844,15 +794,19 @@ router.get('/:id/xml', requierePermiso('ventas', 'ver'), async (req, res, next) 
       return res.status(404).json({ error: 'Venta no encontrada', codigo: 'VENTA_NOT_FOUND' });
     }
 
-    const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
-    if (!claveAcceso || !xml) {
-      return res.status(400).json({ error: motivo || 'No se pudo generar la clave', codigo: 'XML_NO_GENERABLE' });
+    const { claveAcceso, xml, xmlFirmado, motivo } = await asegurarClaveYXml(req.db, venta);
+    if (!claveAcceso || (!xml && !xmlFirmado)) {
+      return res.status(400).json({
+        error: motivo || 'No se pudo generar la clave',
+        codigo: 'XML_NO_GENERABLE'
+      });
     }
 
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${claveAcceso}.xml"`);
     res.setHeader('Cache-Control', 'no-store');
-    return res.send(venta.xml_firmado || xml);
+    // Preferimos el XML firmado si ya existe (autoritativo), si no el recién generado.
+    return res.send(xmlFirmado || xml);
   } catch (err) {
     return next(err);
   }
@@ -870,17 +824,20 @@ router.get('/:id/xml-preview', requierePermiso('ventas', 'ver'), async (req, res
       return res.status(404).json({ error: 'Venta no encontrada', codigo: 'VENTA_NOT_FOUND' });
     }
 
-    const { claveAcceso, xml, motivo } = await asegurarClaveYXml(req.db, venta);
-    if (!claveAcceso || !xml) {
-      return res.status(400).json({ error: motivo || 'No se pudo generar la clave', codigo: 'XML_NO_GENERABLE' });
+    const { claveAcceso, xml, xmlFirmado, motivo } = await asegurarClaveYXml(req.db, venta);
+    if (!claveAcceso || (!xml && !xmlFirmado)) {
+      return res.status(400).json({
+        error: motivo || 'No se pudo generar la clave',
+        codigo: 'XML_NO_GENERABLE'
+      });
     }
 
     headersNoStore(res);
     return res.json({
       xml,
-      xml_firmado: venta.xml_firmado || null,
+      xml_firmado: xmlFirmado,
       clave_acceso: claveAcceso,
-      firmado: Boolean(venta.xml_firmado)
+      firmado: Boolean(xmlFirmado)
     });
   } catch (err) {
     return next(err);
@@ -1229,7 +1186,6 @@ router.post(
 
       const config = await req.db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
 
-      // ---- Reglas por tipo de documento ----
       if (tipoDoc === 'nota_credito') {
         if (!comprobante_clave_acceso && !numero_factura_modificada) {
           return res.status(400).json({
@@ -1247,7 +1203,6 @@ router.post(
         }
       }
 
-      // ---- Validar detalles + productos (paralelo) ----
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
         for (const detalle of detalles) {
           if (!ObjectId.isValid(detalle.productoId)) {
@@ -1275,7 +1230,6 @@ router.post(
         }
       }
 
-      // ---- Unicidad de numero_factura ----
       const uniqCheck = await verificarNumeroUnico(req.db, {
         tipoDoc,
         numeroFactura: numero_factura,
@@ -1289,7 +1243,6 @@ router.post(
         });
       }
 
-      // ---- Cliente (obligatorio excepto guía de remisión) ----
       let cliente = null;
       if (tipoDoc !== 'guia_remision') {
         cliente = await req.db.collection(CONFIG.colClientes).findOne({
@@ -1304,7 +1257,6 @@ router.post(
         }
       }
 
-      // ---- Preparar contexto ----
       const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && configRucValido(config);
       const prefijo = PREFIJOS_CONTADOR[tipoDoc] || 'DOC';
       const pems = await cargarCertificadoSeguro(req.db);
@@ -1312,7 +1264,6 @@ router.post(
         ? new ObjectId(clienteId)
         : null;
 
-      // ---- Transacción ----
       const resultado = await conTransaccion(req.db, async (session) => {
         const contadorValor = await reservarContador(req.db, tipoDoc, session);
         const codigo = `${prefijo}-${String(contadorValor).padStart(6, '0')}`;
@@ -1461,7 +1412,6 @@ router.post(
           .insertOne(venta, { session });
         const ventaId = ventaResult.insertedId;
 
-        // ---- Mover stock + kardex ----
         await moverStockVenta({
           db: req.db,
           ventaId,
@@ -1474,7 +1424,6 @@ router.post(
         return { ventaResult, claveAcceso, partesClave };
       });
 
-      // ---- Traer la venta creada (sin XMLs) ----
       const [ventaCreada] = await req.db.collection(CONFIG.colVentas).aggregate([
         { $match: { _id: resultado.ventaResult.insertedId } },
         { $project: { ...CONFIG.proyeccionLista } },
@@ -1489,7 +1438,6 @@ router.post(
         { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
       ]).toArray();
 
-      // ---- Advertencia de firma ----
       let advertencia = null;
       if (generaClave && ventaCreada?.estado_sri === 'PENDIENTE') {
         advertencia =
@@ -1590,7 +1538,6 @@ router.put(
       const config = await req.db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
       const tipoDoc = tipo_documento || 'factura';
 
-      // ---- Validar detalles ----
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
         for (const detalle of detalles) {
           if (!ObjectId.isValid(detalle.productoId)) {
@@ -1603,7 +1550,6 @@ router.put(
         }
       }
 
-      // ---- Unicidad de numero_factura (si cambió) ----
       if (numero_factura !== ventaActual.numero_factura || tipoDoc !== ventaActual.tipo_documento) {
         const uniqCheck = await verificarNumeroUnico(req.db, {
           tipoDoc,
@@ -1620,7 +1566,6 @@ router.put(
         }
       }
 
-      // ---- Regenerar clave si cambió fecha/tipo o no existía ----
       let nuevaClave = ventaActual.clave_acceso || '';
       const fechaCambio = new Date(fecha_emision).getTime() !== new Date(ventaActual.fecha_emision).getTime();
       const tipoCambio = tipoDoc !== ventaActual.tipo_documento;
@@ -1646,7 +1591,6 @@ router.put(
         }
       }
 
-      // ---- Cliente (si no es guía) ----
       let cliente = null;
       if (tipoDoc !== 'guia_remision') {
         cliente = await req.db.collection(CONFIG.colClientes).findOne({
@@ -1693,7 +1637,6 @@ router.put(
         updatedAt: new Date()
       };
 
-      // ---- Regenerar XML + firma ----
       if (nuevaClave && config) {
         try {
           const ventaParaXML = { ...ventaActual, ...updateData };
@@ -1712,9 +1655,7 @@ router.put(
         }
       }
 
-      // ---- Transacción: revertir stock viejo + aplicar nuevo ----
       await conTransaccion(req.db, async (session) => {
-        // 1) Revertir stock anterior
         await moverStockVenta({
           db: req.db,
           ventaId: _id,
@@ -1726,14 +1667,12 @@ router.put(
         });
         await borrarKardexVenta(req.db, _id, session);
 
-        // 2) Actualizar documento
         await req.db.collection(CONFIG.colVentas).updateOne(
           { _id },
           { $set: updateData },
           { session }
         );
 
-        // 3) Aplicar stock nuevo
         await moverStockVenta({
           db: req.db,
           ventaId: _id,
@@ -1744,7 +1683,6 @@ router.put(
         });
       });
 
-      // ---- Traer venta actualizada ----
       const [ventaActualizada] = await req.db.collection(CONFIG.colVentas).aggregate([
         { $match: { _id } },
         { $project: { ...CONFIG.proyeccionLista } },
@@ -1836,7 +1774,6 @@ router.delete(
       }
 
       await conTransaccion(req.db, async (session) => {
-        // 1) Revertir stock
         await moverStockVenta({
           db: req.db,
           ventaId: _id,
@@ -1848,7 +1785,6 @@ router.delete(
         });
         await borrarKardexVenta(req.db, _id, session);
 
-        // 2) Borrar documento
         const r = await req.db.collection(CONFIG.colVentas).deleteOne({ _id }, { session });
         if (r.deletedCount === 0) {
           const err = new Error('Venta no encontrada');
@@ -1879,18 +1815,49 @@ router.delete(
 );
 
 // ============================================================
-// HELPERS DE GENERACIÓN DE CLAVE + XML (usados por varios endpoints)
+// HELPERS DE GENERACIÓN DE CLAVE + XML
 // ============================================================
 /**
  * Asegura que una venta tenga clave + XML generados.
- * NO persiste automáticamente (el caller decide).
- * @returns {Promise<{claveAcceso, xml, motivo}>}
+ *
+ * 🔧 FIX 2025-XX:
+ *   1. Persistencia ATÓMICA con `$or` sobre clave vacía. Si dos
+ *      requests concurrentes intentan generar la clave de la MISMA
+ *      venta, SOLO UNA gana. La otra refetchea y usa la clave
+ *      ganadora — importante porque la clave incluye un código
+ *      numérico aleatorio: sin esto, el QR y el XML podían diferir
+ *      entre llamadas.
+ *   2. Opción `{ persistir }` para que el caller decida si escribir.
+ *      Default `true` (compatible con el comportamiento anterior).
+ *   3. Devuelve `xmlFirmado` para que los GET puedan usar el XML
+ *      firmado del doc sin depender del objeto original (que puede
+ *      quedar obsoleto si perdimos la carrera y refetcheamos).
+ *
+ * @param {Db} db
+ * @param {object} venta      Documento (NO se muta).
+ * @param {object} [opts]
+ * @param {boolean} [opts.persistir=true]
+ * @returns {Promise<{
+ *   claveAcceso: string|null,
+ *   xml: string|null,
+ *   xmlFirmado: string|null,
+ *   motivo: string|null,
+ *   persistida: boolean
+ * }>}
  */
-async function asegurarClaveYXml(db, venta) {
+async function asegurarClaveYXml(db, venta, opts = {}) {
+  const { persistir = true } = opts;
+
   const tipoDoc = venta.tipo_documento || 'factura';
 
   if (!DOCS_CON_CLAVE.includes(tipoDoc)) {
-    return { claveAcceso: null, xml: null, motivo: 'Este tipo de documento no requiere clave' };
+    return {
+      claveAcceso: null,
+      xml: null,
+      xmlFirmado: venta.xml_firmado || null,
+      motivo: 'Este tipo de documento no requiere clave',
+      persistida: false
+    };
   }
 
   const config = await db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
@@ -1898,15 +1865,28 @@ async function asegurarClaveYXml(db, venta) {
     return {
       claveAcceso: null,
       xml: null,
-      motivo: 'Debe configurar el RUC (13 dígitos) en Administración → Configuración Empresa'
+      xmlFirmado: venta.xml_firmado || null,
+      motivo: 'Debe configurar el RUC (13 dígitos) en Administración → Configuración Empresa',
+      persistida: false
     };
   }
 
+  // ---- Fast path: ya tiene todo ----
+  if (venta.clave_acceso && venta.xml_generado) {
+    return {
+      claveAcceso: venta.clave_acceso,
+      xml: venta.xml_generado,
+      xmlFirmado: venta.xml_firmado || null,
+      motivo: null,
+      persistida: false
+    };
+  }
+
+  // ---- Generar clave si falta ----
   let claveAcceso = venta.clave_acceso;
   let serieFormateada = venta.serie;
   let numeroSecuencial = venta.secuencial_sri;
 
-  // ---- Generar clave si falta ----
   if (!claveAcceso) {
     const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
     serieFormateada = resolverSerieEmision(venta, config);
@@ -1924,7 +1904,13 @@ async function asegurarClaveYXml(db, venta) {
       });
       numeroSecuencial = formatearSecuencial(sec);
     } catch (e) {
-      return { claveAcceso: null, xml: null, motivo: 'Error generando clave: ' + e.message };
+      return {
+        claveAcceso: null,
+        xml: null,
+        xmlFirmado: venta.xml_firmado || null,
+        motivo: 'Error generando clave: ' + e.message,
+        persistida: false
+      };
     }
   }
 
@@ -1943,15 +1929,32 @@ async function asegurarClaveYXml(db, venta) {
       };
       xml = generarXMLComprobante(ventaParaXml, cliente, config);
     } catch (e) {
-      return { claveAcceso, xml: null, motivo: 'Error generando XML: ' + e.message };
+      return {
+        claveAcceso,
+        xml: null,
+        xmlFirmado: venta.xml_firmado || null,
+        motivo: 'Error generando XML: ' + e.message,
+        persistida: false
+      };
     }
   }
 
-  // ---- Persistir si algo cambió ----
-  if (!venta.clave_acceso || !venta.xml_generado) {
+  // ---- Persistir con guard atómico ----
+  const necesitabaPersistir = !venta.clave_acceso || !venta.xml_generado;
+  let persistida = false;
+  let xmlFirmado = venta.xml_firmado || null;
+
+  if (persistir && necesitabaPersistir) {
     try {
-      await db.collection(CONFIG.colVentas).updateOne(
-        { _id: venta._id },
+      const r = await db.collection(CONFIG.colVentas).updateOne(
+        {
+          _id: venta._id,
+          $or: [
+            { clave_acceso: '' },
+            { clave_acceso: { $exists: false } },
+            { clave_acceso: null }
+          ]
+        },
         {
           $set: {
             clave_acceso: claveAcceso,
@@ -1963,12 +1966,51 @@ async function asegurarClaveYXml(db, venta) {
           }
         }
       );
+
+      persistida = r.modifiedCount > 0;
+
+      // 🚨 Si perdimos la carrera, otra request ya escribió SU clave.
+      // Refetcheamos para devolver lo que quedó en BD (consistencia).
+      if (!persistida) {
+        const fresco = await db.collection(CONFIG.colVentas).findOne(
+          { _id: venta._id },
+          { projection: { clave_acceso: 1, xml_generado: 1, xml_firmado: 1 } }
+        );
+        if (fresco?.clave_acceso && fresco.clave_acceso !== claveAcceso) {
+          log.info(
+            { ventaId: String(venta._id) },
+            'Race en asegurarClaveYXml: se usa la clave ganadora'
+          );
+          claveAcceso = fresco.clave_acceso;
+          if (fresco.xml_generado) xml = fresco.xml_generado;
+        }
+        if (fresco?.xml_firmado) xmlFirmado = fresco.xml_firmado;
+      }
     } catch (e) {
-      log.warn({ err: e.message, ventaId: String(venta._id) }, 'No se pudo persistir clave/xml');
+      // E11000 en clave_acceso (colisión con otra venta): raro pero posible.
+      if (e.code === 11000) {
+        log.warn(
+          { ventaId: String(venta._id) },
+          'Colisión de clave_acceso al persistir en asegurarClaveYXml'
+        );
+        // Refetcheamos: la otra venta ya tiene esa clave, la nuestra
+        // seguramente no se persistió. Devolvemos lo generado sin guardar.
+      } else {
+        log.warn(
+          { err: e.message, ventaId: String(venta._id) },
+          'No se pudo persistir clave/xml en asegurarClaveYXml'
+        );
+      }
     }
   }
 
-  return { claveAcceso, xml, motivo: null };
+  return {
+    claveAcceso,
+    xml,
+    xmlFirmado,
+    motivo: null,
+    persistida
+  };
 }
 
 // ============================================================

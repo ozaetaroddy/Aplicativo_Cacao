@@ -12,6 +12,18 @@
 //   construirAdvertencias / construirTotales
 //   construirXmlATS(...)
 // Los endpoints solo orquestan: validan → cargan → construyen → responden.
+//
+// 🔧 FIX 2025-XX:
+//   1. `construirTotales` ahora aplica el SIGNO de las notas de crédito.
+//      Antes sumaba `total` (que es positivo) tanto para facturas como
+//      para NCs, inflando el resumen JSON. El XML estaba bien (usaba
+//      `__totalConSigno`), pero el JSON mostraba cifras irreales al
+//      contador. Ahora exponemos `totalBruto` (facturas), `totalNC`,
+//      y `totalNeto = bruto - nc`.
+//   2. `xmlDetalleCompra` deriva `<tipoRegi>` de `obligado_contabilidad`
+//      del config, en lugar de hardcodear '01'. La ficha del SRI define:
+//        '01' → Contribuyente que lleva contabilidad
+//        '02' → Contribuyente que NO lleva contabilidad
 // ============================================================
 'use strict';
 
@@ -49,8 +61,6 @@ const TIPOS_VENTA_NO_ATS_SET = new Set([...TIPOS_VENTA_NO_ATS]);
 // ============================================================
 // HELPERS DE FORMATO
 // ============================================================
-
-/** Escapa un valor para XML 1.0 (elimina chars inválidos y entidades). */
 function esc(s) {
   if (s === null || s === undefined) return '';
   return String(s)
@@ -62,26 +72,22 @@ function esc(s) {
     .replace(/'/g, '&apos;');
 }
 
-/** Formatea un número a 2 decimales como string; nunca devuelve NaN/Infinity. */
 function num(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '0.00';
   return v.toFixed(2);
 }
 
-/** Rellena un secuencial SRI a 9 dígitos numéricos. */
 function padSecuencial(n) {
   return String(n).replace(/\D/g, '').padStart(9, '0').slice(-9);
 }
 
-/** Construye un header Content-Disposition seguro (RFC 5987 + fallback). */
 function contentDisposition(filename) {
   const ascii = filename.replace(/[^\x20-\x7E]/g, '_');
   const encoded = encodeURIComponent(filename);
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
-/** Devuelve una copia del objeto sin claves internas (prefijo `__`). */
 function sinInternos(obj) {
   const out = {};
   for (const k of Object.keys(obj)) {
@@ -93,10 +99,6 @@ function sinInternos(obj) {
 // ============================================================
 // VALIDACIÓN
 // ============================================================
-
-/**
- * Valida y normaliza el período. Devuelve `{anio, mes, inicio, fin}` o `null`.
- */
 function parsePeriodo(anioStr, mesStr) {
   const anio = Number(anioStr);
   const mes = Number(mesStr);
@@ -104,7 +106,7 @@ function parsePeriodo(anioStr, mesStr) {
   if (!Number.isInteger(mes) || mes < 1 || mes > 12) return null;
 
   const inicio = new Date(anio, mes - 1, 1, 0, 0, 0, 0);
-  const fin = new Date(anio, mes, 0, 23, 59, 59, 999); // último día del mes
+  const fin = new Date(anio, mes, 0, 23, 59, 59, 999);
   return { anio, mes, inicio, fin };
 }
 
@@ -115,9 +117,9 @@ function tipoIdentificacion(ruc) {
   if (!ruc) return '07';
   const s = String(ruc).trim();
   if (!s) return '07';
-  if (/^\d{13}$/.test(s)) return '04'; // RUC
-  if (/^\d{10}$/.test(s)) return '05'; // Cédula
-  if (/[A-Za-z]/.test(s)) return '08'; // identificación del exterior
+  if (/^\d{13}$/.test(s)) return '04';
+  if (/^\d{10}$/.test(s)) return '05';
+  if (/[A-Za-z]/.test(s)) return '08';
   return '07';
 }
 
@@ -128,11 +130,6 @@ function codigoComprobante(tipo) {
 // ============================================================
 // NÚMERO DE FACTURA / SECUENCIALES
 // ============================================================
-/**
- * Separa estab/ptoEmi/secuencial de una factura de compra.
- * Si `numero_factura` parece un código interno (p. ej. `FAC-123`) o está
- * vacío, se marca `_placeholder: true` para que el caller decida.
- */
 function separarNumeroFactura(doc, config) {
   const cfg = config || {};
   const estab = String(doc?.establecimiento || cfg.establecimiento || '001').padStart(3, '0');
@@ -160,12 +157,6 @@ function separarNumeroFactura(doc, config) {
 // ============================================================
 // CÁLCULO DE BASES IMPONIBLES
 // ============================================================
-/**
- * Calcula bases 0% e IVA a partir de los detalles.
- * @param {Array} detalles
- * @param {string} campoPrecio  'precio_unitario' | 'costo_unitario'
- * @param {number} subtotalFallback  usado si no hay detalles
- */
 function calcularBases(detalles, campoPrecio, subtotalFallback = 0) {
   let baseIVA = 0;
   let base0 = 0;
@@ -184,7 +175,6 @@ function calcularBases(detalles, campoPrecio, subtotalFallback = 0) {
 // ============================================================
 // CARGA DE DATOS (una sola vez para JSON y XML)
 // ============================================================
-
 async function cargarConfiguracion(db) {
   return db.collection('configuracion').findOne({ _id: 'empresa' });
 }
@@ -221,7 +211,6 @@ async function cargarRetenciones(db, inicio, fin) {
   ]).toArray();
 }
 
-/** Carga todo lo necesario en paralelo. */
 async function cargarDatosPeriodo(db, inicio, fin) {
   const [config, ventas, compras, retenciones] = await Promise.all([
     cargarConfiguracion(db),
@@ -235,8 +224,6 @@ async function cargarDatosPeriodo(db, inicio, fin) {
 // ============================================================
 // CONSTRUCCIÓN DE BLOQUES ATS
 // ============================================================
-
-/** Resumen mínimo de un documento para las advertencias. */
 function resumenDoc(doc) {
   return {
     id: doc._id,
@@ -329,8 +316,8 @@ function construirRetencionesATS(retenciones) {
     fecha_retencion: r.fecha_emision,
     tipo_retencion: r.tipo_retencion || '',
     base_imponible: r.base_imponible || 0,
-    porcentaje: r.porcentaje || 0,
-    valor_retenido: r.valor_retenido || 0
+    valor_retenido: r.valor_retenido || 0,
+    porcentaje: r.porcentaje || 0
   }));
 }
 
@@ -367,28 +354,94 @@ function sumar(arr, campo) {
   return arr.reduce((s, x) => s + (Number(x[campo]) || 0), 0);
 }
 
+/**
+ * 🔧 FIX: separa ventas brutas de NCs y calcula el neto.
+ *    - `totalBruto`  = suma de facturas y otros documentos con signo +
+ *    - `totalNC`     = suma de notas de crédito (positiva, informativa)
+ *    - `totalNeto`   = totalBruto - totalNC  ← el que debe usar el contador
+ *
+ *    Antes se devolvía `total = sumar(ventasATS, 'total')`, que sumaba
+ *    las NC como positivas → el resumen JSON mentía. El XML nunca tuvo
+ *    el bug porque usa `__totalConSigno`.
+ */
 function construirTotales(ventasATS, comprasATS, retencionesATS) {
+  // Ventas: distinguir por estado ('ANULADO' = NC)
+  let totalBruto = 0;
+  let base0Bruto = 0;
+  let baseIVABruto = 0;
+  let ivaBruto = 0;
+  let cantidadBruto = 0;
+
+  let totalNC = 0;
+  let base0NC = 0;
+  let baseIVANC = 0;
+  let ivaNC = 0;
+  let cantidadNC = 0;
+
+  for (const v of ventasATS) {
+    const esNC = v.__esNC === true;
+    const t = Number(v.total) || 0;
+    const b0 = Number(v.base_0) || 0;
+    const bIVA = Number(v.base_iva) || 0;
+    const iv = Number(v.iva) || 0;
+
+    if (esNC) {
+      totalNC += t;
+      base0NC += b0;
+      baseIVANC += bIVA;
+      ivaNC += iv;
+      cantidadNC++;
+    } else {
+      totalBruto += t;
+      base0Bruto += b0;
+      baseIVABruto += bIVA;
+      ivaBruto += iv;
+      cantidadBruto++;
+    }
+  }
+
   const ventas = {
     cantidad: ventasATS.length,
-    base0: sumar(ventasATS, 'base_0'),
-    baseIVA: sumar(ventasATS, 'base_iva'),
-    iva: sumar(ventasATS, 'iva'),
-    total: sumar(ventasATS, 'total')
+    cantidadFacturas: cantidadBruto,
+    cantidadNC,
+    base0: Number((base0Bruto - base0NC).toFixed(2)),
+    baseIVA: Number((baseIVABruto - baseIVANC).toFixed(2)),
+    iva: Number((ivaBruto - ivaNC).toFixed(2)),
+    total: Number((totalBruto - totalNC).toFixed(2)),
+
+    // Desglose para el contador (el JSON sigue devolviendo la forma
+    // histórica arriba + estos campos adicionales).
+    totalBruto: Number(totalBruto.toFixed(2)),
+    totalNC: Number(totalNC.toFixed(2)),
+    base0Bruto: Number(base0Bruto.toFixed(2)),
+    base0NC: Number(base0NC.toFixed(2)),
+    baseIVABruto: Number(baseIVABruto.toFixed(2)),
+    baseIVANC: Number(baseIVANC.toFixed(2)),
+    ivaBruto: Number(ivaBruto.toFixed(2)),
+    ivaNC: Number(ivaNC.toFixed(2))
   };
+
   const compras = {
     cantidad: comprasATS.length,
-    base0: sumar(comprasATS, 'base_0'),
-    baseIVA: sumar(comprasATS, 'base_iva'),
-    iva: sumar(comprasATS, 'iva'),
-    total: sumar(comprasATS, 'total'),
-    retenciones: sumar(comprasATS, 'retencion_valor')
+    base0: Number(sumar(comprasATS, 'base_0').toFixed(2)),
+    baseIVA: Number(sumar(comprasATS, 'base_iva').toFixed(2)),
+    iva: Number(sumar(comprasATS, 'iva').toFixed(2)),
+    total: Number(sumar(comprasATS, 'total').toFixed(2)),
+    retenciones: Number(sumar(comprasATS, 'retencion_valor').toFixed(2))
   };
+
   const retenciones = {
     cantidad: retencionesATS.length,
-    base: sumar(retencionesATS, 'base_imponible'),
-    valor: sumar(retencionesATS, 'valor_retenido')
+    base: Number(sumar(retencionesATS, 'base_imponible').toFixed(2)),
+    valor: Number(sumar(retencionesATS, 'valor_retenido').toFixed(2))
   };
-  return { ventas, compras, retenciones, ivaPorPagar: ventas.iva - compras.iva };
+
+  return {
+    ventas,
+    compras,
+    retenciones,
+    ivaPorPagar: Number((ventas.iva - compras.iva).toFixed(2))
+  };
 }
 
 // ============================================================
@@ -412,9 +465,17 @@ function xmlDetalleVenta(v) {
       </detalleVentas>`;
 }
 
+/**
+ * 🔧 FIX: `<tipoRegi>` se deriva de la config (obligado_contabilidad).
+ *    Antes hardcodeaba '01' (contribuyente que lleva contabilidad).
+ *    Ficha SRI:
+ *      '01' → Contribuyente que lleva contabilidad
+ *      '02' → Contribuyente que NO lleva contabilidad
+ */
 function xmlDetalleCompra(c) {
   const retBienes = c.tipo_compra === 'inventario' ? c.retencion_valor : 0;
   const retServicios = c.tipo_compra === 'gasto' ? c.retencion_valor : 0;
+  const tipoRegi = c.__obligadoContabilidad === false ? '02' : '01';
   return `      <detalleCompras>
         <codSustento>01</codSustento>
         <tpIdProv>${esc(c.tipo_id)}</tpIdProv>
@@ -436,7 +497,7 @@ function xmlDetalleCompra(c) {
         <valorRetServicios>${num(retServicios)}</valorRetServicios>
         <valRetServ100>0.00</valRetServ100>
         <pagoLocExt>01</pagoLocExt>
-        <tipoRegi>01</tipoRegi>
+        <tipoRegi>${tipoRegi}</tipoRegi>
         <paisEfecPago>NA</paisEfecPago>
         <aplicConvDobTrib>NA</aplicConvDobTrib>
         <pagExtSujRetNorLeg>NA</pagExtSujRetNorLeg>
@@ -445,14 +506,6 @@ function xmlDetalleCompra(c) {
       </detalleCompras>`;
 }
 
-/**
- * Construye el XML completo del ATS.
- * @param {object} p
- * @param {object} p.periodo      {anio, mes}
- * @param {object} p.config       configuración de la empresa
- * @param {Array}  p.ventasATS    salida de construirVentasATS
- * @param {Array}  p.comprasATS   salida de construirComprasATS.items
- */
 function construirXmlATS({ periodo, config, ventasATS, comprasATS }) {
   const ruc = config.ruc || '';
   const razonSocial = config.razon_social || '';
@@ -475,7 +528,13 @@ function construirXmlATS({ periodo, config, ventasATS, comprasATS }) {
   }
 
   const ventasXml = ventasATS.map(xmlDetalleVenta).join('\n');
-  const comprasXml = comprasATS.map(xmlDetalleCompra).join('\n');
+  // Inyectar `__obligadoContabilidad` antes de generar (evita pasar config
+  // por parámetro a cada item).
+  const comprasXml = comprasATS.map(c => {
+    c.__obligadoContabilidad = config.obligado_contabilidad !== false;
+    return xmlDetalleCompra(c);
+  }).join('\n');
+
   const ventasEstab = establecimientos.map(cod => {
     const a = porEstablecimiento[cod];
     return `      <ventaEst>
@@ -552,7 +611,6 @@ router.get('/ats/:anio/:mes', requierePermiso('reportes', 'ver'), async (req, re
       generado: new Date()
     });
   } catch (err) {
-    // Delegamos al errorHandler central (mensajes sanitizados, reqId, etc.)
     return next(err);
   }
 });
@@ -582,7 +640,6 @@ router.get('/ats/:anio/:mes/xml', requierePermiso('reportes', 'ver'), async (req
     const ventasATS = construirVentasATS(ventas);
     const { items: comprasATS } = construirComprasATS(compras, config);
 
-    // Gate: si hay compras con placeholder y no se fuerza → 409
     const conPlaceholder = comprasATS.filter(c => c.__placeholder);
     const forzar = req.query.forzar === 'true';
     if (conPlaceholder.length > 0 && !forzar) {

@@ -10,6 +10,22 @@
 // - Añade `Retry-After` cuando el error trae `retryAfter`.
 // - Log estructurado con severidad por status (>=500 error, >=400 warn).
 // - Marca `Cache-Control: no-store` en TODAS las respuestas de error.
+//
+// 🔧 FIX 2025-XX:
+//   1. Los traductores que producen mensajes SEGUROS (Mongo red,
+//      timeout, axios, circuit breaker, rate limit) ahora marcan
+//      explícitamente `ctx.mensajeSeguro = true`. La decisión de
+//      saneo en prod ya no depende de una whitelist de strings
+//      frágil: si un traductor dice "este mensaje es seguro", se
+//      respeta; si no, se aplica el saneo genérico. Esto evita
+//      que un mensaje bueno (producido por un traductor nuevo) se
+//      borre por no estar en la whitelist.
+//   2. `Retry-After` ahora se emite también en respuestas 4xx
+//      (concretamente 429 Rate Limit), no solo en 5xx. La
+//      semántica HTTP lo permite y los clientes lo aprovechan.
+//   3. Se limpian `ctx.detalles` en producción si el mensaje fue
+//      saneado — antes se filtraban `detalles` que podían contener
+//      información interna (por ejemplo `errInfo` de Mongo).
 // ============================================================
 'use strict';
 
@@ -59,7 +75,6 @@ const BSON_INVALID_NAMES = new Set([
 // ------------------------------------------------------------
 // Utilidades
 // ------------------------------------------------------------
-/** Código HTTP seguro (entero 400-599); si no, 500. */
 function normalizarStatus(err) {
   const raw = err.status ?? err.statusCode ?? 500;
   const n = Number(raw);
@@ -67,10 +82,6 @@ function normalizarStatus(err) {
   return 500;
 }
 
-/**
- * Extrae el "error raíz" de un error de escritura de Mongo.
- * Prioriza `err.writeErrors[]` (BulkWrite) y `err.cause` (driver v4+).
- */
 function raizDeErrorMongo(err) {
   if (Array.isArray(err.writeErrors) && err.writeErrors.length > 0) {
     const first = err.writeErrors[0];
@@ -80,7 +91,6 @@ function raizDeErrorMongo(err) {
   return err;
 }
 
-/** Extrae el primer campo y su valor de un keyPattern/keyValue de Mongo. */
 function primerCampoDuplicado(errBase) {
   const kp = errBase.keyPattern || errBase.keyValue || {};
   const campo = Object.keys(kp)[0];
@@ -90,9 +100,11 @@ function primerCampoDuplicado(errBase) {
 }
 
 // ------------------------------------------------------------
-// Traductores: cada uno transforma `ctx` (mutable) si aplica.
-// El orden importa: el primero que matchea puede ser sobrescrito
-// por los siguientes si son más específicos.
+// Traductores
+// ------------------------------------------------------------
+// Cada traductor muta `ctx` si reconoce el error. Los traductores
+// que producen mensajes SEGUROS deben marcar `ctx.mensajeSeguro = true`
+// para saltarse el saneo automático en producción.
 // ------------------------------------------------------------
 const traductores = [
   // --- Mongo: duplicados y validación de esquema ---
@@ -110,12 +122,14 @@ const traductores = [
         ? `El valor del campo "${campo}" ya está registrado`
         : 'Registro duplicado';
       ctx.detalles = { campo: campo || undefined, keyValue };
+      ctx.mensajeSeguro = true;
       return;
     }
     if (errBase.code === 121) {
       ctx.status = 400;
       ctx.codigo = 'VALIDACION_MONGO';
       ctx.mensaje = 'Error de validación en la base de datos';
+      ctx.mensajeSeguro = true;
       if (!IS_PROD && errBase.errInfo) ctx.detalles = { errInfo: errBase.errInfo };
       return;
     }
@@ -127,6 +141,7 @@ const traductores = [
     ctx.status = 503;
     ctx.codigo = 'DB_NO_DISPONIBLE';
     ctx.mensaje = 'Base de datos no disponible. Reintente en unos segundos.';
+    ctx.mensajeSeguro = true;
   },
 
   // --- Mongo: timeout ---
@@ -135,6 +150,7 @@ const traductores = [
     ctx.status = 504;
     ctx.codigo = 'DB_TIMEOUT';
     ctx.mensaje = 'La base de datos tardó demasiado en responder.';
+    ctx.mensajeSeguro = true;
   },
 
   // --- BSON inválido ---
@@ -143,16 +159,20 @@ const traductores = [
     ctx.status = 400;
     ctx.codigo = 'BSON_INVALIDO';
     ctx.mensaje = 'Datos con formato inválido';
+    ctx.mensajeSeguro = true;
   },
 
   // --- JWT ---
   function jwt(ctx) {
     if (ctx.err.name === 'JsonWebTokenError') {
-      ctx.status = 401; ctx.codigo = 'TOKEN_INVALIDO'; ctx.mensaje = 'Token inválido';
+      ctx.status = 401; ctx.codigo = 'TOKEN_INVALIDO';
+      ctx.mensaje = 'Token inválido'; ctx.mensajeSeguro = true;
     } else if (ctx.err.name === 'TokenExpiredError') {
-      ctx.status = 401; ctx.codigo = 'TOKEN_EXPIRADO'; ctx.mensaje = 'Sesión expirada';
+      ctx.status = 401; ctx.codigo = 'TOKEN_EXPIRADO';
+      ctx.mensaje = 'Sesión expirada'; ctx.mensajeSeguro = true;
     } else if (ctx.err.name === 'NotBeforeError') {
-      ctx.status = 401; ctx.codigo = 'TOKEN_NO_VALIDO_AUN'; ctx.mensaje = 'Token aún no válido';
+      ctx.status = 401; ctx.codigo = 'TOKEN_NO_VALIDO_AUN';
+      ctx.mensaje = 'Token aún no válido'; ctx.mensajeSeguro = true;
     }
   },
 
@@ -171,6 +191,7 @@ const traductores = [
       mensaje: e.msg,
       ...(e.location ? { ubicacion: e.location } : {})
     }));
+    ctx.mensajeSeguro = true;
   },
 
   // --- Axios ---
@@ -186,6 +207,7 @@ const traductores = [
     } else {
       ctx.mensaje = 'Error al conectar con servicio externo';
     }
+    ctx.mensajeSeguro = true;
     // Nunca exponer `err.response.data` (podría traer PII).
     if (!IS_PROD && err.config) {
       ctx.detalles = { url: err.config.url, method: err.config.method };
@@ -198,6 +220,7 @@ const traductores = [
     ctx.status = 503;
     ctx.codigo = 'CIRCUIT_OPEN';
     ctx.mensaje = ctx.mensaje || 'Servicio temporalmente no disponible';
+    ctx.mensajeSeguro = true;
     const retryAfter = Number(ctx.err.retryAfter) || 60;
     ctx.detalles = { ...(ctx.detalles || {}), retryAfter };
     ctx.retryAfter = retryAfter;
@@ -208,7 +231,10 @@ const traductores = [
     if (ctx.err.status !== 429 && ctx.codigo !== 'RATE_LIMIT') return;
     ctx.status = 429;
     ctx.codigo = ctx.codigo || 'RATE_LIMIT';
-    if (ctx.err.retryAfter) ctx.retryAfter = Number(ctx.err.retryAfter);
+    ctx.mensajeSeguro = true;
+    // `retryAfter` puede venir en segundos (express-rate-limit) o ms.
+    const ra = Number(ctx.err.retryAfter);
+    if (Number.isFinite(ra) && ra > 0) ctx.retryAfter = ra;
   }
 ];
 
@@ -226,7 +252,9 @@ function errorHandler(err, req, res, next) {
     codigo: err.codigo || err.code || 'ERROR_INTERNO',
     mensaje: err.message || 'Error interno del servidor',
     detalles: err.detalles || null,
-    retryAfter: null
+    retryAfter: null,
+    /** Marca explícita: "este mensaje es seguro, no lo sanées". */
+    mensajeSeguro: false
   };
 
   // --- 2. Aplicar traductores ---
@@ -242,19 +270,30 @@ function errorHandler(err, req, res, next) {
   }
 
   // --- 3. Sanitizar mensaje para 5xx en producción ---
-// Chequeamos tanto el `err` original como el `ctx.mensaje` ya traducido.
-// Los traductores (Axios, CircuitBreaker, Mongo) ya generan mensajes seguros.
-if (IS_PROD && ctx.status >= 500) {
-  const errSeguro = esMensajeSeguro(err);
-  const ctxSeguro = esMensajeSeguro(ctx.mensaje);
-  if (!errSeguro && !ctxSeguro) {
-    ctx.mensaje = mensajeGenericoPara(ctx.status);
+  //    Decisión: saneamos SOLO si TODAS las condiciones se cumplen:
+  //      a) Es producción
+  //      b) El status es 5xx
+  //      c) El traductor NO marcó el mensaje como seguro
+  //      d) El ctx.mensaje NO está en la whitelist
+  //      e) El err original NO está marcado como público (.public/.expose/.status<500)
+  if (IS_PROD && ctx.status >= 500 && !ctx.mensajeSeguro) {
+    const ctxSeguro = esMensajeSeguro(ctx.mensaje);
+    const errSeguro = esMensajeSeguro(err);
+    if (!ctxSeguro && !errSeguro) {
+      ctx.mensaje = mensajeGenericoPara(ctx.status);
+      // Si saneamos el mensaje, los `detalles` también pueden filtrar
+      // información interna (errInfo de Mongo, stack parcial, etc.).
+      // Los descartamos salvo que el error se haya marcado como público.
+      if (!(err.public === true || err.expose === true)) {
+        ctx.detalles = null;
+      }
+    }
   }
-}
 
   // --- 4. Headers adicionales ---
   res.set('Cache-Control', 'no-store');
-  if (ctx.retryAfter && ctx.status >= 500) {
+  // Retry-After aplica a 5xx Y 429 (rate limit).
+  if (ctx.retryAfter && (ctx.status >= 500 || ctx.status === 429)) {
     res.set('Retry-After', String(ctx.retryAfter));
   }
 
@@ -269,7 +308,7 @@ if (IS_PROD && ctx.status >= 500) {
     user: req.user && req.user.email ? req.user.email : 'anónimo',
     ip: req.ip,
     nombreError: err.name,
-    // Trazabilidad del error original (aunque se haya traducido)
+    mensajeOriginal: err.message,
     ...(err.code ? { codigoOriginal: err.code } : {})
   };
 
@@ -284,7 +323,6 @@ if (IS_PROD && ctx.status >= 500) {
   if (ctx.detalles) respuesta.detalles = ctx.detalles;
   if (req.reqId) respuesta.reqId = req.reqId;
   if (!IS_PROD && ctx.status >= 500 && err.stack) {
-    // Primeras 10 líneas del stack.
     respuesta.stack = String(err.stack).split('\n').slice(0, 10).join('\n');
   }
   if (err.periodo) respuesta.periodo = err.periodo;
@@ -305,7 +343,6 @@ const MENSAJES_SEGUROS_5XX = new Set([
   'Error interno del servidor'
 ]);
 
-/** ¿El mensaje es seguro para mostrar al cliente en prod? */
 /**
  * ¿El mensaje es seguro para mostrar al cliente en prod?
  * Acepta tanto un `Error` como un string (para chequear el mensaje
@@ -322,7 +359,7 @@ function esMensajeSeguro(errOMsg) {
 
   // Errores explícitamente marcados como públicos por el caller.
   if (err.public === true || err.expose === true) return true;
-  if (err.status && err.status < 500) return true; // los 4xx ya se consideran "seguros"
+  if (err.status && err.status < 500) return true;
   if (typeof err.message === 'string' && MENSAJES_SEGUROS_5XX.has(err.message)) return true;
   return false;
 }
@@ -353,3 +390,4 @@ module.exports.registrarTraductor = (fn, { prepend = false } = {}) => {
 // ---- Solo para tests ----
 module.exports._normalizarStatus = normalizarStatus;
 module.exports._esMensajeSeguro = esMensajeSeguro;
+module.exports._MENSAJES_SEGUROS_5XX = MENSAJES_SEGUROS_5XX;

@@ -18,6 +18,23 @@
 //   - Escrituras pasan por `verificarPeriodoAbierto()`.
 //   - Cambios de stock se hacen dentro de transacción con guard de cantidad.
 //   - Errores se delegan al `errorHandler` central.
+//
+// 🔧 FIX 2025-XX:
+//   1. Los contadores de compra se reservan FUERA de la transacción.
+//      Antes se llamaba `findOneAndUpdate` DENTRO del callback de
+//      `conTransaccion`. Si el driver reintentaba por
+//      `TransientTransactionError` (conflicto de escritura), el `$inc`
+//      se ejecutaba 2+ veces → secuenciales SALTADOS y auditoría
+//      descuadrada. Ahora reservamos ANTES y pasamos el valor ya
+//      congelado a la transacción. Si la transacción falla, el
+//      número queda "quemado" — aceptable y muchísimo mejor que
+//      duplicar en cada reintento.
+//   2. `importar-txt`: el mismo fix, pero reservando N contadores
+//      del lote en UNA sola operación atómica (`$inc: valor += N`).
+//      Mucho más rápido que N findOneAndUpdate secuenciales.
+//   3. `importar-txt`: ya no exige producto para compras de tipo
+//      'gasto' (antes rechazaba líneas de gasto sin código de
+//      producto, aunque el modelo no lo requiere).
 // ============================================================
 'use strict';
 
@@ -80,7 +97,6 @@ function requireObjectId(id, codigo = 'ID_INVALIDO') {
   return new ObjectId(id);
 }
 
-/** Parsea fecha ISO; devuelve null si inválida. */
 function parseFecha(v) {
   const s = soloString(v);
   if (!s) return null;
@@ -88,19 +104,16 @@ function parseFecha(v) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Devuelve un número finito o el fallback. NO silencia negativos. */
 function toNumber(v, fallback = 0) {
   if (v === null || v === undefined || v === '') return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** Redondea a 2 decimales como número. */
 function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
 
-/** Auditoría que nunca rompe la request. */
 async function auditarSeguro(db, req, payload) {
   try {
     await logAudit(db, req, payload);
@@ -147,12 +160,11 @@ function validarFechaNoFutura(fecha) {
   if (Number.isNaN(d.getTime())) return 'Fecha inválida';
   const limite = new Date();
   limite.setHours(23, 59, 59, 999);
-  limite.setDate(limite.getDate() + 1); // margen por zona horaria
+  limite.setDate(limite.getDate() + 1);
   if (d > limite) return 'La fecha de emisión no puede ser futura';
   return null;
 }
 
-/** Valida un detalle (cantidad > 0, costo ≥ 0). Devuelve mensaje o null. */
 function validarDetalle(detalle) {
   const cantidad = Number(detalle?.cantidad);
   const costo = Number(detalle?.costo_unitario);
@@ -166,29 +178,70 @@ function validarDetalle(detalle) {
 }
 
 // ============================================================
-// HELPERS DE STOCK
+// HELPERS DE CONTADORES
+// ------------------------------------------------------------
+// IMPORTANTE: los contadores se reservan FUERA de cualquier
+// transacción. Un `findOneAndUpdate` con `$inc` es atómico a nivel
+// de documento y no requiere transacción. Hacerlo DENTRO de
+// `session.withTransaction` provoca duplicados si el driver
+// reintenta el callback por `TransientTransactionError`.
 // ============================================================
-/** Reserva un número secuencial de compra (atómico). */
-async function reservarContadorCompra(db, session = null) {
-  const opts = { upsert: true, returnDocument: 'after' };
-  if (session) opts.session = session;
-
+/** Reserva un único número secuencial de compra (atómico). */
+async function reservarContadorCompra(db) {
   const r = await db.collection(CONFIG.colContadores).findOneAndUpdate(
     { _id: 'compra' },
     { $inc: { valor: 1 } },
-    opts
+    { upsert: true, returnDocument: 'after' }
   );
 
-  // Driver v3 devuelve {value: doc}, v4+ devuelve el doc directo.
   const doc = r && r.value !== undefined ? r.value : r;
   return toNumber(doc?.valor, 1);
 }
 
 /**
- * Actualiza stock atómicamente. Si `signoStock < 0` exige stock suficiente.
- * @returns {Promise<object>} producto actualizado
- * @throws si no hay stock suficiente o el producto no existe
+ * Reserva `cantidad` números secuenciales en UNA sola operación.
+ * @param {Db} db
+ * @param {number} cantidad
+ * @returns {Promise<number[]>} Array de números reservados en orden ascendente.
  */
+async function reservarContadoresCompraLote(db, cantidad) {
+  const n = Number(cantidad);
+  if (!Number.isInteger(n) || n <= 0) return [];
+
+  const r = await db.collection(CONFIG.colContadores).findOneAndUpdate(
+    { _id: 'compra' },
+    { $inc: { valor: n } },
+    { upsert: true, returnDocument: 'after' }
+  );
+
+  const doc = r && r.value !== undefined ? r.value : r;
+  const valorFinal = toNumber(doc?.valor, 0);
+
+  // Defensa: si el driver no devolvió el valor correcto (raro),
+  // reservamos uno por uno como fallback.
+  if (valorFinal < n) {
+    log.warn(
+      { valorFinal, cantidad: n },
+      'Contador de compras no devolvió el valor esperado; reservando uno por uno'
+    );
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.push(await reservarContadorCompra(db));
+    }
+    return out;
+  }
+
+  const valorInicial = valorFinal - n + 1;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = valorInicial + i;
+  }
+  return out;
+}
+
+// ============================================================
+// HELPERS DE STOCK
+// ============================================================
 async function actualizarStockAtomico(db, productoId, cantidad, signoStock, session, extras = {}) {
   const cant = Math.abs(Number(cantidad));
   const filtro = signoStock < 0
@@ -214,7 +267,6 @@ async function actualizarStockAtomico(db, productoId, cantidad, signoStock, sess
   return await db.collection(CONFIG.colProductos).findOne({ _id: productoId }, { session });
 }
 
-/** Revierte el stock y borra el kardex de una compra (dentro de una sesión). */
 async function revertirStockDeCompra(db, compra, session) {
   if (compra.tipo_compra !== 'inventario') return;
   for (const detalle of compra.detalles || []) {
@@ -227,7 +279,6 @@ async function revertirStockDeCompra(db, compra, session) {
   );
 }
 
-/** Aplica el stock y registra en kardex (dentro de una sesión). */
 async function aplicarStockDeCompra(db, compraId, detalles, fechaEmision, session) {
   for (const detalle of detalles) {
     const productoId = new ObjectId(detalle.productoId);
@@ -250,7 +301,6 @@ async function aplicarStockDeCompra(db, compraId, detalles, fechaEmision, sessio
   }
 }
 
-/** Trae una compra con su proveedor populado. */
 async function traerCompraPopulada(db, compraId) {
   const r = await db.collection(CONFIG.colCompras).aggregate([
     { $match: { _id: compraId } },
@@ -383,7 +433,6 @@ router.get('/cuentas-por-pagar', requierePermiso('compras', 'ver'), async (req, 
           montoPagado: 1,
           saldoPendiente: 1,
           estado_pago: 1,
-          // Días transcurridos desde la emisión (entero).
           dias: {
             $floor: {
               $divide: [{ $subtract: [new Date(), '$fecha_emision'] }, 86400000]
@@ -624,11 +673,13 @@ router.post(
         }
       }
 
-      // Persistir dentro de una transacción.
-      const resultado = await conTransaccion(req.db, async (session) => {
-        const contadorValor = await reservarContadorCompra(req.db, session);
-        const codigo = `COM-${String(contadorValor).padStart(6, '0')}`;
+      // 🔧 FIX: reservar el contador FUERA de la transacción.
+      //    Un reintento del driver ya no duplicará el `$inc`.
+      const contadorValor = await reservarContadorCompra(req.db);
+      const codigo = `COM-${String(contadorValor).padStart(6, '0')}`;
 
+      // Persistir dentro de una transacción (solo el stock + insert).
+      const resultado = await conTransaccion(req.db, async (session) => {
         const compra = {
           proveedorId: new ObjectId(proveedorId),
           numero_factura: numero_factura || codigo,
@@ -733,7 +784,6 @@ router.put(
           }
         }
 
-        // Verificar que todos los productos existan.
         const ids = detalles.map(d => new ObjectId(d.productoId));
         const productos = await req.db.collection(CONFIG.colProductos)
           .find({ _id: { $in: ids } }).project({ _id: 1 }).toArray();
@@ -870,10 +920,12 @@ router.delete(
 // IMPORTAR TXT
 // ------------------------------------------------------------
 // CORRECCIONES:
-//   - Contadores (`importados`, `proveedoresCreados`) se suman
-//     FUERA de la transacción (evita doble conteo en reintentos).
-//   - `toNumber` en lugar de `parseFloat(x) || 0` (no silencia NaN).
+//   - Contadores reservados FUERA de la transacción, en UNA sola
+//     operación atómica por lote (`$inc: valor += N`). Los reintentos
+//     del driver ya no duplican números.
+//   - `toNumber` en lugar de `parseFloat(x) || 0`.
 //   - Validación de fechas antes de pasarlas al chequeo de períodos.
+//   - Compras de tipo `gasto` NO requieren producto.
 //   - Reporte estructurado de errores por línea.
 // ============================================================
 router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, res, next) => {
@@ -911,6 +963,17 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
       const lote = lineas.slice(offset, offset + IMPORT_BATCH_SIZE);
 
       try {
+        // 🔧 FIX: reservar los contadores del lote FUERA de la transacción,
+        //    en UNA sola operación atómica. Si el driver reintenta la
+        //    transacción por `TransientTransactionError`, ya no se duplican
+        //    los secuenciales.
+        //
+        //    Reservamos `lote.length` números aunque algunas líneas fallen
+        //    (queda "quemado" el número de esas líneas). Es el precio de
+        //    garantizar que ningún reintento duplique. El rango de
+        //    secuenciales salta un poco, pero es aceptable y consistente.
+        const contadoresLote = await reservarContadoresCompraLote(req.db, lote.length);
+
         // La transacción devuelve los contadores; se acumulan afuera para
         // evitar doble conteo si MongoDB reintenta el callback.
         const resumenLote = await conTransaccion(req.db, async (session) => {
@@ -974,40 +1037,47 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
                 continue;
               }
 
-              const proveedor = await buscarOCrearProveedor(ruc, razonSocial);
-              const producto = await buscarProducto(codigoProducto);
-              if (!producto) {
-                erroresLote.push(
-                  `Línea ${numLinea} (RUC ${ruc}): producto no encontrado` +
-                  (codigoProducto ? ` con código "${codigoProducto}"` : ' (sin código)')
-                );
-                continue;
+              const tipoCompra = tipo_compra || 'inventario';
+
+              // 🔧 FIX: las compras de tipo `gasto` NO requieren producto.
+              //    Antes se exigía siempre, lo que rechazaba líneas de
+              //    gastos legítimas (p. ej. servicios, arriendos).
+              let producto = null;
+              if (tipoCompra === 'inventario') {
+                producto = await buscarProducto(codigoProducto);
+                if (!producto) {
+                  erroresLote.push(
+                    `Línea ${numLinea} (RUC ${ruc}): producto no encontrado` +
+                    (codigoProducto ? ` con código "${codigoProducto}"` : ' (sin código)')
+                  );
+                  continue;
+                }
               }
 
-              const contadorResult = await req.db.collection(CONFIG.colContadores).findOneAndUpdate(
-                { _id: 'compra' },
-                { $inc: { valor: 1 } },
-                { upsert: true, returnDocument: 'after', session }
-              );
-              const docContador = contadorResult && contadorResult.value !== undefined
-                ? contadorResult.value
-                : contadorResult;
-              const contadorValor = toNumber(docContador?.valor, 1);
+              const proveedor = await buscarOCrearProveedor(ruc, razonSocial);
+
+              // Usar el contador pre-reservado para esta línea.
+              const contadorValor = contadoresLote[idx];
+              if (!Number.isFinite(contadorValor)) {
+                erroresLote.push(`Línea ${numLinea}: no hay contador reservado para esta línea`);
+                continue;
+              }
               const codigo = `COM-${String(contadorValor).padStart(6, '0')}`;
 
-              const tipoCompra = tipo_compra || 'inventario';
               const ivaNum = toNumber(iva);
 
               const compraData = {
                 proveedorId: proveedor._id,
                 numero_factura: codigo,
                 fecha_emision: fecha,
-                detalles: [{
-                  productoId: producto._id,
-                  cantidad: 1,
-                  costo_unitario: totalNum,
-                  aplica_iva: ivaNum > 0
-                }],
+                detalles: producto
+                  ? [{
+                      productoId: producto._id,
+                      cantidad: 1,
+                      costo_unitario: totalNum,
+                      aplica_iva: ivaNum > 0
+                    }]
+                  : [],
                 subtotal: toNumber(valorSinImpuestos),
                 iva: ivaNum,
                 total: totalNum,
@@ -1028,7 +1098,7 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
                 .insertOne(compraData, { session });
               const compraId = compraResult.insertedId;
 
-              if (tipoCompra === 'inventario') {
+              if (tipoCompra === 'inventario' && producto) {
                 const productoActualizado = await actualizarStockAtomico(
                   req.db, producto._id, 1, +1, session, { precio_compra: totalNum }
                 );
@@ -1100,3 +1170,5 @@ module.exports._validarDetalle = validarDetalle;
 module.exports._toNumber = toNumber;
 module.exports._round2 = round2;
 module.exports._requireObjectId = requireObjectId;
+module.exports._reservarContadorCompra = reservarContadorCompra;
+module.exports._reservarContadoresCompraLote = reservarContadoresCompraLote;

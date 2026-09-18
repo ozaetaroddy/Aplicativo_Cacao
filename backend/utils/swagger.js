@@ -26,6 +26,13 @@
 // ⚠️  En producción, NUNCA exponer /api/docs sin auth. El spec
 //     completo es un mapa del ataque: endpoints, esquemas, campos.
 //     Usa SWAGGER_BASIC_AUTH o SWAGGER_ENABLED=false.
+//
+// 🔧 FIX 2025-XX: `_specMinimo` construía el array `security` con
+//    el STRING `'[]'` en lugar del array vacío real:
+//      security: [{ bearerAuth: '[]' }]   ← MAL
+//      security: [{ bearerAuth: [] }]     ← BIEN
+//    El spec fallback quedaba malformado y rompía los validadores
+//    de OpenAPI (Swagger UI mostraba "invalid spec").
 // ============================================================
 'use strict';
 
@@ -68,40 +75,18 @@ function parseServers() {
 }
 
 const CONFIG = Object.freeze({
-  /** Ruta donde se monta la UI. */
   docsPath: envStr('SWAGGER_PATH', '/api/docs'),
-
-  /** Ruta del JSON (spec). Se deriva del docsPath. */
   specPath: envStr('SWAGGER_SPEC_PATH', '/api/docs.json'),
-
-  /** Título que aparece en la UI. */
   title: envStr('SWAGGER_TITLE', 'Cacao Backend API'),
-
-  /** Servidores configurados. */
   servers: Object.freeze(parseServers()),
-
-  /** Basic Auth opcional (`user:pass`). Vacío = sin auth. */
   basicAuth: envStr('SWAGGER_BASIC_AUTH', ''),
-
-  /** Info de contacto. */
   contactEmail: envStr('SWAGGER_CONTACT_EMAIL', ''),
-
-  /** Descripción larga. */
   description: envStr(
     'SWAGGER_DESCRIPTION',
     'API para sistema contable con facturación electrónica SRI Ecuador'
   ),
-
-  /**
-   * Default de habilitación: false en prod, true en dev.
-   * Override con `SWAGGER_ENABLED=true|false`.
-   */
   enabledByDefault: !IS_PROD,
-
-  /** Máx. entradas del cache (1 es suficiente). */
   cacheMax: 1,
-
-  /** Archivos de rutas a escanear (relativo a backend/). */
   apisGlob: Object.freeze([
     path.join(__dirname, '..', 'routes', '*.js')
   ])
@@ -327,7 +312,6 @@ function buildSpec(opts = {}) {
   // Validar que existan los archivos de rutas.
   const apisValidos = CONFIG.apisGlob.filter(p => {
     try {
-      // Si el glob contiene '*', verificamos solo el directorio.
       const dir = p.includes('*') ? path.dirname(p) : p;
       return fs.existsSync(dir);
     } catch {
@@ -351,11 +335,9 @@ function buildSpec(opts = {}) {
     return _specMinimo(definition);
   }
 
-  // Añadimos stats al cache.
   const sizeBytes = Buffer.byteLength(JSON.stringify(spec), 'utf-8');
   _cache.set('spec', { spec, creadoEn: Date.now(), sizeBytes });
 
-  // Limpia entradas viejas si excede el tamaño (por si se sube cacheMax).
   if (_cache.size > CONFIG.cacheMax) {
     const primero = _cache.keys().next().value;
     if (primero !== undefined && primero !== 'spec') _cache.delete(primero);
@@ -364,7 +346,13 @@ function buildSpec(opts = {}) {
   return spec;
 }
 
-/** Spec mínimo (sin escaneo de rutas). Útil si swagger-jsdoc no está. */
+/**
+ * Spec mínimo (sin escaneo de rutas). Útil si swagger-jsdoc no está.
+ *
+ * 🔧 FIX: antes se generaba `security: [{ bearerAuth: '[]' }]` (string)
+ *    y los validadores de OpenAPI lo rechazaban. Ahora es un array
+ *    vacío real.
+ */
 function _specMinimo(definitionOverride = null) {
   const definition = definitionOverride || {
     openapi: '3.0.3',
@@ -380,8 +368,7 @@ function _specMinimo(definitionOverride = null) {
       },
       schemas: SCHEMAS
     },
-    security: [{ bearerAuth: '[]' }],
-    paths: {}
+    security: [{ bearerAuth: [] }]
   };
   return {
     ...definition,
@@ -440,7 +427,6 @@ let _swaggerMontado = false;
  * @returns {boolean} `true` si se montó, `false` si estaba deshabilitado.
  */
 function mountSwagger(app, opts = {}) {
-  // ---- ¿Habilitado? ----
   const enabledEnv = process.env.SWAGGER_ENABLED;
   const enabled = opts.forzarHabilitado === true
     ? true
@@ -450,30 +436,25 @@ function mountSwagger(app, opts = {}) {
 
   if (!enabled) return false;
 
-  // ---- ¿Ya montado? ----
   if (_swaggerMontado) {
     log.warn('Swagger ya estaba montado, se omite');
     return false;
   }
 
-  // ---- Dependencias ----
   const swaggerUi = cargarSwaggerUi();
   if (!swaggerUi) {
     log.warn('swagger-ui-express no instalado, /api/docs deshabilitado');
     return false;
   }
 
-  // ---- Spec ----
   const spec = buildSpec();
 
-  // ---- Endpoint JSON (spec crudo) ----
   app.get(CONFIG.specPath, middlewareBasicAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.set('X-Content-Type-Options', 'nosniff');
     res.json(spec);
   });
 
-  // ---- UI ----
   const swaggerOptions = {
     customSiteTitle: `API — ${CONFIG.title}`,
     customCss: '.swagger-ui .topbar { display: none }',
@@ -509,21 +490,14 @@ function mountSwagger(app, opts = {}) {
 // EXPORTS
 // ============================================================
 module.exports = {
-  // ---- API original ----
   buildSpec,
   mountSwagger,
-
-  // ---- Extensiones ----
   invalidarCacheSpec,
   getSpecCacheStats,
   middlewareBasicAuth,
-
-  // ---- Constantes ----
   CONFIG,
   SCHEMAS,
   TAGS,
-
-  // ---- Info útil ----
   IS_PROD
 };
 

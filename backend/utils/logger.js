@@ -21,6 +21,12 @@
 //   LOG_KEEP_LEVEL=true              → mantiene `level` en lugar de `nivel`
 //   LOG_REDACT_EXTRA=path1,path2     → añade paths al redactor
 //   LOG_SERVICIO=mi-servicio         → nombre en el campo `servicio`
+//
+// 🔧 FIX 2025-XX: `safeStringify` pre-marcaba el root en el WeakSet
+//    y luego usaba el MISMO WeakSet en el replacer de `JSON.stringify`.
+//    Resultado: JSON.stringify veía el root ya marcado y devolvía
+//    literalmente `"circular"` para CUALQUIER objeto plano. Ahora el
+//    replacer usa un WeakSet separado.
 // ============================================================
 'use strict';
 
@@ -177,10 +183,23 @@ function resSerializer(res) {
 // ============================================================
 // FALLBACK (sin pino)
 // ============================================================
-/** Serializa un valor cualquiera a string seguro (maneja ciclos). */
+/**
+ * Serializa un valor cualquiera a string seguro (maneja ciclos).
+ *
+ * 🔧 FIX: antes se pre-marcaba el `root` en `vistos` y LUEGO se usaba
+ *    el mismo WeakSet como `replacer` de `JSON.stringify`. Como el
+ *    replacer ve el root ya marcado, devolvía `'[circular]'` para el
+ *    primer objeto → `JSON.stringify` lo escapaba a `'"circular"'` y
+ *    TODO objeto plano se logueaba como `"circular"`.
+ *
+ *    Ahora el replacer usa un WeakSet PROPIO, separado del que lleva
+ *    el control de recursión manual (arrays).
+ */
 function safeStringify(valor, vistos = new WeakSet(), profundidad = 0) {
   if (valor === null || valor === undefined) return String(valor);
   if (profundidad > 6) return '[profundo]';
+
+  // Primitivos.
   if (typeof valor === 'string') return valor;
   if (typeof valor === 'number' || typeof valor === 'boolean' || typeof valor === 'bigint') {
     return String(valor);
@@ -188,28 +207,39 @@ function safeStringify(valor, vistos = new WeakSet(), profundidad = 0) {
   if (typeof valor === 'function') return '[función]';
   if (typeof valor === 'symbol') return String(valor);
 
+  // Error: shape compacto.
   if (valor instanceof Error) {
     const out = { type: valor.name, message: valor.message };
     if (valor.code !== undefined) out.code = valor.code;
     if (!IS_PROD && valor.stack) out.stack = valor.stack;
-    try { return JSON.stringify(out); } catch { return `${valor.name}: ${valor.message}`; }
+    try { return JSON.stringify(out); }
+    catch { return `${valor.name}: ${valor.message}`; }
   }
 
   if (typeof valor === 'object') {
+    // Chequeo de circularidad para la recursión MANUAL (arrays).
     if (vistos.has(valor)) return '[circular]';
     vistos.add(valor);
 
-    if (Array.isArray(valor)) {
-      return '[' + valor.map(v => safeStringify(v, vistos, profundidad + 1)).join(', ') + ']';
-    }
-
+    // Buffer: descriptor compacto antes de tocar JSON.
     if (Buffer.isBuffer(valor)) return `[Buffer ${valor.length}B]`;
 
+    // Array: recursión manual (así controlamos profundidad).
+    if (Array.isArray(valor)) {
+      return '[' + valor
+        .map(v => safeStringify(v, vistos, profundidad + 1))
+        .join(', ') + ']';
+    }
+
+    // Objeto plano: JSON.stringify con replacer propio.
+    // El WeakSet `vistosReplacer` es NUEVO — no comparte con `vistos`
+    // para no marcar el root por accidente.
+    const vistosReplacer = new WeakSet();
     try {
       return JSON.stringify(valor, (_k, v) => {
         if (typeof v === 'object' && v !== null) {
-          if (vistos.has(v)) return '[circular]';
-          vistos.add(v);
+          if (vistosReplacer.has(v)) return '[circular]';
+          vistosReplacer.add(v);
         }
         return v;
       });
@@ -221,7 +251,7 @@ function safeStringify(valor, vistos = new WeakSet(), profundidad = 0) {
   return String(valor);
 }
 
-/** Formatea y emite un log por consola. */
+/** Formatea y emite un log por consola (modo fallback). */
 function emitirFallback(nivel, args) {
   if (_silent) return;
   const ts = new Date().toISOString();
@@ -241,23 +271,25 @@ function emitirFallback(nivel, args) {
  */
 function crearFallback(bindings = {}) {
   const base = { ...bindings };
+  const tieneBase = Object.keys(base).length > 0;
 
-  const logger = {
-    debug: (...a) => emitirFallback('debug', Object.keys(base).length ? [base, ...a] : a),
-    info: (...a) => emitirFallback('info', Object.keys(base).length ? [base, ...a] : a),
-    warn: (...a) => emitirFallback('warn', Object.keys(base).length ? [base, ...a] : a),
-    error: (...a) => emitirFallback('error', Object.keys(base).length ? [base, ...a] : a),
-    fatal: (...a) => emitirFallback('fatal', Object.keys(base).length ? [base, ...a] : a),
-    trace: (...a) => emitirFallback('trace', Object.keys(base).length ? [base, ...a] : a),
+  const emitir = (nivel, args) =>
+    emitirFallback(nivel, tieneBase ? [base, ...args] : args);
+
+  return {
+    debug: (...a) => emitir('debug', a),
+    info:  (...a) => emitir('info', a),
+    warn:  (...a) => emitir('warn', a),
+    error: (...a) => emitir('error', a),
+    fatal: (...a) => emitir('fatal', a),
+    trace: (...a) => emitir('trace', a),
     /** Devuelve un logger hijo que acumula el contexto. */
     child: (extra = {}) => crearFallback({ ...base, ...extra }),
     /** No-op en fallback. */
     flush: () => {},
-    /** Silencia todo. */
-    silent: () => { /* ya es global vía _silent */ }
+    /** No-op en fallback (el silencing global lo controla `_silent`). */
+    silent: () => {}
   };
-
-  return logger;
 }
 
 // ============================================================
@@ -396,7 +428,14 @@ function close() {
   }
 }
 
-/** Silencia el logger globalmente (útil en tests). */
+/**
+ * Silencia el logger globalmente (útil en tests).
+ *
+ * 🔧 FIX: ahora también marca `_silent=true` para que el FALLBACK
+ *    (si `pino` no está instalado) deje de emitir. Antes solo se
+ *    silenciaba pino vía `logger.level='silent'`; el fallback seguía
+ *    imprimiendo.
+ */
 function silent() {
   _silent = true;
   if (typeof logger.level !== 'undefined') {
@@ -415,10 +454,6 @@ function unsilent() {
 // ============================================================
 // ADJUNTAMOS HELPERS AL LOGGER (no rompen la API)
 // ============================================================
-// Los módulos hacen `const log = require('logger')` y usan
-// `log.info/warn/error/debug/child`. Añadimos funciones extra
-// como propiedades del logger — pino las ignora, pero están
-// disponibles para quien las necesite.
 logger.childLogger = childLogger;
 logger.addRedactPath = addRedactPath;
 logger.getRedactPaths = getRedactPaths;
