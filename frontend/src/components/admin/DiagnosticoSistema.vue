@@ -344,7 +344,7 @@
       </div>
     </div>
 
-    <!-- 🆕 MODAL CONFIRMACIÓN GENÉRICO -->
+    <!-- MODAL CONFIRMACIÓN GENÉRICO -->
     <div
       class="modal fade"
       id="modalConfirmDiagnostico"
@@ -393,7 +393,14 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted, onBeforeUnmount } from 'vue'
+import {
+  ref,
+  computed,
+  reactive,
+  onMounted,
+  onBeforeUnmount,
+  watch
+} from 'vue'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
@@ -402,6 +409,7 @@ const toast = useToast()
 
 // ===== CONSTANTES =====
 const AUTO_REFRESH_MS = 30_000
+const TICK_RELATIVO_MS = 30_000
 
 // ===== STATE =====
 const loading = ref(true)
@@ -413,8 +421,9 @@ const resultadoSRI = ref(null)
 const ultimaVerificacion = ref(null)
 const autoRefresh = ref(false)
 
-// Modales
-let modalConfirm = null
+// 🆕 Ref que se togglea cada 30s para forzar re-render del "hace X min"
+// (porque `tiempoRelativo()` lee `Date.now()` que NO es reactivo)
+const refrescandoRelativo = ref(false)
 
 // Confirm state
 const confirmState = reactive({
@@ -428,18 +437,21 @@ const confirmState = reactive({
   resolve: null
 })
 
-// 🆕 Timers y flag unmount
+// Modales
+let modalConfirm = null
+
+// 🆕 Timers y cleanup
 let autoRefreshTimer = null
 let relativeTimeTimer = null
+let cargarAbort = null
 let unmounted = false
-// tick para forzar recálculo de "hace X min"
 
 // ===== COMPUTED =====
 
-/** 🐛 BUG FIX: null-safe */
+/** 🐛 BUG FIX: null-safe con optional chaining */
 const esListo = computed(() => Boolean(diagnostico.value?.listo_para_facturar))
 
-/** 🐛 BUG FIX: null-safe con optional chaining */
+/** 🐛 BUG FIX: null-safe */
 const empresaOk = computed(() => Boolean(diagnostico.value?.configuracion_empresa?.ok))
 
 const certificadoOk = computed(() => Boolean(diagnostico.value?.certificado?.ok))
@@ -538,7 +550,7 @@ const tiempoRelativo = (fecha) => {
   return `hace ${dias} día${dias === 1 ? '' : 's'}`
 }
 
-// ===== 🆕 MODAL CONFIRMACIÓN =====
+// ===== MODAL CONFIRMACIÓN =====
 const pedirConfirmacion = (opts = {}) => {
   return new Promise((resolve) => {
     confirmState.titulo = opts.titulo || 'Confirmar acción'
@@ -576,6 +588,12 @@ const cancelarConfirm = () => {
 
 // ===== CARGA =====
 const cargar = async () => {
+  // Cancelar request previa
+  if (cargarAbort) {
+    try { cargarAbort.abort() } catch { /* noop */ }
+  }
+  cargarAbort = new AbortController()
+
   loading.value = true
   // 🐛 BUG FIX: limpiar resultado de prueba anterior
   resultadoSRI.value = null
@@ -583,16 +601,17 @@ const cargar = async () => {
   try {
     const res = await api.request('/diagnostico', {
       method: 'GET',
-      loaderMessage: 'Analizando sistema...'
+      loaderMessage: 'Analizando sistema...',
+      signal: cargarAbort.signal
     })
     if (unmounted) return
     diagnostico.value = res
     ultimaVerificacion.value = new Date()
   } catch (e) {
-    if (!unmounted) {
-      toast.error('Error: ' + e.message)
-      diagnostico.value = null
-    }
+    const esAbort = e?.name === 'AbortError' || /aborted/i.test(e?.message || '')
+    if (unmounted || esAbort) return
+    toast.error('Error: ' + (e?.message || 'desconocido'))
+    diagnostico.value = null
   } finally {
     if (!unmounted) loading.value = false
   }
@@ -627,7 +646,7 @@ const migrarClaves = async () => {
     toast.success(msg)
     await cargar()
   } catch (e) {
-    if (!unmounted) toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + (e?.message || 'desconocido'))
   } finally {
     if (!unmounted) migrando.value = false
   }
@@ -640,7 +659,10 @@ const probarSRI = async () => {
   resultadoSRI.value = null
 
   try {
-    const res = await api.request('/sri/diagnostico', { method: 'GET', skipLoader: true })
+    const res = await api.request('/sri/diagnostico', {
+      method: 'GET',
+      skipLoader: true
+    })
     if (unmounted) return
 
     resultadoSRI.value = {
@@ -660,9 +682,9 @@ const probarSRI = async () => {
       resultadoSRI.value = {
         ok: false,
         ambienteNombre: 'desconocido',
-        error: e.message
+        error: e?.message || 'desconocido'
       }
-      toast.error('Error: ' + e.message)
+      toast.error('Error: ' + (e?.message || 'desconocido'))
     }
   } finally {
     if (!unmounted) probandoSRI.value = false
@@ -696,20 +718,13 @@ const sincronizarContadores = async () => {
     const actualizados = Object.values(resultados).filter(r => !r?.sinCambio).length
     toast.success(`Contadores sincronizados (${actualizados} actualizados)`)
   } catch (e) {
-    if (!unmounted) toast.error('Error: ' + e.message)
+    if (!unmounted) toast.error('Error: ' + (e?.message || 'desconocido'))
   } finally {
     if (!unmounted) sincronizando.value = false
   }
 }
 
 // ===== AUTO-REFRESH =====
-const iniciarAutoRefresh = () => {
-  detenerAutoRefresh()
-  autoRefreshTimer = setInterval(() => {
-    if (!unmounted && !loading.value) cargar()
-  }, AUTO_REFRESH_MS)
-}
-
 const detenerAutoRefresh = () => {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer)
@@ -717,66 +732,74 @@ const detenerAutoRefresh = () => {
   }
 }
 
-// 🆕 Tick cada 30s para refrescar el "hace X minutos"
-const iniciarTickRelativo = () => {
-  relativeTimeTimer = setInterval(() => {
-    if (!unmounted) {
-      // Forzamos recálculo cambiando una referencia
-      refrescandoRelativo.value = !refrescandoRelativo.value
-    }
-  }, 30_000)
+const iniciarAutoRefresh = () => {
+  detenerAutoRefresh()
+  autoRefreshTimer = setInterval(() => {
+    if (!unmounted && !loading.value) cargar()
+  }, AUTO_REFRESH_MS)
 }
 
-// (ref para forzar reactividad del tiempo relativo)
-const refrescandoRelativo = ref(false)
+// 🆕 Tick cada 30s para refrescar el "hace X minutos"
+const iniciarTickRelativo = () => {
+  if (relativeTimeTimer) clearInterval(relativeTimeTimer)
+  relativeTimeTimer = setInterval(() => {
+    if (!unmounted) {
+      // Toggle forzado para que Vue re-renderice y recalcule tiempoRelativo
+      refrescandoRelativo.value = !refrescandoRelativo.value
+    }
+  }, TICK_RELATIVO_MS)
+}
 
-// ===== LIFECYCLE =====
-onMounted(() => {
-  cargar()
-  iniciarTickRelativo()
-})
-
-// Watch sobre autoRefresh (usando watchEffect inline sin importar watch)
-const _autoRefreshWatcher = computed(() => {
-  if (autoRefresh.value) iniciarAutoRefresh()
-  else detenerAutoRefresh()
-  return autoRefresh.value
-})
-
-onBeforeUnmount(() => {
-  unmounted = true
-
-  detenerAutoRefresh()
-  if (relativeTimeTimer) {
-    clearInterval(relativeTimeTimer)
-    relativeTimeTimer = null
-  }
-
-  // 🆕 Cerrar modal si quedó abierto
-  try { modalConfirm?.hide() } catch { /* noop */ }
-
-  // 🆕 Resolver confirmación pendiente
-  if (confirmState.resolve) {
-    confirmState.resolve(false)
-    confirmState.resolve = null
-  }
-})
-
-// 🆕 Guard para no perder progreso durante migración
-const _beforeUnloadHandler = (e) => {
+// ===== GUARD BEFORE UNLOAD =====
+const handleBeforeUnload = (e) => {
   if (migrando.value || sincronizando.value) {
     e.preventDefault()
     e.returnValue = ''
   }
 }
 
-// Registrar/desregistrar el handler (sin watch)
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', _beforeUnloadHandler)
-  onBeforeUnmount(() => {
-    window.removeEventListener('beforeunload', _beforeUnloadHandler)
-  })
-}
+// ===== WATCHERS =====
+// 🐛 BUG FIX: reemplazado el `computed` con side-effects por `watch` real
+watch(autoRefresh, (activo) => {
+  if (activo) iniciarAutoRefresh()
+  else detenerAutoRefresh()
+})
+
+// ===== LIFECYCLE =====
+onMounted(() => {
+  cargar()
+  iniciarTickRelativo()
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeUnmount(() => {
+  unmounted = true
+
+  // Cancelar request en vuelo
+  if (cargarAbort) {
+    try { cargarAbort.abort() } catch { /* noop */ }
+    cargarAbort = null
+  }
+
+  // Detener timers
+  detenerAutoRefresh()
+  if (relativeTimeTimer) {
+    clearInterval(relativeTimeTimer)
+    relativeTimeTimer = null
+  }
+
+  // Cerrar modal si quedó abierto
+  try { modalConfirm?.hide() } catch { /* noop */ }
+
+  // Resolver confirmación pendiente
+  if (confirmState.resolve) {
+    confirmState.resolve(false)
+    confirmState.resolve = null
+  }
+
+  // Remover listener
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>
 
 <style scoped>
@@ -825,7 +848,6 @@ if (typeof window !== 'undefined') {
   padding-left: 54px;
 }
 
-/* 🆕 Header actions */
 .header-actions {
   display: flex;
   gap: 10px;
@@ -927,7 +949,6 @@ if (typeof window !== 'undefined') {
 .estado-info { flex: 1; min-width: 200px; }
 .estado-titulo { font-size: 1.1rem; font-weight: 700; margin: 0 0 4px; color: var(--text-primary); }
 .estado-desc { font-size: 0.85rem; color: var(--text-muted); margin: 0; }
-/* 🆕 Meta */
 .estado-meta {
   margin-top: 8px;
   font-size: 0.72rem;
@@ -951,7 +972,6 @@ if (typeof window !== 'undefined') {
   font-size: 0.85rem;
   letter-spacing: 1px;
 }
-/* 🆕 Pulse cuando todo OK */
 .estado-badge-big.pulse-ok {
   animation: pulse-ok 2s ease-in-out infinite;
 }
@@ -1178,7 +1198,6 @@ if (typeof window !== 'undefined') {
 .resultado-prueba.ok { background: rgba(39,174,96,0.08); border: 1px solid rgba(39,174,96,0.3); color: #1e8449; }
 .resultado-prueba.fail { background: rgba(231,76,60,0.08); border: 1px solid rgba(231,76,60,0.3); color: #c0392b; }
 .resultado-prueba i { font-size: 1.3rem; }
-/* 🆕 Botón cerrar resultado */
 .btn-close-result {
   position: absolute;
   top: 8px;

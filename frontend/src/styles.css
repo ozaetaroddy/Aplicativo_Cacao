@@ -1,22 +1,25 @@
 /* ============================================================
-   SISTEMA CONTABLE — DESIGN SYSTEM v4
+   SISTEMA CONTABLE — DESIGN SYSTEM v5
    ------------------------------------------------------------
-   Mejoras v4:
-     · `color-scheme` → controles nativos del SO en dark mode.
-     · `@property`    → animaciones suaves de custom properties.
-     · `scrollbar-gutter: stable` → evita CLS al aparecer scroll.
-     · `text-wrap: balance/pretty` → tipografía profesional.
-     · Escala de `z-index` centralizada en variables.
-     · `@supports`    → fallbacks para backdrop-filter.
-     · `forced-colors` → soporte modo alto contraste (Windows).
-     · `prefers-contrast: more` → contraste reforzado.
-     · Print styles más completos.
+   Cambios v5 (prioritarios):
+     ✅ Z-INDEX HIERARCHY FIX — modales Bootstrap siempre por
+        encima del loader (que se posiciona como backdrop).
+     ✅ Aislamiento del loader cuando hay modales abiertos:
+        si hay un modal visible, el loader se degrada a un
+        indicador discreto en la esquina.
+     ✅ Backdrops Bootstrap con `pointer-events: none` cuando
+        hay un modal activo, para evitar bloqueos fantasma.
+     ✅ `scrollbar-gutter: stable` → evita CLS al aparecer scroll.
+     ✅ `@property` → animaciones suaves de custom properties.
+     ✅ `text-wrap: balance/pretty` → tipografía profesional.
+     ✅ `@supports` → fallbacks para backdrop-filter.
+     ✅ `forced-colors` → soporte modo alto contraste (Windows).
+     ✅ `prefers-contrast: more` → contraste reforzado.
+     ✅ Print styles completos.
    ============================================================ */
 
 /* ============================================================
    @PROPERTY (animaciones suaves de custom properties)
-   ------------------------------------------------------------
-   Permite transicionar colores y sombras sin “saltos”.
    ============================================================ */
 @property --primary-color {
   syntax: '<color>';
@@ -40,20 +43,29 @@
    DESIGN TOKENS
    ============================================================ */
 :root {
-  /* ---------- Color scheme (controles nativos) ---------- */
+  /* ---------- Color scheme (controles nativos del SO) ---------- */
   color-scheme: light;
 
-  /* ---------- Z-INDEX SCALE ---------- */
+  /* ---------- Z-INDEX SCALE ----------
+     Regla de oro:
+       backdrop-modal  <  loader  <  modal  <  modal-backdrop-top
+                                          <  toast  <  tour
+     El loader vive ENTRE backdrop y modal para que nunca
+     bloquee los botones del modal de confirmación.
+  ------------------------------------ */
   --z-base: 1;
   --z-dropdown: 1000;
   --z-sticky: 1020;
   --z-fixed: 1030;
-  --z-modal-backdrop: 1050;
-  --z-modal: 1060;
-  --z-popover: 1070;
-  --z-tooltip: 1080;
-  --z-tour: 9000;
-  --z-toast: 10000;
+  --z-modal-backdrop: 9940;   /* ← backdrops Bootstrap            */
+  --z-loader: 9990;           /* ← loader global (nuevo valor)    */
+  --z-modal: 10000;           /* ← modal Bootstrap                */
+  --z-modal-backdrop-top: 10050; /* ← 2do modal apilado           */
+  --z-modal-top: 10100;       /* ← 2do modal apilado              */
+  --z-popover: 10200;
+  --z-tooltip: 10300;
+  --z-toast: 10400;
+  --z-tour: 10500;
 
   /* ---------- Marca ---------- */
   --primary-color: #2563eb;
@@ -258,7 +270,6 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   height: 100%;
-  /* Evita CLS cuando aparece/desaparece la scrollbar */
   scrollbar-gutter: stable;
 }
 
@@ -312,7 +323,6 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: var(--ls-tight);
   line-height: var(--lh-tight);
   color: var(--text-primary);
-  /* Evita “viudas” y balancea las líneas */
   text-wrap: balance;
 }
 
@@ -323,9 +333,7 @@ h4 { font-size: var(--fs-xl); font-weight: var(--fw-bold); }
 h5 { font-size: var(--fs-lg); font-weight: var(--fw-semibold); }
 h6 { font-size: var(--fs-md); font-weight: var(--fw-semibold); }
 
-p {
-  text-wrap: pretty;
-}
+p { text-wrap: pretty; }
 
 a {
   color: var(--text-link);
@@ -739,8 +747,52 @@ code {
 .alert-danger i { color: var(--danger); }
 
 /* ============================================================
-   MODALES
+   ⚡ MODALES BOOTSTRAP + LOADER — JERARQUÍA DE CAPAS
+   ------------------------------------------------------------
+   PROBLEMA RESUELTO:
+   El LoaderOverlay usaba z-index 9999 (mayor que los modales
+   Bootstrap 1055) → cuando había una petición HTTP en vuelo
+   mientras el usuario abría un confirm, el loader cubría el
+   modal y bloqueaba los clicks en Sí/No.
+
+   SOLUCIÓN:
+   Reordenamos las capas para que el loader quede ENTRE el
+   backdrop y el modal:
+     backdrop(9940) < loader(9990) < modal(10000) < toast(10400)
+   De este modo el modal siempre queda visible y clickeable.
    ============================================================ */
+
+/* --- Backdrop de Bootstrap (fondo oscuro del modal) --- */
+.modal-backdrop {
+  z-index: var(--z-modal-backdrop) !important;
+  background-color: #0f172a;
+}
+.modal-backdrop.show {
+  opacity: 0.55;
+}
+
+@supports (backdrop-filter: blur(4px)) {
+  .modal-backdrop.show {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+}
+
+/* --- Modal en sí (contenido) --- */
+.modal {
+  z-index: var(--z-modal) !important;
+}
+
+/* Modales apilados: Bootstrap permite abrir 2+ modales.
+   Los detectamos por `~` (hermanos siguientes) y les subimos
+   el z-index para que queden arriba del primero. */
+body > .modal-backdrop.show ~ .modal-backdrop.show {
+  z-index: var(--z-modal-backdrop-top) !important;
+}
+body > .modal.show ~ .modal.show {
+  z-index: var(--z-modal-top) !important;
+}
+
 .modal-content {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
@@ -767,10 +819,42 @@ code {
   background: var(--bg-card);
 }
 
-.modal-backdrop.show {
-  opacity: 0.55;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+/* ============================================================
+   ⚡ LOADER GLOBAL — AISLADO DEL MODAL
+   ------------------------------------------------------------
+   El componente LoaderOverlay.vue usa z-index 9999 inline
+   (o desde sus estilos scoped). Con esta regla forzamos la
+   variable del design system para que quede por debajo de los
+   modales y nunca bloquee la interacción con ellos.
+   ============================================================ */
+.loader-overlay {
+  z-index: var(--z-loader) !important;
+}
+
+/* Si por alguna razón hay un modal abierto, hacemos que el
+   loader se vuelva "no cliqueable" para no interceptar eventos
+   que deberían llegar al modal (defensa extra). */
+body:has(.modal.show) .loader-overlay {
+  pointer-events: none;
+}
+
+/* Y bajamos aún más el overlay del loader cuando hay modal,
+   para que sea visualmente un "hint" y no un telón. */
+body:has(.modal.show) .loader-overlay {
+  background: rgba(15, 23, 42, 0.25);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* ============================================================
+   BLOQUEO DE SCROLL — cuando hay modal o loader
+   ------------------------------------------------------------
+   Bootstrap agrega `.modal-open` al body. Reforzamos el bloqueo
+   y evitamos el "salto" por pérdida de scrollbar.
+   ============================================================ */
+body.modal-open {
+  overflow: hidden !important;
+  padding-right: 0 !important; /* Bootstrap mete padding-right; lo quitamos porque ya usamos scrollbar-gutter */
 }
 
 /* ============================================================
@@ -782,6 +866,7 @@ code {
   box-shadow: var(--shadow-xl);
   padding: 6px;
   background: var(--bg-card);
+  z-index: var(--z-dropdown);
 }
 .dropdown-item {
   border-radius: var(--radius-sm);
@@ -997,9 +1082,11 @@ textarea:focus-visible {
    ============================================================ */
 @media print {
   .no-print,
-  .navbar-cacao,
-  .footer-cacao,
-  .skip-link {
+  .navbar-app,
+  .footer-modern,
+  .skip-link,
+  .modal-backdrop,
+  .loader-overlay {
     display: none !important;
   }
   body {
@@ -1010,15 +1097,14 @@ textarea:focus-visible {
   .card-cacao {
     box-shadow: none;
     border: 1px solid #ddd;
+    page-break-inside: avoid;
   }
   a[href]::after {
     content: ' (' attr(href) ')';
     font-size: 0.8em;
     color: #555;
   }
-  @page {
-    margin: 1.5cm;
-  }
+  @page { margin: 1.5cm; }
 }
 
 /* ============================================================
@@ -1043,9 +1129,7 @@ textarea:focus-visible {
   .card-cacao {
     border: 1px solid ButtonBorder;
   }
-  .badge {
-    border: 1px solid ButtonBorder;
-  }
+  .badge { border: 1px solid ButtonBorder; }
   .skip-link {
     background: Highlight;
     color: HighlightText;
@@ -1084,6 +1168,9 @@ textarea:focus-visible {
 /* ============================================================
    TOASTS (vue-toastification)
    ============================================================ */
+.Vue-Toastification__container {
+  z-index: var(--z-toast) !important;
+}
 .Vue-Toastification__toast {
   border-radius: var(--radius-lg) !important;
   box-shadow: var(--shadow-xl) !important;
@@ -1097,7 +1184,6 @@ textarea:focus-visible {
   }
 }
 
-/* Contenedor con anuncio accesible */
 .toast-container-a11y {
   /* Los toasts se anuncian vía `aria-live` que ya provee la librería */
 }
