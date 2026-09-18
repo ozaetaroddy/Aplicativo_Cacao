@@ -3,12 +3,13 @@
 // Servidor HTTP + WebSocket del sistema
 // ------------------------------------------------------------
 // Orden de arranque:
-//   1. Validar env → si falla, exit(1).
-//   2. Setup de Express (helmet, cors, body, rate limit).
-//   3. Conexión a Mongo.
-//   4. Listen en `PORT`.
-//   5. Post-arranque en background: asegurar índices, scheduler.
-//   6. Montar rutas protegidas (ya con `req.db` disponible).
+//   1. Forzar IPv4 (DNS) — antes que cualquier require con red.
+//   2. Validar env → si falla, exit(1).
+//   3. Setup de Express (helmet, cors, body, rate limit).
+//   4. Conexión a Mongo.
+//   5. Listen en `PORT`.
+//   6. Post-arranque en background: asegurar índices, scheduler.
+//   7. Rutas protegidas (ya con `req.db` disponible).
 //
 // Shutdown (SIGTERM/SIGINT):
 //   1. Cerrar aceptación de nuevas conexiones HTTP.
@@ -18,26 +19,67 @@
 //   5. Si tarda >10 s, forzar exit(1).
 //
 // Health checks:
-//   GET /api/health          → liveness (siempre 200)
-//   GET /healthz             → alias liveness
-//   GET /api/health/detailed → readiness (503 si Mongo no responde)
-//   GET /readyz              → alias readiness
+//   GET  /                 → liveness simple (JSON)
+//   HEAD /                 → 200 (para monitores tipo Render)
+//   GET  /api/health       → liveness (siempre 200)
+//   GET  /healthz          → alias liveness
+//   GET  /api/health/detailed → readiness (503 si Mongo no responde)
+//   GET  /readyz           → alias readiness
 //
-// 🔧 FIX 2025-XX:
-//   1. El timer de "shutdown excedió 10 s" estaba a nivel de MÓDULO.
-//      Se disparaba 10 s después del arranque, cuando `cerrando` era
-//      siempre `false` → código muerto. Ahora vive dentro de
-//      `shutdown()` y se reinicia en cada invocación.
-//   2. El bootstrap se ejecutaba incondicionalmente al `require` el
-//      módulo. Cualquier test que hiciera `require('./server')`
-//      arrancaba Mongo y, si fallaba, `process.exit(1)` reventaba
-//      toda la suite. Ahora solo se ejecuta si es el módulo principal
-//      (`require.main === module`).
-//   3. `intentosHandshake` (rate limit del handshake WebSocket) nunca
-//      se limpiaba. Ahora hay un intervalo `unref()` que purga
-//      entradas expiradas cada minuto.
+// ============================================================
+// 🔧 FIXES APLICADOS
+// ------------------------------------------------------------
+//   [IPv6] Render no tiene salida IPv6. Node ≥14 prefiere IPv6 por
+//          default y Gmail (smtp.gmail.com) expone registros AAAA.
+//          Resultado: `connect ENETUNREACH 2607:f8b0:...` al enviar
+//          emails → 502 al cliente. Forzamos `ipv4first` ANTES de
+//          cualquier require con red.
+//
+//   [Shutdown timer] El setTimeout de "shutdown excedió 10s" estaba
+//          a nivel de módulo: se disparaba 10 s después del arranque,
+//          cuando `cerrando` siempre era `false` → código muerto.
+//          Ahora vive dentro de `shutdown()` y se limpia con
+//          `clearTimeout` cuando termina bien.
+//
+//   [Bootstrap] El arranque (Mongo + listen) se ejecutaba
+//          incondicionalmente al `require('./server')`. Cualquier
+//          test con supertest arrancaba Mongo y podía tumbar CI.
+//          Ahora todo está dentro de `if (require.main === module)`.
+//
+//   [Handshake leak] `intentosHandshake` (rate limit WS) nunca se
+//          purgaba. Ahora hay un setInterval con `.unref()` que
+//          elimina entradas expiradas cada minuto.
+//
+//   [Monitores] Render y similares hacen `HEAD /` para healthcheck.
+//          Sin handler, devolvían 404 → ruido en logs. Añadido.
 // ============================================================
 'use strict';
+
+// ------------------------------------------------------------
+// 🔧 FIX IPv6 — DEBE IR PRIMERO.
+// ------------------------------------------------------------
+// `dns.setDefaultResultOrder('ipv4first')` cambia el orden en que
+// `dns.lookup()` devuelve las direcciones. Node ≥14 usa 'verbatim'
+// por default (respeta el orden del resolver, que suele preferir
+// IPv6). En PaaS sin IPv6 saliente (Render, Heroku, Railway, etc.)
+// eso rompe TODA conexión saliente a hosts dual-stack:
+//   - smtp.gmail.com     → ENETUNREACH
+//   - cel.sri.gob.ec     → ENETUNREACH (si tiene AAAA)
+//   - api.externa.com    → ENETUNREACH
+//
+// Además, `require('dotenv')` y otros módulos pueden hacer DNS en
+// su init, así que este bloque va ANTES de cualquier require.
+// ------------------------------------------------------------
+const dns = require('node:dns');
+try {
+  if (typeof dns.setDefaultResultOrder === 'function') {
+    dns.setDefaultResultOrder('ipv4first');
+  }
+} catch {
+  // Node <18 no tiene este método. En ese caso, hay que usar
+  // `require('dns').lookup` con opciones específicas o `--dns-result-order`
+  // en el comando de arranque. Silenciamos porque es opcional.
+}
 
 require('dotenv').config();
 
@@ -96,8 +138,8 @@ function validarEnv() {
     }
   }
 
-  const jwt = process.env.JWT_SECRET || '';
-  if (jwt && jwt.length < 32) {
+  const jwtSecret = process.env.JWT_SECRET || '';
+  if (jwtSecret && jwtSecret.length < 32) {
     errores.push('JWT_SECRET debe tener al menos 32 caracteres');
   }
 
@@ -203,10 +245,12 @@ let mongoConectado = false;
 
 async function inicializarMongo() {
   mongoClient = new MongoClient(MONGODB_URI, {
-    maxPoolSize: Number(process.env.MONGO_POOL_MAX) || 20,
-    minPoolSize: Number(process.env.MONGO_POOL_MIN) || 2,
-    serverSelectionTimeoutMS: Number(process.env.MONGO_SELECTION_TIMEOUT_MS) || 8000,
-    socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45000
+    maxPoolSize: Number(process.env.MONGO_POOL_MAX) || 5,
+    minPoolSize: Number(process.env.MONGO_POOL_MIN) || 0,
+    maxIdleTimeMS: Number(process.env.MONGO_MAX_IDLE_MS) || 30_000,
+    serverSelectionTimeoutMS: Number(process.env.MONGO_SELECTION_TIMEOUT_MS) || 8_000,
+    socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45_000,
+    connectTimeoutMS: Number(process.env.MONGO_CONNECT_TIMEOUT_MS) || 10_000
   });
 
   await mongoClient.connect();
@@ -403,6 +447,16 @@ app.use((req, res, next) => {
 const authRoutes = require('./routes/auth');
 app.use('/api/auth', authRoutes);
 
+// ---- Liveness raíz (para monitores / Render healthcheck) ----
+// Render hace `HEAD /` periódicamente. Sin handler, cae al 404 y
+// ensucia los logs. Devolvemos 200 con el identificador mínimo.
+app.get('/', (req, res) => {
+  res.json({ ok: true, service: 'cacao-backend', version: VERSION });
+});
+app.head('/', (req, res) => {
+  res.status(200).end();
+});
+
 // ---- Liveness (siempre 200 si el proceso responde) ----
 app.get('/api/health', (req, res) => {
   res.json({
@@ -565,6 +619,15 @@ async function bootstrap() {
     if (!process.env.CORS_ORIGINS && IS_PROD) {
       log.warn('⚠️  CORS_ORIGINS no definido en producción — CORS cerrado por defecto.');
     }
+    if (!process.env.COOKIE_CROSS_SITE || process.env.COOKIE_CROSS_SITE !== 'true') {
+      if (IS_PROD) {
+        log.warn(
+          '⚠️  COOKIE_CROSS_SITE no está en "true". Si el frontend y el backend ' +
+          'están en dominios distintos (ej: vercel.app ↔ onrender.com), las cookies ' +
+          'NO viajarán y la sesión se caerá cada 15 min.'
+        );
+      }
+    }
   });
 
   serverInstancia.on('error', (err) => {
@@ -600,7 +663,7 @@ async function shutdown(signal) {
   // 🔧 FIX: timer duro para forzar salida si algo se cuelga.
   //    Antes vivía a NIVEL DE MÓDULO y se disparaba 10 s después del
   //    arranque (cuando `cerrando` era siempre false). Ahora vive acá
-  //    y solo se activa durante el shutdown real.
+  //    y solo se activa durante el shutdown real. Se limpia al final.
   const timeoutDuro = setTimeout(() => {
     log.error('⚠️  Shutdown excedió 10 s, forzando salida');
     process.exit(1);

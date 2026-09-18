@@ -256,7 +256,8 @@ function crearTransporter() {
     tls: { rejectUnauthorized },
     connectionTimeout: CONFIG.connectionTimeoutMs,
     greetingTimeout: CONFIG.greetingTimeoutMs,
-    socketTimeout: CONFIG.socketTimeoutMs
+    socketTimeout: CONFIG.socketTimeoutMs,
+    family: 4
   });
 }
 
