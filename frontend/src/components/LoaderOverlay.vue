@@ -4,6 +4,7 @@
       <div
         v-if="loaderStore.isLoading"
         class="loader-overlay"
+        :class="{ 'loader-overlay--passive': hayModalAbierto }"
         role="status"
         aria-live="polite"
         aria-busy="true"
@@ -21,29 +22,46 @@
 </template>
 
 <script setup>
-import { watch, onBeforeUnmount } from 'vue'
+import { watch, ref, onBeforeUnmount, onMounted } from 'vue'
 import { useLoaderStore } from '../stores/loaderStore'
 
 const loaderStore = useLoaderStore()
 
-let unmounted = false
+const unmounted = ref(false)
 
-// ===== BLOQUEO DE SCROLL =====
-// Cuando el loader está activo, bloqueamos el scroll del body para
-// que el usuario no interactúe con el fondo.
+// ============================================================
+// ⚡ FIX: bloquear clicks SOLO cuando no hay modal abierto
+// ------------------------------------------------------------
+// El loader se monta con `position: fixed; inset: 0` para
+// bloquear la UI durante peticiones HTTP. El problema es que
+// los modales Bootstrap de confirmación también usan `position:
+// fixed`, y el loader (z-index 9999) quedaba por encima,
+// bloqueando los clicks en los botones Sí/No.
+//
+// Solución: cuando hay un modal visible en el DOM, forzamos
+// `pointer-events: none` en el loader → los clicks llegan al modal.
+// ============================================================
+
+const hayModalAbierto = ref(false)
+let observer = null
+
+function actualizarModalAbierto() {
+  hayModalAbierto.value =
+    typeof document !== 'undefined' &&
+    document.querySelector('.modal.show') !== null
+}
+
 const aplicarBloqueoScroll = (activo) => {
   if (typeof document === 'undefined') return
   const body = document.body
   if (!body) return
 
   if (activo) {
-    // Guardar el valor previo por si otro componente también lo modifica
     if (!body.dataset.loaderScrollLock) {
       body.dataset.loaderScrollLock = body.style.overflow || ''
     }
     body.style.overflow = 'hidden'
   } else {
-    // Restaurar
     if (body.dataset.loaderScrollLock !== undefined) {
       body.style.overflow = body.dataset.loaderScrollLock || ''
       delete body.dataset.loaderScrollLock
@@ -54,16 +72,33 @@ const aplicarBloqueoScroll = (activo) => {
 watch(
   () => loaderStore.isLoading,
   (activo) => {
-    if (unmounted) return
+    if (unmounted.value) return
     aplicarBloqueoScroll(activo)
+    // Cuando el loader se monta, chequear si hay modales
+    if (activo) actualizarModalAbierto()
   },
   { immediate: true }
 )
 
+onMounted(() => {
+  // Observar cambios en el DOM (Bootstrap agrega/quita .modal.show)
+  if (typeof document === 'undefined' || !document.body) return
+  observer = new MutationObserver(actualizarModalAbierto)
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class']
+  })
+})
+
 onBeforeUnmount(() => {
-  unmounted = true
-  // Restaurar por si quedó bloqueado
+  unmounted.value = true
   aplicarBloqueoScroll(false)
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
 })
 </script>
 
@@ -147,5 +182,18 @@ onBeforeUnmount(() => {
   .loader-fade-leave-active {
     transition: none;
   }
+}
+/* ⚡ FIX: cuando hay un modal abierto, el overlay NO bloquea clicks */
+/* Ni el fondo oscuro se ve más fuerte que el backdrop del modal. */
+.loader-overlay--passive {
+  pointer-events: none !important;
+  background: rgba(15, 23, 42, 0.15) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.loader-overlay--passive .loader-container {
+  /* El spinner sigue visible, pero sin bloquear */
+  pointer-events: none;
 }
 </style>

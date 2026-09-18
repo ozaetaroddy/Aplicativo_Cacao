@@ -1893,21 +1893,93 @@ onBeforeUnmount(() => {
   .user-caret { display: inline; }
 }
 
-/* 720px: search colapsado, solo iconos */
+/* ============================================================
+   720px — Search colapsado, solo icono
+   ------------------------------------------------------------
+   - El input se comprime a un círculo de 40x40
+   - Al enfocar se EXPANDE suavemente a ~220px
+   - Se oculta el `Ctrl K` (irrelevante en táctil)
+   - Se oculta el botón de limpiar mientras está colapsado
+   - El icono de búsqueda se centra; al enfocar se mueve a la izq.
+   ============================================================ */
 @media (max-width: 720px) {
-  .navbar-inner { padding: 0 12px; }
-  .search-container { width: 40px; min-width: 40px; }
-  .search-container :deep(.search-input),
-  .search-container :deep(input) {
+  .navbar-inner { padding: 0 12px; gap: 8px; }
+
+  /* --- Contenedor de búsqueda: círculo compacto --- */
+  .search-container {
+    width: 40px;
+    min-width: 40px;
+    max-width: 40px;
+    transition: max-width 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+
+  /* Expandir al recibir foco */
+  .search-container:focus-within {
+    max-width: min(240px, 55vw);
+  }
+
+  /* --- Input colapsado: transparente y centrado --- */
+  .search-container :deep(.search-input) {
     padding: 0;
     color: transparent;
+    text-align: center;
     cursor: pointer;
   }
+
+  .search-container :deep(.search-input::placeholder) {
+    color: transparent;
+  }
+
+  /* --- Input expandido: normal --- */
+  .search-container:focus-within :deep(.search-input) {
+    padding: 10px 36px 10px 40px;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: text;
+  }
+
+  .search-container:focus-within :deep(.search-input::placeholder) {
+    color: var(--text-muted);
+  }
+
+  /* --- Icono de búsqueda: centrado cuando colapsado --- */
+  .search-container :deep(.search-icon) {
+    left: 50%;
+    transform: translateX(-50%);
+    transition: left 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+                transform 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+
+  .search-container:focus-within :deep(.search-icon) {
+    left: 14px;
+    transform: none;
+  }
+
+  /* --- Ocultar el `Ctrl K` en móvil (no aplica en táctil) --- */
+  .search-container :deep(.search-kbd) {
+    display: none !important;
+  }
+
+  /* --- Ocultar el botón "limpiar" mientras está colapsado --- */
+  .search-container:not(:focus-within) :deep(.clear-btn) {
+    display: none !important;
+  }
+
+  /* --- Resto de la navbar --- */
   .user-name { display: none; }
   .user-btn { padding: 4px; max-width: 40px; }
   .user-caret { display: none; }
   .brand-name { display: none; }
   .brand-tag { display: none; }
+}
+
+/* ============================================================
+   380px — Pantallas muy chicas (iPhone SE, Galaxy A0x)
+   ============================================================ */
+@media (max-width: 380px) {
+  .navbar-inner { padding: 0 8px; gap: 6px; }
+  .search-container { width: 36px; min-width: 36px; max-width: 36px; }
+  .search-container:focus-within { max-width: min(200px, 60vw); }
 }
 
 /* 480px: brand mínimo */
