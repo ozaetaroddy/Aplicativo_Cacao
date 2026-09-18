@@ -74,7 +74,8 @@ const {
   DOCS_CON_CLAVE,
   TIPO_COMPROBANTE_SRI,
   PREFIJOS_CONTADOR,
-  TIPOS_DOCUMENTO_VALIDOS
+  TIPOS_DOCUMENTO_VALIDOS,
+  SETS
 } = require('../utils/tiposDocumento');
 const log = require('../utils/logger');
 
@@ -176,7 +177,7 @@ function extraerValor(result) {
 // HELPERS DE NEGOCIO
 // ============================================================
 function afectaStock(tipoDoc) {
-  return !TIPOS_SIN_MOVIMIENTO_STOCK.has(tipoDoc);
+  return !SETS.TIPOS_SIN_MOVIMIENTO_STOCK.has(tipoDoc);
 }
 
 function signoStock(tipoDoc) {
