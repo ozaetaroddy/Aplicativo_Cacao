@@ -5,7 +5,7 @@
 // API pública:
 //   enviarComprobantePorEmail(opts)  → { success, messageId, ... }
 //   verificarConexion(opts)          → { ok, error?, cached? }
-//   crearTransporter()               → Transporter | null
+//   crearTransporter()               → Promise<Transporter|null>
 //   escHtml(str)                     → string seguro para HTML
 //
 // Extensiones:
@@ -21,10 +21,45 @@
 //   EMAIL_TIMEOUT_MS                     → timeout global del send
 //   EMAIL_RETRY_MAX                      → reintentos (default 3)
 //   EMAIL_VERIFY_TTL_MS                  → caché de verificarConexion
+//
+// ============================================================
+// 🔧 FIX 2025-XX — IPv6 en PaaS (Render, Heroku, Railway, etc.)
+// ------------------------------------------------------------
+// En Node 20+ se activa `autoSelectFamily` (Happy Eyeballs) por
+// default. Cuando está activo, la opción `family` se IGNORA y
+// Node intenta primero la dirección del resolver DNS — que para
+// smtp.gmail.com es IPv6 (2607:f8b0:...). Como estos PaaS no
+// tienen salida IPv6, la conexión falla con:
+//
+//     connect ENETUNREACH 2607:f8b0:...  - Local (:::0)
+//
+// El fix en `server.js` (`net.setDefaultAutoSelectFamily(false)` +
+// `dns.setDefaultResultOrder('ipv4first')`) NO es suficiente
+// porque `smtp-connection` (nodemailer) crea sockets propios que
+// pueden pisar el default.
+//
+// Solución definitiva implementada acá:
+//   1. Pre-resolver el SMTP host a una IPv4 concreta (`dns.lookup`).
+//   2. Pasar esa IP como `host` a nodemailer → cero DNS lookup.
+//   3. Pasar el nombre real en `tls.servername` para que el
+//      handshake TLS siga validando contra el certificado correcto.
+//   4. Cachear la IP por 5 min (los IPs de Gmail rotan esporádicamente).
+//   5. Fallback seguro: si el host no resuelve a IPv4, usar el
+//      nombre original (no rompe otros proveedores SMTP).
+//
+// Otros fixes menores:
+//   - `SMTP_FROM` ahora acepta el formato "Nombre <email@x.com>".
+//     Antes se envolvía en `<...>` produciendo `"Nombre" <<email>>`.
+//   - `obtenerTransporter()` deduplica creaciones concurrentes con
+//     un guard de promesa en vuelo (evita N conexiones si llegan
+//     N requests al arrancar).
+//   - `limpiarTransporter()` cancela también la creación en vuelo.
 // ============================================================
 'use strict';
 
 const log = require('./logger');
+const dnsPromises = require('node:dns').promises;
+const net = require('node:net');
 
 // ============================================================
 // CONFIGURACIÓN (env-driven)
@@ -74,8 +109,8 @@ const CONFIG = Object.freeze({
   /** TTL del cache de verificarConexion. */
   verifyTtlMs: envNum('EMAIL_VERIFY_TTL_MS', 30_000),
 
-  /** Prefijos de archivo temporales (multipart). */
-  tempPrefix: 'tmp-'
+  /** TTL del cache de resolución IPv4 del host SMTP. */
+  ipv4CacheTtlMs: envNum('EMAIL_IPV4_CACHE_MS', 5 * 60 * 1000)
 });
 
 // ============================================================
@@ -110,15 +145,11 @@ function cargarNodemailer() {
 /**
  * Elimina caracteres de control y trunca a `max`.
  * Útil para asuntos, nombres y cualquier valor que vaya a headers.
- *
- * @param {*} s
- * @param {number} [max=200]
- * @returns {string}
  */
 function sanitizarTexto(s, max = CONFIG.maxAsunto) {
   if (s === null || s === undefined) return '';
   return String(s)
-    .replace(/[\r\n\0\u2028\u2029]/g, ' ')  // CRLF + line separators Unicode
+    .replace(/[\r\n\0\u2028\u2029]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max);
@@ -127,9 +158,6 @@ function sanitizarTexto(s, max = CONFIG.maxAsunto) {
 /**
  * Escapa caracteres peligrosos para HTML.
  * Mantiene la firma original (`escHtml(str)`).
- *
- * @param {*} s
- * @returns {string}
  */
 function escHtml(s) {
   if (s === null || s === undefined) return '';
@@ -147,16 +175,11 @@ function escHtml(s) {
  * Sanitiza un nombre de remitente para el header `From:`.
  * - Quita comillas, angle brackets, backslashes y CRLF.
  * - Trunca a `maxNombreRemitente`.
- * @param {*} s
- * @returns {string}
  */
 function sanitizarNombreRemitente(s) {
   return String(s || '')
-    // Primero: CRLF y controles → espacio.
     .replace(/[\r\n\0\t]+/g, ' ')
-    // Luego: quitar chars prohibidos en header.
     .replace(/["<>\\,;:]/g, '')
-    // Colapsar espacios múltiples.
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, CONFIG.maxNombreRemitente)
@@ -166,9 +189,6 @@ function sanitizarNombreRemitente(s) {
 /**
  * Sanitiza un nombre de archivo para adjuntos.
  * Conserva puntos, guiones, guiones bajos y alfanuméricos.
- * @param {*} s
- * @param {string} [fallback='archivo']
- * @returns {string}
  */
 function sanitizarNombreArchivo(s, fallback = 'archivo') {
   const limpio = String(s || '')
@@ -183,8 +203,6 @@ function sanitizarNombreArchivo(s, fallback = 'archivo') {
 /**
  * Formatea un monto como string con 2 decimales.
  * NUNCA devuelve `"NaN"`; si es inválido, devuelve `"0.00"`.
- * @param {*} n
- * @returns {string}
  */
 function formatearMonto(n) {
   const v = Number(n);
@@ -194,8 +212,6 @@ function formatearMonto(n) {
 
 /**
  * Valida un email con regex simple.
- * @param {*} email
- * @returns {boolean}
  */
 function validarEmail(email) {
   if (typeof email !== 'string' || email.length === 0) return false;
@@ -204,11 +220,92 @@ function validarEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(email);
 }
 
+/**
+ * Extrae el email puro desde un valor que puede venir como:
+ *   - "user@dominio.com"
+ *   - "Nombre Apellido <user@dominio.com>"
+ *   - "\"Nombre\" <user@dominio.com>"
+ *
+ * 🔧 FIX: antes `validarEmail(SMTP_FROM)` fallaba si el usuario
+ *    configuraba `SMTP_FROM="Acme S.A. <acme@x.com>"`, y además el
+ *    `From:` resultante quedaba como `"Acme" <<acme@x.com>>`.
+ *
+ * @param {*} valor
+ * @returns {{ email: string, nombre: string|null }}
+ */
+function extraerEmailYNombre(valor) {
+  if (!valor || typeof valor !== 'string') {
+    return { email: '', nombre: null };
+  }
+  const s = valor.trim();
+
+  // Formato "Nombre <email>"
+  const m = s.match(/^(.*?)\s*<\s*([^>]+)\s*>\s*$/);
+  if (m) {
+    const nombre = m[1].trim().replace(/^["']|["']$/g, '').trim();
+    return { email: m[2].trim(), nombre: nombre || null };
+  }
+
+  // Solo email (o basura)
+  return { email: s, nombre: null };
+}
+
 // ============================================================
-// TRANSPORTER (singleton con reset)
+// RESOLUCIÓN IPv4 DEL HOST SMTP
+// ------------------------------------------------------------
+// Cachea la IP resuelta por `ipv4CacheTtlMs` (5 min).
+// Si el host ya es una IP, no resuelve.
+// Si no se puede resolver IPv4, devuelve el host original para
+// no romper proveedores que solo escuchan en IPv6 (raro, pero
+// posible en despliegues on-prem).
+// ============================================================
+let _smtpHostIPv4Cache = null; // { host, ip, expiresAt }
+
+async function resolverHostIPv4(host) {
+  // Si ya es IPv4, no toca DNS.
+  if (net.isIPv4(host)) return host;
+
+  // IPv6 literal: lo dejamos pasar sin tocar (escenario raro).
+  if (net.isIPv6(host)) return host;
+
+  const ahora = Date.now();
+  if (
+    _smtpHostIPv4Cache &&
+    _smtpHostIPv4Cache.host === host &&
+    _smtpHostIPv4Cache.expiresAt > ahora
+  ) {
+    return _smtpHostIPv4Cache.ip;
+  }
+
+  try {
+    const records = await dnsPromises.lookup(host, { family: 4, all: true });
+    if (Array.isArray(records) && records.length > 0) {
+      const ip = records[0].address;
+      _smtpHostIPv4Cache = {
+        host,
+        ip,
+        expiresAt: ahora + CONFIG.ipv4CacheTtlMs
+      };
+      log.info({ host, ip }, 'SMTP host resuelto a IPv4');
+      return ip;
+    }
+    log.warn({ host }, 'DNS no devolvió registros IPv4 para el host SMTP');
+  } catch (e) {
+    log.warn(
+      { err: e.message, host },
+      'No se pudo resolver SMTP host a IPv4, usando nombre original'
+    );
+  }
+
+  return host;
+}
+
+// ============================================================
+// TRANSPORTER (singleton con reset + anti-race)
 // ============================================================
 let transporterGlobal = null;
 let transporterCreadoEn = 0;
+let _creandoTransporter = null; // promesa en vuelo (dedupe)
 
 /** Convierte un puerto a número válido, con fallback. */
 function validarPuerto(raw) {
@@ -222,18 +319,22 @@ function validarPuerto(raw) {
 
 /**
  * Crea un transporter SMTP nuevo.
- * Devuelve `null` si falta configuración o nodemailer.
- * @returns {object|null}
+ *
+ * 🔧 FIX IPv6: pre-resolvemos el host a IPv4 y pasamos la IP como
+ *    `host`. El nombre real va en `tls.servername` para validar el
+ *    certificado. Con esto, nodemailer NUNCA intenta IPv6.
+ *
+ * @returns {Promise<object|null>} Transporter o null si falta config.
  */
-function crearTransporter() {
+async function crearTransporter() {
   const nodemailer = cargarNodemailer();
   if (!nodemailer) return null;
 
-  const host = String(process.env.SMTP_HOST || '').trim();
+  const hostOriginal = String(process.env.SMTP_HOST || '').trim();
   const user = String(process.env.SMTP_USER || '').trim();
   const pass = process.env.SMTP_PASS || '';
 
-  if (!host || !user || !pass) return null;
+  if (!hostOriginal || !user || !pass) return null;
 
   const port = validarPuerto(process.env.SMTP_PORT);
   const secure = port === 465;
@@ -245,37 +346,59 @@ function crearTransporter() {
     );
   }
 
+  // 🔧 FIX: pre-resolver a IPv4.
+  const hostIPv4 = await resolverHostIPv4(hostOriginal);
+
   return nodemailer.createTransport({
-    host,
+    host: hostIPv4,
     port,
     secure,
     auth: { user, pass },
     pool: true,
     maxConnections: CONFIG.maxConnections,
     maxMessages: CONFIG.maxMessages,
-    tls: { rejectUnauthorized },
+    tls: {
+      rejectUnauthorized,
+      // 🔧 Si estamos conectando por IP, el SNI debe ser el nombre real
+      //    para que el handshake TLS valide el certificado correcto.
+      servername: hostOriginal
+    },
     connectionTimeout: CONFIG.connectionTimeoutMs,
     greetingTimeout: CONFIG.greetingTimeoutMs,
     socketTimeout: CONFIG.socketTimeoutMs,
+    // Defensa en profundidad: aunque ya pasamos IP, forzamos family=4.
     family: 4
   });
 }
 
 /**
  * Devuelve el transporter global (o lo crea).
- * @returns {object|null}
+ * Deduplica creaciones concurrentes: si 10 requests llegan al mismo
+ * tiempo antes de que exista el transporter, solo se crea UNO.
+ *
+ * @returns {Promise<object|null>}
  */
-function obtenerTransporter() {
-  if (!transporterGlobal) {
-    transporterGlobal = crearTransporter();
-    transporterCreadoEn = Date.now();
-  }
-  return transporterGlobal;
+async function obtenerTransporter() {
+  if (transporterGlobal) return transporterGlobal;
+  if (_creandoTransporter) return _creandoTransporter;
+
+  _creandoTransporter = (async () => {
+    try {
+      const t = await crearTransporter();
+      transporterGlobal = t;
+      transporterCreadoEn = Date.now();
+      return t;
+    } finally {
+      _creandoTransporter = null;
+    }
+  })();
+
+  return _creandoTransporter;
 }
 
 /**
  * Libera el pool del transporter global.
- * Útil en shutdown y tras cambios de config.
+ * Cancela también una creación en vuelo si la hubiera.
  */
 function limpiarTransporter() {
   if (transporterGlobal && typeof transporterGlobal.close === 'function') {
@@ -283,6 +406,8 @@ function limpiarTransporter() {
   }
   transporterGlobal = null;
   transporterCreadoEn = 0;
+  _creandoTransporter = null;
+  _smtpHostIPv4Cache = null;
 }
 
 // ============================================================
@@ -306,8 +431,6 @@ function getMetricas() {
 // ============================================================
 /**
  * Genera el HTML del correo con todos los valores escapados.
- * @param {object} options
- * @returns {string}
  */
 function generarHTML(options) {
   const {
@@ -420,33 +543,25 @@ function conTimeout(promesa, ms, mensaje) {
 /**
  * Determina si un error de SMTP es transitorio (vale reintentar).
  * Los códigos 4xx son transitorios; 5xx son permanentes.
- * @param {Error} err
- * @returns {boolean}
  */
 function esErrorTransitorioSMTP(err) {
   if (!err) return false;
 
-  // Códigos de respuesta SMTP: 4xx = transitorio, 5xx = permanente.
   if (typeof err.responseCode === 'number') {
     return err.responseCode >= 400 && err.responseCode < 500;
   }
 
-  // Códigos de nodemailer para errores de red.
   const codigosTransitorios = new Set([
     'ECONNECTION', 'ECONNRESET', 'ETIMEDOUT',
     'ESOCKET', 'EDNS', 'EPROTOCOL', 'EAUTH'
   ]);
   if (err.code && codigosTransitorios.has(err.code)) return true;
 
-  // Otros errores (validación, etc.) → no reintentar.
   return false;
 }
 
 /**
  * Ejecuta `sendMail` con reintentos exponenciales + jitter.
- * @param {object} transporter
- * @param {object} mailOptions
- * @returns {Promise<object>}
  */
 async function enviarConReintentos(transporter, mailOptions) {
   const max = CONFIG.reintentosMax;
@@ -454,7 +569,6 @@ async function enviarConReintentos(transporter, mailOptions) {
 
   for (let intento = 1; intento <= max; intento++) {
     try {
-      // Timeout global del sendMail (defensa contra SMTP lento).
       const info = await conTimeout(
         transporter.sendMail(mailOptions),
         CONFIG.sendTimeoutMs,
@@ -476,7 +590,6 @@ async function enviarConReintentos(transporter, mailOptions) {
 
       METRICAS.reintentos++;
 
-      // Backoff exponencial con jitter (0.5 - 1.5 del valor esperado).
       const base = CONFIG.retryBaseMs * Math.pow(2, intento - 1);
       const delay = Math.round(base * (0.5 + Math.random()));
       await dormir(delay);
@@ -495,22 +608,6 @@ async function enviarConReintentos(transporter, mailOptions) {
 // ============================================================
 /**
  * Envía un comprobante por email con PDF y/o XML adjuntos.
- *
- * @param {object} options
- * @param {object} [options.config]      Configuración de empresa
- * @param {object} options.documento    Documento (venta, guía, etc.)
- * @param {object} options.cliente      Cliente (puede ser null)
- * @param {Buffer} [options.pdfBuffer]  PDF del RIDE
- * @param {Buffer} [options.xmlBuffer]  XML firmado
- * @param {string} options.emailDestino
- * @param {string} [options.asunto]
- * @param {string} [options.mensaje]
- * @param {string|string[]} [options.cc]
- * @param {string|string[]} [options.bcc]
- * @param {string} [options.replyTo]
- * @param {'high'|'normal'|'low'} [options.priority]
- * @param {object} [options.headers]
- * @returns {Promise<{success: true, messageId: string, destinatario: string, adjuntos: number}>}
  */
 async function enviarComprobantePorEmail(options = {}) {
   const {
@@ -519,8 +616,8 @@ async function enviarComprobantePorEmail(options = {}) {
     cc, bcc, replyTo, priority, headers
   } = options;
 
-  // ---- Validaciones ----
-  const transporter = obtenerTransporter();
+  // ---- Transporter (async por el fix IPv4) ----
+  const transporter = await obtenerTransporter();
   if (!transporter) {
     throw errorTipado(
       'Servicio de email no configurado. Contacte al administrador.',
@@ -528,6 +625,8 @@ async function enviarComprobantePorEmail(options = {}) {
       503
     );
   }
+
+  // ---- Validaciones ----
   if (!validarEmail(emailDestino)) {
     throw errorTipado(
       `Email de destino inválido: "${emailDestino}"`,
@@ -536,7 +635,9 @@ async function enviarComprobantePorEmail(options = {}) {
     );
   }
 
-  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
+  // 🔧 FIX: extraer email puro desde SMTP_FROM (acepta "Nombre <email>").
+  const fromRaw = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const { email: fromAddress } = extraerEmailYNombre(fromRaw);
   if (!validarEmail(fromAddress)) {
     throw errorTipado(
       'SMTP_FROM / SMTP_USER no configurado o inválido',
@@ -636,7 +737,6 @@ async function enviarComprobantePorEmail(options = {}) {
     attachments
   };
 
-  // Opcionales.
   if (cc) mailOptions.cc = Array.isArray(cc) ? cc.join(', ') : cc;
   if (bcc) mailOptions.bcc = Array.isArray(bcc) ? bcc.join(', ') : bcc;
   if (replyTo && validarEmail(replyTo)) mailOptions.replyTo = replyTo;
@@ -667,7 +767,7 @@ async function enviarComprobantePorEmail(options = {}) {
 // ============================================================
 // VERIFICACIÓN DE CONEXIÓN (con caché)
 // ============================================================
-let _verifyCache = null; // { ok, error, expiresAt }
+let _verifyCache = null; // { result, expiresAt }
 
 /**
  * Verifica la conexión SMTP.
@@ -684,7 +784,8 @@ async function verificarConexion(opts = {}) {
     return { ..._verifyCache.result, cached: true };
   }
 
-  const transporter = obtenerTransporter();
+  // 🔧 async: ahora esperamos a la creación del transporter.
+  const transporter = await obtenerTransporter();
   if (!transporter) {
     const result = { ok: false, error: 'SMTP no configurado (faltan variables de entorno)' };
     _verifyCache = { result, expiresAt: Date.now() + CONFIG.verifyTtlMs };
@@ -729,6 +830,7 @@ module.exports = {
   sanitizarNombreArchivo,
   sanitizarTexto,
   formatearMonto,
+  extraerEmailYNombre,
 
   // ---- Constantes ----
   CONFIG
@@ -741,6 +843,8 @@ module.exports._conTimeout = conTimeout;
 module.exports._enviarConReintentos = enviarConReintentos;
 module.exports._validarPuerto = validarPuerto;
 module.exports._errorTipado = errorTipado;
+module.exports._resolverHostIPv4 = resolverHostIPv4;
+module.exports._obtenerTransporter = obtenerTransporter;
 module.exports._resetMetricas = () => {
   METRICAS.enviados = 0;
   METRICAS.fallidos = 0;
@@ -748,4 +852,9 @@ module.exports._resetMetricas = () => {
   METRICAS.verificaciones = 0;
   METRICAS.verificacionesOk = 0;
 };
-module.exports._setTransporter = (t) => { transporterGlobal = t; transporterCreadoEn = Date.now(); };
+module.exports._setTransporter = (t) => {
+  transporterGlobal = t;
+  transporterCreadoEn = Date.now();
+  _creandoTransporter = null;
+};
+module.exports._resetIpv4Cache = () => { _smtpHostIPv4Cache = null; };
