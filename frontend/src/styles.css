@@ -312,7 +312,9 @@ body::before {
 
 #app {
   position: relative;
-  z-index: var(--z-base);
+  /* Sin z-index → no crea stacking context */
+  /* El contenido queda en el flujo normal y los modales */
+  /* pueden competir por z-index contra los overlays globales */
 }
 
 /* ============================================================
