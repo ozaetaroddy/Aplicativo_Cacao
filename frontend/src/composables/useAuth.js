@@ -76,16 +76,16 @@ function broadcast(type) {
 
 // ===== COMPOSABLE =====
 export function useAuth() {
-  // El router se obtiene perezosamente para no romper fuera de setup
-  let _router = null
-  const getRouter = () => {
-    if (_router) return _router
-    try {
-      _router = useRouter()
-    } catch {
-      _router = null
-    }
-    return _router
+  // 🆕 CLAVE: capturar el router AHORA, sincrónicamente, mientras
+  // estamos dentro del setup del componente. Si lo hacemos lazy
+  // (después de un await), useRouter() falla porque ya no hay
+  // contexto de setup activo → router = null → logout no redirige.
+  let router = null
+  try {
+    router = useRouter()
+  } catch {
+    // Fuera de un setup (tests, llamadas desde JS puro) → fallback abajo
+    router = null
   }
 
   const isAuthenticated = computed(() => Boolean(user.value))
@@ -117,19 +117,13 @@ export function useAuth() {
       usePermisos().limpiarCache()
     } catch { /* noop */ }
 
-    // 🆕 3.5 Invalidar cache de estadísticas.
-    //     Sin esto, después de un logout + login (sin recargar la
-    //     página), el nuevo usuario ve las estadísticas del anterior.
-    //     Además, el Dashboard no vuelve a pedirlas porque cree que
-    //     siguen vigentes (cache de 60s).
+    // 3.5 Invalidar cache de estadísticas (evita ver datos del usuario anterior)
     try {
       const { useEstadisticas } = await import('./useEstadisticas')
       useEstadisticas().invalidarCache()
     } catch { /* noop */ }
 
-    // 🆕 3.6 Invalidar cache de catálogos SRI.
-    //     Los catálogos del SRI son iguales para todos los usuarios
-    //     pero por consistencia los limpiamos al cambiar de sesión.
+    // 3.6 Invalidar cache de catálogos SRI
     try {
       const { useCatalogosSRI } = await import('./useCatalogosSRI')
       useCatalogosSRI().limpiarCache()
@@ -138,12 +132,33 @@ export function useAuth() {
     // 4. Avisar a otras pestañas
     broadcast('logout')
 
-    // 5. Redirigir
+    // 5. Redirigir — 🆕 con fallback bulletproof
     if (!silent) {
-      const router = getRouter()
+      let redirigido = false
+
+      // Intento 1: router capturado en setup
       if (router) {
         try {
-          router.push('/login')
+          await router.push('/login')
+          redirigido = true
+        } catch { /* cae al fallback */ }
+      }
+
+      // Intento 2: router dinámico (por si el setup no lo capturó)
+      if (!redirigido) {
+        try {
+          const r = useRouter()
+          if (r) {
+            await r.push('/login')
+            redirigido = true
+          }
+        } catch { /* cae al fallback */ }
+      }
+
+      // Intento 3: hard redirect (siempre funciona)
+      if (!redirigido) {
+        try {
+          window.location.href = '/login'
         } catch { /* noop */ }
       }
     }
@@ -193,7 +208,6 @@ export function useAuth() {
       const status = e?.status
       const msg = String(e?.message || '')
 
-      // Detectar cualquier error de sesión inválida
       const esSesionInvalida =
         status === 401 ||
         ['NO_TOKEN', 'TOKEN_EXPIRED', 'TOKEN_INVALID', 'TOKEN_MALFORMED',
@@ -215,7 +229,6 @@ export function useAuth() {
   }
 
   // ===== SINCRONIZAR ENTRE PESTAÑAS =====
-  // Escuchamos cambios de `storage` (fallback de BroadcastChannel)
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (ev) => {
       if (ev.key === USER_KEY) {

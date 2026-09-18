@@ -360,14 +360,26 @@ const login = async () => {
       throw new Error('Respuesta inválida del servidor')
     }
 
+    
     // Persistencia (solo datos no sensibles)
-    try {
-      localStorage.setItem('user', JSON.stringify(data.user))
-      localStorage.setItem('auth_hint', '1')
-      if (data.user.email) {
-        localStorage.setItem(EMAIL_STORAGE_KEY, data.user.email)
-      }
-    } catch { /* localStorage puede estar bloqueado */ }
+try {
+  // 🔑 CLAVE: usar el composable para que el ref reactivo
+  // (singleton compartido con la Navbar, Sidebar, etc.) se actualice.
+  // Si escribimos solo en localStorage, la Navbar nunca se entera.
+  const { useAuth } = await import('../composables/useAuth')
+  useAuth().setUser(data.user)
+
+  if (data.user.email) {
+    localStorage.setItem(EMAIL_STORAGE_KEY, data.user.email)
+  }
+} catch (e) {
+  console.warn('[login] No se pudo setear el usuario reactivo:', e)
+  // Fallback: por si el import dinámico falla por algún motivo
+  try {
+    localStorage.setItem('user', JSON.stringify(data.user))
+    localStorage.setItem('auth_hint', '1')
+  } catch { /* noop */ }
+}
 
     // Limpiar cache de permisos
     try {
