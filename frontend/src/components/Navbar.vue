@@ -77,9 +77,10 @@
                   </router-link>
                 </li>
 
-                <template v-if="puedeCrearVentas">
+                <template v-if="puedeCrearVentas || puedeCrearCompras">
                   <li class="dropdown-section">Crear documento</li>
-                  <li>
+
+                  <li v-if="puedeCrearVentas">
                     <router-link
                       class="dropdown-link"
                       to="/ventas/nuevo?tipo=factura"
@@ -90,7 +91,21 @@
                       <span class="shortcut">01</span>
                     </router-link>
                   </li>
-                  <li>
+
+                  <!-- 🆕 NUEVA COMPRA -->
+                  <li v-if="puedeCrearCompras">
+                    <router-link
+                      class="dropdown-link highlight-compra"
+                      to="/compras/nuevo"
+                      @click="cerrarTodo"
+                    >
+                      <i class="fas fa-shopping-cart" aria-hidden="true"></i>
+                      <span>Nueva Compra</span>
+                      <span class="shortcut">C</span>
+                    </router-link>
+                  </li>
+
+                  <li v-if="puedeCrearVentas">
                     <router-link
                       class="dropdown-link"
                       to="/ventas/nuevo?tipo=guia_remision"
@@ -101,7 +116,7 @@
                       <span class="shortcut">06</span>
                     </router-link>
                   </li>
-                  <li>
+                  <li v-if="puedeCrearVentas">
                     <router-link
                       class="dropdown-link"
                       to="/ventas/nuevo?tipo=nota_credito"
@@ -112,7 +127,7 @@
                       <span class="shortcut">04</span>
                     </router-link>
                   </li>
-                  <li>
+                  <li v-if="puedeCrearVentas">
                     <router-link
                       class="dropdown-link"
                       to="/ventas/nuevo?tipo=retencion"
@@ -128,7 +143,7 @@
                 <li class="dropdown-divider" aria-hidden="true"></li>
                 <li>
                   <router-link
-                    class="dropdown-link highlight"
+                    class="dropdown-link"
                     to="/consultar-documentos"
                     @click="cerrarTodo"
                   >
@@ -261,7 +276,7 @@
               <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
             </button>
             <transition name="dropdown">
-              <ul v-if="dropdowns.reportes" class="dropdown-panel">
+              <ul v-if="dropdowns.reportes" class="dropdown-panel dropdown-panel-wide">
                 <li class="dropdown-section">Análisis</li>
                 <li>
                   <router-link class="dropdown-link" to="/reportes/ventas" @click="cerrarTodo">
@@ -384,7 +399,7 @@
               ></span>
             </button>
             <transition name="dropdown">
-              <ul v-if="dropdowns.admin" class="dropdown-panel">
+              <ul v-if="dropdowns.admin" class="dropdown-panel dropdown-panel-right">
                 <li v-if="puedeVerUsuarios">
                   <router-link class="dropdown-link" to="/diagnostico" @click="cerrarTodo">
                     <i class="fas fa-stethoscope" aria-hidden="true"></i>
@@ -578,7 +593,7 @@
     </div>
 
     <!-- ==================================================
-         MENÚ MÓVIL (drawer) - fuera del flex principal
+         MENÚ MÓVIL (drawer)
          ================================================== -->
     <transition name="mobile-drawer">
       <div
@@ -622,6 +637,14 @@
                   Nueva Factura
                 </router-link>
               </li>
+
+              <!-- 🆕 NUEVA COMPRA -->
+              <li v-if="puedeCrearCompras">
+                <router-link class="mobile-subitem mobile-subitem-highlight" to="/compras/nuevo" @click="cerrarTodo">
+                  Nueva Compra
+                </router-link>
+              </li>
+
               <li v-if="puedeCrearVentas">
                 <router-link class="mobile-subitem" to="/ventas/nuevo?tipo=guia_remision" @click="cerrarTodo">
                   Guía de Remisión
@@ -630,6 +653,11 @@
               <li v-if="puedeCrearVentas">
                 <router-link class="mobile-subitem" to="/ventas/nuevo?tipo=nota_credito" @click="cerrarTodo">
                   Nota de Crédito
+                </router-link>
+              </li>
+              <li>
+                <router-link class="mobile-subitem" to="/consultar-documentos" @click="cerrarTodo">
+                  Consultar Documentos
                 </router-link>
               </li>
             </ul>
@@ -681,6 +709,9 @@
                 <router-link class="mobile-subitem" to="/inventario/stock" @click="cerrarTodo">Stock actual</router-link>
               </li>
               <li v-if="puedeVerInventario">
+                <router-link class="mobile-subitem" to="/inventario/valorizado" @click="cerrarTodo">Valorizado</router-link>
+              </li>
+              <li v-if="puedeEditarInventario">
                 <router-link class="mobile-subitem" to="/inventario/ajustes" @click="cerrarTodo">Ajustes</router-link>
               </li>
             </ul>
@@ -745,8 +776,7 @@ import {
   computed,
   onMounted,
   onBeforeUnmount,
-  nextTick,
-  watch
+  nextTick
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
@@ -757,6 +787,8 @@ import { api } from '../services/api'
 
 const router = useRouter()
 const route = useRoute()
+
+// 🆕 useAuth() → user es reactivo y ya no lee localStorage directo
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
 
@@ -791,6 +823,7 @@ let visibilityHandler = null
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
 const puedeCrearVentas = computed(() => puede('ventas', 'crear'))
 const puedeVerCompras = computed(() => puede('compras', 'ver'))
+const puedeCrearCompras = computed(() => puede('compras', 'crear')) // 🆕
 const puedeVerClientes = computed(() => puede('clientes', 'ver'))
 const puedeVerProveedores = computed(() => puede('proveedores', 'ver'))
 const puedeVerProductos = computed(() => puede('productos', 'ver'))
@@ -850,9 +883,7 @@ const cargarInfoSistema = async () => {
 
     if (cert.status === 'fulfilled') certificadoInfo.value = cert.value
     if (sri.status === 'fulfilled') estadoSri.value = sri.value
-  } catch {
-    /* silencioso */
-  }
+  } catch { /* silencioso */ }
 }
 
 // ============================================================
@@ -1026,9 +1057,9 @@ const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empres
 const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
 const irEnvioSri = () => { cerrarTodo(); router.push('/envio-sri') }
 
-const cerrarSesion = () => {
+const cerrarSesion = async () => {
   cerrarTodo()
-  logout()
+  await logout()
 }
 
 const reiniciarTour = () => {
@@ -1072,6 +1103,7 @@ const detenerPolling = () => {
 // ============================================================
 // WATCH
 // ============================================================
+import { watch } from 'vue'
 watch(() => route.path, () => {
   cerrarTodoInterno()
 })
@@ -1251,9 +1283,7 @@ onBeforeUnmount(() => {
   margin: 0 0 0 8px;
   padding: 0;
   min-width: 0;
-  
 }
-.nav-list::-webkit-scrollbar { display: none; }
 
 .nav-item {
   display: inline-flex;
@@ -1315,7 +1345,7 @@ onBeforeUnmount(() => {
 /* ============================================================
    DROPDOWN PANEL
    ============================================================ */
-.nav-dropdown { position: relative; overflow: visible;}
+.nav-dropdown { position: relative; overflow: visible; }
 
 .dropdown-panel {
   position: absolute;
@@ -1339,10 +1369,9 @@ onBeforeUnmount(() => {
   overflow-x: visible;
 }
 
-.dropdown-panel.dropdown-panel--right {
-  left: auto;
-  right: 0;
-}
+.dropdown-panel.dropdown-panel--right { left: auto; right: 0; }
+.dropdown-panel.dropdown-panel-right { left: auto; right: 0; }
+.dropdown-panel.dropdown-panel-wide { min-width: 300px; }
 
 @keyframes dropdown-in {
   from { opacity: 0; transform: translateY(-8px) scale(0.98); }
@@ -1385,15 +1414,16 @@ onBeforeUnmount(() => {
 }
 .dropdown-link:hover > i { color: #fff; transform: scale(1.1); }
 
-.dropdown-link.highlight {
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.2);
+.dropdown-link.highlight-compra {
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.2);
 }
-.dropdown-link.highlight:hover {
-  background: #f59e0b;
-  color: #1a2a3a;
+.dropdown-link.highlight-compra > i { color: #a78bfa; }
+.dropdown-link.highlight-compra:hover {
+  background: #7c3aed;
+  color: #fff;
 }
-.dropdown-link.highlight:hover > i { color: #1a2a3a; }
+.dropdown-link.highlight-compra:hover > i { color: #fff; }
 
 .shortcut {
   font-size: 0.65rem;
@@ -1799,6 +1829,15 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
+.mobile-subitem-highlight {
+  color: #c4b5fd;
+  font-weight: 600;
+}
+.mobile-subitem-highlight::before {
+  content: '+ ';
+  color: #a78bfa;
+  font-weight: 800;
+}
 
 /* ============================================================
    TRANSICIONES
@@ -1842,7 +1881,6 @@ onBeforeUnmount(() => {
    RESPONSIVE
    ============================================================ */
 
-/* 1500px: comprimir sin ocultar nada */
 @media (max-width: 1500px) {
   .navbar-inner { padding: 0 16px; gap: 12px; }
   .navbar-left { gap: 6px; }
@@ -1851,7 +1889,6 @@ onBeforeUnmount(() => {
   .user-name { max-width: 80px; }
 }
 
-/* 1300px: gap aún más pequeño */
 @media (max-width: 1300px) {
   .nav-list { margin-left: 4px; }
   .nav-item { padding: 8px 10px; gap: 6px; font-size: 0.83rem; }
@@ -1863,7 +1900,6 @@ onBeforeUnmount(() => {
   .user-caret { display: none; }
 }
 
-/* 1150px: solo iconos en el menú */
 @media (max-width: 1150px) {
   .nav-item > span:not(.shortcut):not(.badge-mini):not(.nav-alert-dot) {
     display: none;
@@ -1877,7 +1913,6 @@ onBeforeUnmount(() => {
   .dropdown-panel { left: auto; right: 0; }
 }
 
-/* 992px: hamburguesa + menú móvil */
 @media (max-width: 992px) {
   .navbar-inner { gap: 10px; }
   .navbar-left { flex: 0 1 auto; overflow: visible; }
@@ -1887,85 +1922,61 @@ onBeforeUnmount(() => {
 
   .search-container { width: 200px; }
 
-  /* Restaurar nombre de usuario */
   .user-name { display: inline; max-width: 90px; }
   .user-btn { padding: 4px 10px 4px 4px; max-width: 180px; }
   .user-caret { display: inline; }
 }
 
-/* ============================================================
-   720px — Search colapsado, solo icono
-   ------------------------------------------------------------
-   - El input se comprime a un círculo de 40x40
-   - Al enfocar se EXPANDE suavemente a ~220px
-   - Se oculta el `Ctrl K` (irrelevante en táctil)
-   - Se oculta el botón de limpiar mientras está colapsado
-   - El icono de búsqueda se centra; al enfocar se mueve a la izq.
-   ============================================================ */
 @media (max-width: 720px) {
   .navbar-inner { padding: 0 12px; gap: 8px; }
 
-  /* --- Contenedor de búsqueda: círculo compacto --- */
   .search-container {
     width: 40px;
     min-width: 40px;
     max-width: 40px;
     transition: max-width 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
   }
-
-  /* Expandir al recibir foco */
   .search-container:focus-within {
     max-width: min(240px, 55vw);
   }
 
-  /* --- Input colapsado: transparente y centrado --- */
   .search-container :deep(.search-input) {
     padding: 0;
     color: transparent;
     text-align: center;
     cursor: pointer;
   }
-
   .search-container :deep(.search-input::placeholder) {
     color: transparent;
   }
-
-  /* --- Input expandido: normal --- */
   .search-container:focus-within :deep(.search-input) {
     padding: 10px 36px 10px 40px;
     color: var(--text-primary);
     text-align: left;
     cursor: text;
   }
-
   .search-container:focus-within :deep(.search-input::placeholder) {
     color: var(--text-muted);
   }
 
-  /* --- Icono de búsqueda: centrado cuando colapsado --- */
   .search-container :deep(.search-icon) {
     left: 50%;
     transform: translateX(-50%);
     transition: left 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
                 transform 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
   }
-
   .search-container:focus-within :deep(.search-icon) {
     left: 14px;
     transform: none;
   }
 
-  /* --- Ocultar el `Ctrl K` en móvil (no aplica en táctil) --- */
   .search-container :deep(.search-kbd) {
     display: none !important;
   }
-
-  /* --- Ocultar el botón "limpiar" mientras está colapsado --- */
   .search-container:not(:focus-within) :deep(.clear-btn) {
     display: none !important;
   }
 
-  /* --- Resto de la navbar --- */
   .user-name { display: none; }
   .user-btn { padding: 4px; max-width: 40px; }
   .user-caret { display: none; }
@@ -1973,25 +1984,12 @@ onBeforeUnmount(() => {
   .brand-tag { display: none; }
 }
 
-/* ============================================================
-   380px — Pantallas muy chicas (iPhone SE, Galaxy A0x)
-   ============================================================ */
-@media (max-width: 380px) {
-  .navbar-inner { padding: 0 8px; gap: 6px; }
-  .search-container { width: 36px; min-width: 36px; max-width: 36px; }
-  .search-container:focus-within { max-width: min(200px, 60vw); }
-}
-
-/* 480px: brand mínimo */
 @media (max-width: 480px) {
   .navbar-inner { min-height: 58px; height: 58px; padding: 0 10px; }
   .brand { padding: 4px; }
   .brand-logo { width: 34px; height: 34px; font-size: 0.95rem; }
 }
 
-/* ============================================================
-   REDUCED MOTION
-   ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   .nav-alert-dot,
   .status-dot { animation: none; }

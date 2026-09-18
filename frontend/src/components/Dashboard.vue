@@ -1,14 +1,14 @@
 <template>
   <div class="dashboard">
     <!-- ===== HERO ===== -->
-    <div class="hero">
+    <section class="hero" aria-labelledby="hero-title">
       <div class="hero-content">
         <div class="hero-text">
           <div class="hero-greeting">
             <i :class="iconoSaludo" aria-hidden="true"></i>
             <span>{{ saludo }}, <strong>{{ nombreUsuario }}</strong></span>
           </div>
-          <h1 class="hero-title">
+          <h1 id="hero-title" class="hero-title">
             {{ esListo ? 'Todo listo para facturar' : 'Panel de Control' }}
           </h1>
           <p class="hero-subtitle">
@@ -29,12 +29,20 @@
             <span>Nueva Factura</span>
           </router-link>
           <router-link
-            v-if="puedeVerVentas"
-            to="/ventas"
+            v-if="puedeCrearCompras"
+            to="/compras/nuevo"
             class="hero-btn hero-btn-ghost"
           >
+            <i class="fas fa-shopping-cart" aria-hidden="true"></i>
+            <span>Nueva Compra</span>
+          </router-link>
+          <router-link
+            v-if="puedeVerVentas"
+            to="/ventas"
+            class="hero-btn hero-btn-ghost hero-btn-compact"
+          >
             <i class="fas fa-list" aria-hidden="true"></i>
-            <span>Ver ventas</span>
+            <span>Ventas</span>
           </router-link>
         </div>
       </div>
@@ -43,7 +51,7 @@
         <div class="hero-circle hero-circle-2"></div>
         <div class="hero-circle hero-circle-3"></div>
       </div>
-    </div>
+    </section>
 
     <!-- ===== ALERTAS ===== -->
     <transition-group
@@ -82,9 +90,10 @@
       v-if="accesosRapidos.length > 0"
       class="section"
       data-tour="quick-actions"
+      aria-labelledby="quick-actions-title"
     >
       <div class="section-header">
-        <h2 class="section-title">
+        <h2 id="quick-actions-title" class="section-title">
           <i class="fas fa-bolt" aria-hidden="true"></i>
           <span>Accesos Rápidos</span>
         </h2>
@@ -96,8 +105,13 @@
           :key="acceso.to"
           :to="acceso.to"
           class="quick-card"
+          :aria-label="acceso.label"
         >
-          <div class="quick-icon" :style="{ background: acceso.color }" aria-hidden="true">
+          <div
+            class="quick-icon"
+            :style="{ background: acceso.color }"
+            aria-hidden="true"
+          >
             <i :class="acceso.icon"></i>
           </div>
           <div class="quick-info">
@@ -114,9 +128,10 @@
       v-if="puedeVerVentas || puedeVerCompras"
       class="section"
       data-tour="kpis"
+      aria-labelledby="kpis-title"
     >
       <div class="section-header">
-        <h2 class="section-title">
+        <h2 id="kpis-title" class="section-title">
           <i class="fas fa-chart-pie" aria-hidden="true"></i>
           <span>Resumen del Día</span>
         </h2>
@@ -216,9 +231,13 @@
     </section>
 
     <!-- ===== INDICADORES CLAVE ===== -->
-    <section class="section">
+    <section
+      v-if="tieneIndicadores"
+      class="section"
+      aria-labelledby="metrics-title"
+    >
       <div class="section-header">
-        <h2 class="section-title">
+        <h2 id="metrics-title" class="section-title">
           <i class="fas fa-chart-line" aria-hidden="true"></i>
           <span>Indicadores Clave</span>
         </h2>
@@ -332,9 +351,13 @@
     </section>
 
     <!-- ===== BANDEJAS ===== -->
-    <section v-if="puedeVerVentas || puedeVerCompras" class="section">
+    <section
+      v-if="puedeVerVentas || puedeVerCompras"
+      class="section"
+      aria-labelledby="bandejas-title"
+    >
       <div class="section-header">
-        <h2 class="section-title">
+        <h2 id="bandejas-title" class="section-title">
           <i class="fas fa-inbox" aria-hidden="true"></i>
           <span>Bandejas de Trabajo</span>
         </h2>
@@ -391,9 +414,13 @@
     </section>
 
     <!-- ===== GRÁFICOS ===== -->
-    <section v-if="puedeVerVentas || puedeVerCompras" class="section">
+    <section
+      v-if="puedeVerVentas || puedeVerCompras"
+      class="section"
+      aria-labelledby="charts-title"
+    >
       <div class="section-header">
-        <h2 class="section-title">
+        <h2 id="charts-title" class="section-title">
           <i class="fas fa-chart-area" aria-hidden="true"></i>
           <span>Tendencia (Últimos 7 días)</span>
         </h2>
@@ -406,9 +433,13 @@
     </section>
 
     <!-- ===== TOP PRODUCTOS ===== -->
-    <section v-if="puedeVerVentas && topProductos.length > 0" class="section">
+    <section
+      v-if="puedeVerVentas && topProductos.length > 0"
+      class="section"
+      aria-labelledby="top-products-title"
+    >
       <div class="section-header">
-        <h2 class="section-title">
+        <h2 id="top-products-title" class="section-title">
           <i class="fas fa-star" aria-hidden="true"></i>
           <span>Top 5 Productos del Mes</span>
         </h2>
@@ -456,6 +487,7 @@ import {
 } from 'vue'
 import { usePermisos } from '../composables/usePermisos'
 import { useEstadisticas } from '../composables/useEstadisticas'
+import { useAuth } from '../composables/useAuth'
 import { api } from '../services/api'
 import { useToast } from 'vue-toastification'
 import DashboardCharts from './dashboard/DashboardCharts.vue'
@@ -464,6 +496,10 @@ import BandejaComprasWidget from './dashboard/widgets/BandejaComprasWidget.vue'
 
 const toast = useToast()
 const socket = inject('socket', null)
+
+// 🆕 useAuth() en lugar de leer localStorage directo
+// → así reacciona al login/logout sin recargar
+const { user } = useAuth()
 
 const { puede } = usePermisos()
 const {
@@ -493,29 +529,17 @@ const {
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
 const puedeCrearVentas = computed(() => puede('ventas', 'crear'))
 const puedeVerCompras = computed(() => puede('compras', 'ver'))
+const puedeCrearCompras = computed(() => puede('compras', 'crear')) // 🆕
 const puedeVerInventario = computed(() => puede('inventario', 'ver'))
 
-// ===== USER (con try/catch) =====
-const parseUser = () => {
-  try {
-    const raw = localStorage.getItem('user')
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-const user = ref(parseUser())
-
+// ===== NOMBRE USUARIO (reactivo) =====
 const nombreUsuario = computed(() => {
   const n = user.value?.nombre
   if (!n || typeof n !== 'string') return 'Usuario'
   return n.split(/\s+/)[0] || 'Usuario'
 })
 
-// ===== SALUDO (con tick cada minuto para actualizarse) =====
+// ===== SALUDO =====
 const horaActual = ref(new Date().getHours())
 
 const saludo = computed(() => {
@@ -528,7 +552,7 @@ const saludo = computed(() => {
 const iconoSaludo = computed(() => {
   const h = horaActual.value
   if (h < 12) return 'fas fa-sun'
-  if (h < 19) return 'fas fa-sun'
+  if (h < 19) return 'fas fa-cloud-sun'
   return 'fas fa-moon'
 })
 
@@ -541,7 +565,6 @@ const esListo = computed(() => estadoGeneral.value?.listo_para_facturar === true
 // ===== GUARDS =====
 let unmounted = false
 let infoAbort = null
-let statsAbort = null
 let relojTimer = null
 let kpiRefreshTimer = null
 let refreshDebounce = null
@@ -598,6 +621,15 @@ const margenBruto = computed(() => {
   const compras = Number(comprasMes.value) || 0
   if (ventas <= 0) return 0
   return ((ventas - compras) / ventas) * 100
+})
+
+// ===== HAY INDICADORES =====
+const tieneIndicadores = computed(() => {
+  if (puedeVerVentas.value && puedeVerCompras.value) return true
+  if (puedeVerCompras.value) return true
+  if (puedeVerInventario.value) return true
+  if (puedeVerVentas.value) return true
+  return false
 })
 
 // ===== ALERTAS =====
@@ -660,6 +692,7 @@ const alertas = computed(() => {
 const accesosRapidos = computed(() => {
   const accesos = []
 
+  // --- Documentos de venta ---
   if (puedeCrearVentas.value) {
     accesos.push({
       label: 'Nueva Factura',
@@ -668,6 +701,21 @@ const accesosRapidos = computed(() => {
       color: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
       to: '/ventas/nuevo?tipo=factura'
     })
+  }
+
+  // 🆕 --- Compras ---
+  if (puedeCrearCompras.value) {
+    accesos.push({
+      label: 'Nueva Compra',
+      desc: 'Registra factura de proveedor',
+      icon: 'fas fa-shopping-cart',
+      color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+      to: '/compras/nuevo'
+    })
+  }
+
+  // --- Otros documentos de venta ---
+  if (puedeCrearVentas.value) {
     accesos.push({
       label: 'Guía de Remisión',
       desc: 'Traslado de mercadería',
@@ -683,6 +731,8 @@ const accesosRapidos = computed(() => {
       to: '/ventas/nuevo?tipo=nota_credito'
     })
   }
+
+  // --- Bandejas ---
   if (puedeVerVentas.value) {
     accesos.push({
       label: 'Bandeja de Ventas',
@@ -692,12 +742,23 @@ const accesosRapidos = computed(() => {
       to: '/ventas'
     })
   }
+  if (puedeVerCompras.value) {
+    accesos.push({
+      label: 'Bandeja de Compras',
+      desc: 'Ver y gestionar compras',
+      icon: 'fas fa-inbox',
+      color: 'linear-gradient(135deg, #f97316, #ea580c)',
+      to: '/compras'
+    })
+  }
+
+  // --- Maestros ---
   if (puede('clientes', 'crear')) {
     accesos.push({
       label: 'Nuevo Cliente',
       desc: 'Registrar en el sistema',
       icon: 'fas fa-user-plus',
-      color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+      color: 'linear-gradient(135deg, #06b6d4, #0891b2)',
       to: '/clientes/nuevo'
     })
   }
@@ -710,6 +771,8 @@ const accesosRapidos = computed(() => {
       to: '/productos/nuevo'
     })
   }
+
+  // --- Consultas y reportes ---
   if (puedeVerVentas.value) {
     accesos.push({
       label: 'Consultar Documentos',
@@ -729,7 +792,7 @@ const accesosRapidos = computed(() => {
     })
   }
 
-  return accesos.slice(0, 6)
+  return accesos.slice(0, 8)
 })
 
 const getRankClass = (idx) => {
@@ -767,7 +830,6 @@ const handlerCompra = (compra) => {
 
 // ===== LIFECYCLE =====
 onMounted(async () => {
-  // Carga inicial
   try {
     await Promise.allSettled([
       cargarEstadisticas(),
@@ -775,13 +837,11 @@ onMounted(async () => {
     ])
   } catch { /* noop */ }
 
-  // Reloj: actualizar saludo cada minuto
   relojTimer = setInterval(() => {
     if (unmounted) return
     horaActual.value = new Date().getHours()
   }, 60 * 1000)
 
-  // Auto-refresh de KPIs cada 5 minutos
   kpiRefreshTimer = setInterval(() => {
     if (unmounted || kpisEnVuelo.value) return
     kpisEnVuelo.value = true
@@ -790,7 +850,6 @@ onMounted(async () => {
       .finally(() => { kpisEnVuelo.value = false })
   }, 5 * 60 * 1000)
 
-  // WebSocket
   if (socket && typeof socket.on === 'function') {
     socket.on('nueva-venta', handlerVenta)
     socket.on('nueva-compra', handlerCompra)
@@ -803,10 +862,6 @@ onBeforeUnmount(() => {
   if (infoAbort) {
     try { infoAbort.abort() } catch { /* noop */ }
     infoAbort = null
-  }
-  if (statsAbort) {
-    try { statsAbort.abort() } catch { /* noop */ }
-    statsAbort = null
   }
   if (refreshDebounce) {
     clearTimeout(refreshDebounce)
@@ -937,6 +992,8 @@ onBeforeUnmount(() => {
   color: #fff;
   transform: translateY(-2px);
 }
+
+.hero-btn-compact { padding: 13px 18px; }
 
 .hero-decoration {
   position: absolute;
@@ -1501,6 +1558,7 @@ onBeforeUnmount(() => {
   .hero-content { flex-direction: column; align-items: stretch; }
   .hero-actions { width: 100%; }
   .hero-btn { flex: 1; justify-content: center; }
+  .hero-btn-compact { flex: 0 0 auto; }
   .hero-circle { display: none; }
   .quick-grid { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
