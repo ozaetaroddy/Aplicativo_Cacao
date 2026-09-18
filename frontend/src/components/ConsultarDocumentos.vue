@@ -74,6 +74,11 @@
     <div class="card card-cacao">
       <div class="card-body table-responsive">
         <table class="table table-cacao">
+          <!-- 🔧 a11y: caption oculto para lectores de pantalla -->
+          <caption class="visually-hidden">
+            Listado de documentos filtrados. Mostrando {{ documentos.length }}
+            resultado{{ documentos.length === 1 ? '' : 's' }}.
+          </caption>
           <thead>
             <tr>
               <th>Fecha</th>
@@ -85,8 +90,9 @@
               <th style="width: 200px;">Acciones</th>
             </tr>
           </thead>
-          <tbody aria-busy="{{ cargando ? 'true' : 'false' }}">
-            <!-- Filas -->
+          <!-- 🔧 FIX: `aria-busy="{{ ... }}"` era sintaxis Vue 2 (interpolación literal).
+               Ahora usa binding Vue 3. -->
+          <tbody :aria-busy="cargando ? 'true' : 'false'">
             <tr v-for="doc in documentos" :key="String(doc._id)">
               <td>{{ formatFecha(doc.fecha_emision) }}</td>
               <td>
@@ -115,7 +121,6 @@
               <td><strong>{{ formatCurrency(doc.total) }}</strong></td>
               <td>
                 <div class="d-flex gap-1 flex-nowrap">
-                  <!-- Generar clave (si falta) -->
                   <button
                     v-if="!doc.clave_acceso && requiereClave(doc)"
                     type="button"
@@ -127,7 +132,6 @@
                     <i class="fas fa-key" aria-hidden="true"></i>
                   </button>
 
-                  <!-- Ver documento -->
                   <button
                     type="button"
                     class="btn btn-sm btn-outline-primary"
@@ -138,7 +142,6 @@
                     <i class="fas fa-eye" aria-hidden="true"></i>
                   </button>
 
-                  <!-- Email -->
                   <button
                     type="button"
                     class="btn btn-sm btn-outline-info"
@@ -149,7 +152,6 @@
                     <i class="fas fa-envelope" aria-hidden="true"></i>
                   </button>
 
-                  <!-- XML -->
                   <button
                     v-if="doc.clave_acceso"
                     type="button"
@@ -161,7 +163,6 @@
                     <i class="fas fa-file-code" aria-hidden="true"></i>
                   </button>
 
-                  <!-- Firmar -->
                   <button
                     v-if="
                       doc.clave_acceso &&
@@ -178,7 +179,6 @@
                     <i class="fas fa-signature" aria-hidden="true"></i>
                   </button>
 
-                  <!-- Enviar al SRI -->
                   <button
                     v-if="doc.estado_sri === 'FIRMADO'"
                     type="button"
@@ -193,7 +193,6 @@
               </td>
             </tr>
 
-            <!-- Estados vacíos / carga -->
             <tr v-if="cargando">
               <td colspan="7" class="text-center py-4">
                 <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
@@ -217,14 +216,13 @@
       </div>
     </div>
 
-    <!-- ============ MODAL DOCUMENTO ============ -->
+    <!-- ============ MODAL DOCUMENTO (PREVIEW) ============ -->
     <div
       class="modal fade"
       id="modalDocumento"
       tabindex="-1"
       aria-hidden="true"
       data-bs-backdrop="static"
-      @hidden.bs.modal="limpiarDocumentoActual"
     >
       <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
@@ -497,8 +495,18 @@
               <button type="button" class="btn btn-primary" @click="imprimirModal('ticket')">
                 <i class="fas fa-receipt me-1" aria-hidden="true"></i> Ticket
               </button>
-              <button type="button" class="btn btn-danger" @click="guardarPDF">
-                <i class="fas fa-file-pdf me-1" aria-hidden="true"></i> PDF
+              <button
+                type="button"
+                class="btn btn-danger"
+                @click="guardarPDF"
+                :disabled="generandoPdf"
+              >
+                <i
+                  class="fas fa-file-pdf me-1"
+                  :class="{ 'fa-spin': generandoPdf }"
+                  aria-hidden="true"
+                ></i>
+                {{ generandoPdf ? 'Generando…' : 'PDF' }}
               </button>
               <button
                 type="button"
@@ -521,108 +529,117 @@
       </div>
     </div>
 
-    <!-- ============ MODAL XML ============ -->
-    <div class="modal fade" id="modalXmlDoc" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">
-              <i class="fas fa-file-code me-2" aria-hidden="true"></i>
-              XML del Comprobante
-            </h5>
-            <button
-              type="button"
-              class="btn-close"
-              data-bs-dismiss="modal"
-              aria-label="Cerrar"
-            ></button>
-          </div>
-          <div class="modal-body">
-            <div v-if="xmlDoc" class="xml-viewer">
-              <pre>{{ xmlDoc }}</pre>
+    <!-- ============ MODAL XML (TELEPORTADO) ============ -->
+    <Teleport to="body">
+      <div class="modal fade" id="modalXmlDoc" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">
+                <i class="fas fa-file-code me-2" aria-hidden="true"></i>
+                XML del Comprobante
+              </h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Cerrar"
+              ></button>
             </div>
-            <div v-else class="text-center py-4 text-muted">
-              <i class="fas fa-spinner fa-spin fa-2x" aria-hidden="true"></i>
-              <p class="mt-2 mb-0">Cargando XML…</p>
+            <div class="modal-body">
+              <!-- 🔧 ref="xmlViewerRef" para resetear scroll al abrir uno nuevo -->
+              <div v-if="xmlDoc" class="xml-viewer" ref="xmlViewerRef">
+                <pre>{{ xmlDoc }}</pre>
+              </div>
+              <div v-else class="text-center py-4 text-muted">
+                <i class="fas fa-spinner fa-spin fa-2x" aria-hidden="true"></i>
+                <p class="mt-2 mb-0">Cargando XML…</p>
+              </div>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-              Cerrar
-            </button>
-            <button
-              type="button"
-              class="btn btn-primary"
-              @click="copiarXml"
-              :disabled="!xmlDoc"
-            >
-              <i class="fas fa-copy me-1" aria-hidden="true"></i> Copiar
-            </button>
-            <button
-              type="button"
-              class="btn btn-success"
-              @click="descargarXmlActual"
-              :disabled="!xmlDoc"
-            >
-              <i class="fas fa-download me-1" aria-hidden="true"></i> Descargar
-            </button>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                Cerrar
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                @click="copiarXml"
+                :disabled="!xmlDoc"
+              >
+                <i class="fas fa-copy me-1" aria-hidden="true"></i> Copiar
+              </button>
+              <button
+                type="button"
+                class="btn btn-success"
+                @click="descargarXmlActual"
+                :disabled="!xmlDoc"
+              >
+                <i class="fas fa-download me-1" aria-hidden="true"></i> Descargar
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
-    <!-- ============ MODAL CONFIRMACIÓN REACTIVO ============ -->
-    <div
-      class="modal fade"
-      id="modalConfirmConsulta"
-      tabindex="-1"
-      aria-hidden="true"
-      data-bs-backdrop="static"
-    >
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header" :class="`bg-${confirmState.variante}`">
-            <h5
-              class="modal-title"
-              :class="confirmState.variante === 'warning' ? 'text-dark' : 'text-white'"
-            >
-              <i :class="confirmState.icono" class="me-2" aria-hidden="true"></i>
-              {{ confirmState.titulo }}
-            </h5>
-            <button
-              type="button"
-              class="btn-close"
-              :class="confirmState.variante === 'warning' ? '' : 'btn-close-white'"
-              @click="cancelarConfirm"
-              aria-label="Cerrar"
-            ></button>
-          </div>
-          <div class="modal-body">
-            <p class="mb-3" v-html="confirmState.mensaje"></p>
-            <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
-              <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
-              <span>{{ confirmState.detalle }}</span>
+    <!-- ============ MODAL CONFIRMACIÓN (TELEPORTADO) ============ -->
+    <Teleport to="body">
+      <div
+        class="modal fade"
+        id="modalConfirmConsulta"
+        tabindex="-1"
+        aria-hidden="true"
+        data-bs-backdrop="static"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header" :class="`bg-${confirmState.variante}`">
+              <h5
+                class="modal-title"
+                :class="confirmState.variante === 'warning' ? 'text-dark' : 'text-white'"
+              >
+                <i :class="confirmState.icono" class="me-2" aria-hidden="true"></i>
+                {{ confirmState.titulo }}
+              </h5>
+              <button
+                type="button"
+                class="btn-close"
+                :class="confirmState.variante === 'warning' ? '' : 'btn-close-white'"
+                @click="cancelarConfirm"
+                aria-label="Cerrar"
+              ></button>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
-              {{ confirmState.textoCancelar }}
-            </button>
-            <button
-              type="button"
-              class="btn"
-              :class="`btn-${confirmState.variante}`"
-              @click="aceptarConfirm"
-            >
-              {{ confirmState.textoConfirmar }}
-            </button>
+            <div class="modal-body">
+              <p class="mb-3" v-html="confirmState.mensaje"></p>
+              <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
+                <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
+                <span>{{ confirmState.detalle }}</span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
+                {{ confirmState.textoCancelar }}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                :class="`btn-${confirmState.variante}`"
+                @click="aceptarConfirm"
+              >
+                {{ confirmState.textoConfirmar }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- ============ MODAL EMAIL ============ -->
-    <EnviarEmailModal :venta="documentoActual" :cliente="documentoActual?.cliente" />
+    <EnviarEmailModal
+      :venta="documentoActual"
+      :cliente="documentoActual?.cliente"
+      :obtener-nombre-producto="obtenerNombreProducto"
+    />
   </div>
 </template>
 
@@ -631,19 +648,19 @@ import {
   ref,
   reactive,
   computed,
+  nextTick,
   onMounted,
   onBeforeUnmount,
   watch
 } from 'vue'
-import { useRoute } from 'vue-router'
 import { Modal } from 'bootstrap'
 import { useToast } from 'vue-toastification'
 import { api } from '../services/api'
 import { formatCurrency } from '../utils/formatters'
 import { printService } from '../services/printService'
+import { pdfService } from '../services/pdfService'
 import EnviarEmailModal from './ventas/EnviarEmailModal.vue'
 
-const route = useRoute()
 const toast = useToast()
 
 // ===== STATE =====
@@ -653,6 +670,7 @@ const fechaHasta = ref('')
 const documentos = ref([])
 const cargando = ref(false)
 const buscado = ref(false)
+const generandoPdf = ref(false)
 
 const modalInstance = ref(null)
 const documentoActual = ref(null)
@@ -660,8 +678,15 @@ const productosMap = ref({})
 const qrDataUrl = ref('')
 
 const xmlDoc = ref('')
+// 🔧 ref del contenedor del XML para resetear scroll al abrir uno nuevo
+const xmlViewerRef = ref(null)
+
 let modalXmlInstance = null
 let modalConfirm = null
+
+// 🔧 Flags de coordinación entre modales.
+const reabrirPreviewTrasXml = ref(false)
+const abriendoEmail = ref(false)
 
 // Confirmación reactiva (reemplaza `confirm()` nativo)
 const confirmState = reactive({
@@ -798,7 +823,6 @@ const cancelarConfirm = () => {
 
 // ===== CARGA (vía API) =====
 const cargarDatos = async () => {
-  // Cancelar request previa
   if (listAbort) {
     try { listAbort.abort() } catch { /* noop */ }
   }
@@ -808,7 +832,6 @@ const cargarDatos = async () => {
   buscado.value = true
 
   try {
-    // 1) Productos (una sola vez) para rehidratar nombres
     if (Object.keys(productosMap.value).length === 0) {
       try {
         const resProd = await api.request('/productos?limit=5000', {
@@ -826,7 +849,6 @@ const cargarDatos = async () => {
       }
     }
 
-    // 2) Documentos (ventas o compras)
     const params = new URLSearchParams()
     params.set('limit', '500')
     if (fechaDesde.value) params.set('desde', fechaDesde.value)
@@ -874,7 +896,6 @@ const verDocumento = async (doc) => {
   documentoActual.value = doc
   qrDataUrl.value = ''
 
-  // Cargar QR solo para ventas con clave
   if (doc.clave_acceso && doc._id && doc.tipo_documento !== 'compras') {
     if (qrAbort) {
       try { qrAbort.abort() } catch { /* noop */ }
@@ -901,6 +922,8 @@ const verDocumento = async (doc) => {
 const limpiarDocumentoActual = () => {
   documentoActual.value = null
   qrDataUrl.value = ''
+  reabrirPreviewTrasXml.value = false
+  abriendoEmail.value = false
 }
 
 const abrirModal = () => {
@@ -932,121 +955,25 @@ const imprimirModal = (formato) => {
   }
 }
 
+// ===== PDF (usa pdfService) =====
 const guardarPDF = async () => {
   const doc = documentoActual.value
-  if (!doc) return
+  if (!doc || generandoPdf.value) return
 
+  generandoPdf.value = true
   try {
-    // Lazy import: jsPDF pesa ~500KB, solo cargarlo cuando se usa
-    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
-      import('jspdf'),
-      import('jspdf-autotable')
-    ])
-
-    if (unmounted) return
-
-    const pdf = new jsPDF('p', 'mm', 'a4')
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    let y = 20
-
-    pdf.setFontSize(18)
-    pdf.setFont('helvetica', 'bold')
-    pdf.text(
-      doc.razon_social_emisor || "System Ozaet's Electronics",
-      pageWidth / 2,
-      y,
-      { align: 'center' }
-    )
-    y += 8
-    pdf.setFontSize(10)
-    pdf.setFont('helvetica', 'normal')
-    pdf.text('Sistema Contable', pageWidth / 2, y, { align: 'center' })
-    y += 10
-    pdf.setFontSize(14)
-    pdf.setFont('helvetica', 'bold')
-    pdf.text(
-      (doc.tipo_documento || 'DOCUMENTO').toUpperCase(),
-      pageWidth / 2,
-      y,
-      { align: 'center' }
-    )
-    y += 8
-    pdf.setFontSize(10)
-    pdf.setFont('helvetica', 'normal')
-    pdf.text(`Nº: ${doc.numero_factura || 'N/A'}`, pageWidth / 2, y, {
-      align: 'center'
+    await pdfService.descargarRIDE(doc, {
+      qrDataUrl: qrDataUrl.value || null,
+      obtenerNombreProducto
     })
-    y += 6
-    pdf.text(`Fecha: ${formatFecha(doc.fecha_emision)}`, pageWidth / 2, y, {
-      align: 'center'
-    })
-    y += 12
-
-    if (doc.clave_acceso) {
-      pdf.setFontSize(7)
-      pdf.setFont('courier', 'bold')
-      pdf.text('CLAVE DE ACCESO:', 14, y)
-      y += 4
-      pdf.setFont('courier', 'normal')
-      const chunks = doc.clave_acceso.match(/.{1,49}/g) || []
-      chunks.forEach((c) => {
-        pdf.text(c, 14, y)
-        y += 4
-      })
-      y += 4
-    }
-
-    pdf.setFontSize(10)
-    pdf.setFont('helvetica', 'bold')
-    pdf.text('Cliente:', 14, y)
-    y += 5
-    pdf.setFont('helvetica', 'normal')
-    pdf.text(doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A', 14, y)
-    y += 4
-    pdf.text(
-      `RUC/CI: ${doc.cliente?.ruc || doc.proveedor?.ruc || 'N/A'}`,
-      14,
-      y
-    )
-    y += 8
-
-    if (Array.isArray(doc.detalles) && doc.detalles.length > 0) {
-      const tableData = doc.detalles.map((item, idx) => [
-        idx + 1,
-        item.nombre || obtenerNombreProducto(item.productoId),
-        item.cantidad,
-        `$${Number(item.precio_unitario || item.costo_unitario || 0).toFixed(2)}`,
-        item.aplica_iva !== false ? '15%' : '0%',
-        `$${(
-          Number(item.cantidad || 0) *
-          Number(item.precio_unitario || item.costo_unitario || 0)
-        ).toFixed(2)}`
-      ])
-      autoTable(pdf, {
-        startY: y,
-        head: [['#', 'Producto', 'Cant.', 'P. Unit.', 'IVA', 'Subtotal']],
-        body: tableData,
-        theme: 'striped',
-        headStyles: { fillColor: [26, 58, 92], fontSize: 9 },
-        styles: { fontSize: 9 },
-        margin: { left: 14, right: 14 }
-      })
-      y = pdf.lastAutoTable.finalY + 10
-    }
-
-    pdf.setFontSize(10)
-    pdf.setFont('helvetica', 'bold')
-    pdf.text(`Subtotal: $${Number(doc.subtotal || 0).toFixed(2)}`, pageWidth - 60, y)
-    y += 5
-    pdf.text(`IVA: $${Number(doc.iva || 0).toFixed(2)}`, pageWidth - 60, y)
-    y += 6
-    pdf.setFontSize(12)
-    pdf.text(`TOTAL: $${Number(doc.total || 0).toFixed(2)}`, pageWidth - 60, y)
-
-    pdf.save(`documento_${doc.numero_factura || 'sin_numero'}.pdf`)
-    toast.success('PDF guardado')
+    if (!unmounted) toast.success('PDF generado')
   } catch (e) {
-    if (!unmounted) toast.error('Error: ' + (e?.message || 'desconocido'))
+    if (!unmounted) {
+      console.error('Error generando PDF:', e)
+      toast.error('Error al generar PDF: ' + (e?.message || 'desconocido'))
+    }
+  } finally {
+    if (!unmounted) generandoPdf.value = false
   }
 }
 
@@ -1078,7 +1005,6 @@ const generarClave = async (doc) => {
 
     await cargarDatos()
 
-    // Si el modal sigue abierto en el mismo documento, refrescarlo
     if (documentoActual.value?._id === doc._id) {
       try {
         const actualizado = await api.request(`/ventas/${doc._id}`, {
@@ -1178,20 +1104,68 @@ const enviarSRI = async (doc) => {
 const abrirModalEmail = (doc) => {
   if (!doc) return
   documentoActual.value = doc
+
+  const previewEl = document.getElementById('modalDocumento')
+  const emailEl = document.getElementById('modalEnviarEmail')
+  if (!emailEl) return
+
+  let yaAbierto = false
+  const abrirEmail = () => {
+    if (yaAbierto) return
+    yaAbierto = true
+    abriendoEmail.value = false
+    if (unmounted) return
+    Modal.getOrCreateInstance(emailEl).show()
+  }
+
+  const previewAbierto = previewEl?.classList.contains('show')
+  if (!previewAbierto) {
+    abrirEmail()
+    return
+  }
+
+  abriendoEmail.value = true
+  const onHidden = () => {
+    previewEl.removeEventListener('hidden.bs.modal', onHidden)
+    abrirEmail()
+  }
+  previewEl.addEventListener('hidden.bs.modal', onHidden, { once: true })
   modalInstance.value?.hide()
 
+  // 🔧 Fallback: si `hidden.bs.modal` no dispara en 600ms (raro pero
+  //    posible si Bootstrap se confunde con animación CSS), abrimos
+  //    el email igual. Idempotente gracias a `yaAbierto`.
   setTimeout(() => {
-    if (unmounted) return
-    const modalEl = document.getElementById('modalEnviarEmail')
-    if (!modalEl) return
-    Modal.getOrCreateInstance(modalEl).show()
-  }, 300)
+    if (!yaAbierto) {
+      previewEl.removeEventListener('hidden.bs.modal', onHidden)
+      abrirEmail()
+    }
+  }, 600)
 }
 
 // ===== XML =====
 const verXml = async (doc) => {
   if (!doc?._id) return
   xmlDoc.value = ''
+
+  const previewEl = document.getElementById('modalDocumento')
+  const previewAbierto = previewEl?.classList.contains('show')
+
+  if (previewAbierto) {
+    reabrirPreviewTrasXml.value = true
+    await new Promise((resolve) => {
+      const onHidden = () => {
+        previewEl.removeEventListener('hidden.bs.modal', onHidden)
+        resolve()
+      }
+      previewEl.addEventListener('hidden.bs.modal', onHidden, { once: true })
+      modalInstance.value?.hide()
+
+      // Fallback defensivo
+      setTimeout(resolve, 600)
+    })
+    if (unmounted) return
+  }
 
   if (!modalXmlInstance) {
     modalXmlInstance = new Modal(document.getElementById('modalXmlDoc'))
@@ -1205,6 +1179,10 @@ const verXml = async (doc) => {
     })
     if (unmounted) return
     xmlDoc.value = res?.xml || ''
+
+    // 🔧 Reset del scroll del viewer al abrir uno nuevo
+    await nextTick()
+    if (xmlViewerRef.value) xmlViewerRef.value.scrollTop = 0
   } catch (e) {
     if (unmounted) return
     const msg = e?.message || 'desconocido'
@@ -1216,7 +1194,6 @@ const verXml = async (doc) => {
 const copiarXml = async () => {
   if (!xmlDoc.value) return
 
-  // 1) API moderna (solo HTTPS)
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(xmlDoc.value)
@@ -1227,7 +1204,6 @@ const copiarXml = async () => {
     }
   }
 
-  // 2) Fallback con textarea oculto
   try {
     const ta = document.createElement('textarea')
     ta.value = xmlDoc.value
@@ -1276,7 +1252,25 @@ onMounted(() => {
       backdrop: 'static',
       keyboard: false
     })
+
+    modalEl.addEventListener('hidden.bs.modal', () => {
+      if (reabrirPreviewTrasXml.value || abriendoEmail.value) return
+      limpiarDocumentoActual()
+    })
   }
+
+  const modalXmlEl = document.getElementById('modalXmlDoc')
+  if (modalXmlEl) {
+    modalXmlInstance = new Modal(modalXmlEl)
+    modalXmlEl.addEventListener('hidden.bs.modal', () => {
+      if (unmounted) return
+      if (reabrirPreviewTrasXml.value && documentoActual.value) {
+        reabrirPreviewTrasXml.value = false
+        modalInstance.value?.show()
+      }
+    })
+  }
+
   cargarDatos()
 })
 
@@ -1300,6 +1294,9 @@ onBeforeUnmount(() => {
     confirmState.resolve(false)
     confirmState.resolve = null
   }
+
+  reabrirPreviewTrasXml.value = false
+  abriendoEmail.value = false
 })
 </script>
 
@@ -1350,7 +1347,6 @@ onBeforeUnmount(() => {
   margin: 0 auto;
 }
 
-/* Header del documento */
 .doc-header {
   display: flex;
   justify-content: space-between;
@@ -1360,17 +1356,9 @@ onBeforeUnmount(() => {
   border-bottom: 3px double #1a3a5c;
   margin-bottom: 14px;
 }
-.doc-header-left {
-  flex: 1;
-}
-.doc-header-center {
-  flex: 1.2;
-  text-align: center;
-}
-.doc-header-right {
-  flex: 0.6;
-  text-align: right;
-}
+.doc-header-left { flex: 1; }
+.doc-header-center { flex: 1.2; text-align: center; }
+.doc-header-right { flex: 0.6; text-align: right; }
 
 .logo-empresa {
   display: flex;
@@ -1396,15 +1384,8 @@ onBeforeUnmount(() => {
   color: #1a3a5c;
   line-height: 1.1;
 }
-.empresa-sub {
-  font-size: 0.7rem;
-  color: #666;
-}
-.empresa-info {
-  font-size: 0.78rem;
-  color: #333;
-  margin-top: 6px;
-}
+.empresa-sub { font-size: 0.7rem; color: #666; }
+.empresa-info { font-size: 0.78rem; color: #333; margin-top: 6px; }
 
 .doc-tipo-badge {
   display: inline-block;
@@ -1424,11 +1405,7 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
   font-family: monospace;
 }
-.doc-fecha {
-  font-size: 0.8rem;
-  color: #555;
-  margin-bottom: 6px;
-}
+.doc-fecha { font-size: 0.8rem; color: #555; margin-bottom: 6px; }
 .ambiente-badge {
   display: inline-block;
   padding: 4px 12px;
@@ -1438,16 +1415,10 @@ onBeforeUnmount(() => {
   letter-spacing: 0.5px;
   color: #fff;
 }
-.amb-produccion {
-  background: #27ae60;
-}
-.amb-pruebas {
-  background: #e67e22;
-}
+.amb-produccion { background: #27ae60; }
+.amb-pruebas { background: #e67e22; }
 
-.qr-container {
-  text-align: center;
-}
+.qr-container { text-align: center; }
 .qr-img {
   width: 90px;
   height: 90px;
@@ -1455,13 +1426,8 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   padding: 4px;
 }
-.qr-label {
-  font-size: 0.65rem;
-  color: #666;
-  margin-top: 4px;
-}
+.qr-label { font-size: 0.65rem; color: #666; margin-top: 4px; }
 
-/* Clave de acceso */
 .clave-section {
   display: flex;
   gap: 15px;
@@ -1472,10 +1438,7 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   margin-bottom: 14px;
 }
-.clave-left {
-  flex: 1;
-  min-width: 0;
-}
+.clave-left { flex: 1; min-width: 0; }
 .clave-label {
   font-size: 0.7rem;
   color: #666;
@@ -1493,21 +1456,10 @@ onBeforeUnmount(() => {
   line-height: 1.4;
   margin-bottom: 6px;
 }
-.autorizacion-info {
-  font-size: 0.7rem;
-  color: #555;
-  line-height: 1.5;
-}
-.autorizacion-info strong {
-  color: #1a3a5c;
-}
+.autorizacion-info { font-size: 0.7rem; color: #555; line-height: 1.5; }
+.autorizacion-info strong { color: #1a3a5c; }
 
-/* Cliente / Proveedor */
-.cliente-section {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 14px;
-}
+.cliente-section { display: flex; gap: 12px; margin-bottom: 14px; }
 .cliente-box {
   flex: 1;
   padding: 10px 12px;
@@ -1525,27 +1477,11 @@ onBeforeUnmount(() => {
   padding-bottom: 4px;
   border-bottom: 1px dashed #d5dbe0;
 }
-.cliente-row {
-  display: flex;
-  font-size: 0.78rem;
-  margin: 3px 0;
-  line-height: 1.3;
-}
-.cliente-row-label {
-  min-width: 85px;
-  color: #666;
-  font-weight: 600;
-}
-.cliente-row-value {
-  flex: 1;
-  color: #1a1a1a;
-  font-weight: 500;
-}
+.cliente-row { display: flex; font-size: 0.78rem; margin: 3px 0; line-height: 1.3; }
+.cliente-row-label { min-width: 85px; color: #666; font-weight: 600; }
+.cliente-row-value { flex: 1; color: #1a1a1a; font-weight: 500; }
 
-/* Detalles */
-.detalles-section {
-  margin-bottom: 14px;
-}
+.detalles-section { margin-bottom: 14px; }
 .detalles-title {
   font-size: 0.75rem;
   font-weight: 700;
@@ -1555,38 +1491,18 @@ onBeforeUnmount(() => {
   padding: 6px 0;
   border-bottom: 2px solid #1a3a5c;
 }
-.detalles-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-}
-.detalles-table thead {
-  background: #1a3a5c;
-  color: #fff;
-}
+.detalles-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.detalles-table thead { background: #1a3a5c; color: #fff; }
 .detalles-table thead th {
   padding: 8px;
   text-align: left;
   font-size: 0.72rem;
   text-transform: uppercase;
 }
-.detalles-table tbody td {
-  padding: 10px 8px;
-  border-bottom: 1px solid #e9ecef;
-}
-.detalles-table tbody tr:nth-child(even) {
-  background: #f8f9fa;
-}
-.product-name {
-  font-weight: 600;
-  color: #1a1a1a;
-  margin-bottom: 2px;
-}
-.product-code {
-  font-size: 0.72rem;
-  color: #888;
-  font-family: monospace;
-}
+.detalles-table tbody td { padding: 10px 8px; border-bottom: 1px solid #e9ecef; }
+.detalles-table tbody tr:nth-child(even) { background: #f8f9fa; }
+.product-name { font-weight: 600; color: #1a1a1a; margin-bottom: 2px; }
+.product-code { font-size: 0.72rem; color: #888; font-family: monospace; }
 .badge-iva {
   display: inline-block;
   padding: 2px 8px;
@@ -1594,21 +1510,10 @@ onBeforeUnmount(() => {
   font-size: 0.7rem;
   font-weight: 700;
 }
-.iva-si {
-  background: rgba(52, 152, 219, 0.15);
-  color: #2980b9;
-}
-.iva-no {
-  background: rgba(127, 140, 141, 0.15);
-  color: #7f8c8d;
-}
+.iva-si { background: rgba(52, 152, 219, 0.15); color: #2980b9; }
+.iva-no { background: rgba(127, 140, 141, 0.15); color: #7f8c8d; }
 
-/* Totales */
-.totales-section {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 14px;
-}
+.totales-section { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 .totales-box {
   width: 100%;
   max-width: 340px;
@@ -1623,18 +1528,9 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   border-bottom: 1px solid #e9ecef;
 }
-.total-row:last-child {
-  border-bottom: none;
-}
-.total-row .label {
-  color: #555;
-  font-weight: 500;
-}
-.total-row .value {
-  color: #1a1a1a;
-  font-weight: 600;
-  font-family: monospace;
-}
+.total-row:last-child { border-bottom: none; }
+.total-row .label { color: #555; font-weight: 500; }
+.total-row .value { color: #1a1a1a; font-weight: 600; font-family: monospace; }
 .total-final {
   display: flex;
   justify-content: space-between;
@@ -1644,9 +1540,7 @@ onBeforeUnmount(() => {
   font-size: 1.05rem;
   font-weight: 800;
 }
-.total-final .value {
-  font-family: monospace;
-}
+.total-final .value { font-family: monospace; }
 
 .doc-footer {
   margin-top: 20px;
@@ -1681,35 +1575,18 @@ onBeforeUnmount(() => {
 /* ============================================================
    UTILIDADES
    ============================================================ */
-.font-monospace {
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
-}
-.text-end,
-.text-right {
-  text-align: right;
-}
+.font-monospace { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+.text-end, .text-right { text-align: right; }
 
 /* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 768px) {
-  .documento-preview {
-    padding: 16px;
-    font-size: 0.78rem;
-  }
-  .doc-header {
-    flex-direction: column;
-    gap: 12px;
-  }
+  .documento-preview { padding: 16px; font-size: 0.78rem; }
+  .doc-header { flex-direction: column; gap: 12px; }
   .doc-header-center,
-  .doc-header-right {
-    text-align: left;
-  }
-  .cliente-section {
-    flex-direction: column;
-  }
-  .detalles-table {
-    font-size: 0.75rem;
-  }
+  .doc-header-right { text-align: left; }
+  .cliente-section { flex-direction: column; }
+  .detalles-table { font-size: 0.75rem; }
 }
 </style>

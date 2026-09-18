@@ -17,7 +17,6 @@
         </div>
 
         <div class="modal-body">
-          <!-- Sin venta -->
           <div v-if="!venta" class="text-muted text-center py-4">
             <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
             <p class="mb-0 mt-2">Cargando…</p>
@@ -163,8 +162,13 @@
                 </div>
               </div>
 
-              <!-- Error -->
-              <div v-if="error" class="alert alert-danger mt-3" role="alert">
+              <!-- 🔧 Error con aria-live para que lectores de pantalla lo anuncien -->
+              <div
+                v-if="error"
+                class="alert alert-danger mt-3"
+                role="alert"
+                aria-live="polite"
+              >
                 <i class="fas fa-exclamation-circle me-2" aria-hidden="true"></i>
                 {{ error }}
               </div>
@@ -204,11 +208,16 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
+import { pdfService } from '../../services/pdfService'
 import { useToast } from 'vue-toastification'
 
 const props = defineProps({
   venta: { type: Object, default: null },
-  cliente: { type: Object, default: null }
+  cliente: { type: Object, default: null },
+  obtenerNombreProducto: {
+    type: Function,
+    default: (id) => (id ? `Producto ${String(id).slice(-6)}` : 'Producto')
+  }
 })
 
 const toast = useToast()
@@ -267,9 +276,6 @@ const validarEmail = (email) => {
   return ''
 }
 
-/**
- * Ejecuta una promesa con timeout (usado para la generación del PDF).
- */
 const conTimeout = (promesa, ms, mensaje) => {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(mensaje)), ms)
@@ -280,13 +286,18 @@ const conTimeout = (promesa, ms, mensaje) => {
   })
 }
 
-// ===== WATCH: al cambiar la venta, inicializar =====
+// ===== WATCH =====
 watch(
   () => props.venta,
   (v) => {
     if (!v) {
-      // Reset cuando se limpia
-      form.value = { email: '', asunto: '', mensaje: '', incluir_pdf: true, incluir_xml: true }
+      form.value = {
+        email: '',
+        asunto: '',
+        mensaje: '',
+        incluir_pdf: true,
+        incluir_xml: true
+      }
       historial.value = []
       error.value = ''
       errorEmail.value = ''
@@ -304,8 +315,6 @@ watch(
     error.value = ''
     errorEmail.value = ''
     touchedEmail.value = false
-
-    // 🆕 Limpiar historial anterior antes de recargar
     historial.value = []
 
     cargarHistorial()
@@ -340,97 +349,10 @@ const cargarHistorial = async () => {
 }
 
 // ===== GENERAR PDF =====
-/**
- * Genera el PDF del RIDE con jsPDF + autotable.
- * Envuelto en timeout para no colgar la UI si algo falla.
- */
 const generarPDFBase64 = async () => {
-  const task = (async () => {
-    const jsPDF = (await import('jspdf')).default
-    const { default: autoTable } = await import('jspdf-autotable')
-
-    const doc = new jsPDF('p', 'mm', 'a4')
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const v = props.venta
-    const c = props.cliente || {}
-
-    let y = 15
-
-    doc.setFontSize(16)
-    doc.setFont('helvetica', 'bold')
-    doc.text(v.razon_social_emisor || 'Sistema Contable', pageWidth / 2, y, { align: 'center' })
-    y += 8
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.text('Documento Electrónico', pageWidth / 2, y, { align: 'center' })
-    y += 10
-    doc.setFontSize(13)
-    doc.setFont('helvetica', 'bold')
-    doc.text((v.tipo_documento || 'FACTURA').toUpperCase(), pageWidth / 2, y, { align: 'center' })
-    y += 6
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Nº: ${v.numero_factura || 'N/A'}`, pageWidth / 2, y, { align: 'center' })
-    y += 5
-    doc.text(
-      `Fecha: ${v.fecha_emision ? new Date(v.fecha_emision).toLocaleDateString('es-EC') : ''}`,
-      pageWidth / 2, y, { align: 'center' }
-    )
-    y += 8
-
-    if (v.clave_acceso) {
-      doc.setFontSize(7)
-      doc.setFont('courier', 'bold')
-      doc.text('CLAVE DE ACCESO:', 14, y)
-      y += 4
-      doc.setFont('courier', 'normal')
-      const chunks = v.clave_acceso.match(/.{1,49}/g) || []
-      chunks.forEach((chunk) => {
-        doc.text(chunk, 14, y)
-        y += 4
-      })
-      y += 4
-    }
-
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Datos del Cliente:', 14, y)
-    y += 5
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Nombre: ${c.nombre || 'N/A'}`, 14, y); y += 4
-    doc.text(`RUC/Cédula: ${c.ruc || 'N/A'}`, 14, y); y += 4
-    doc.text(`Dirección: ${c.direccion || 'N/A'}`, 14, y); y += 8
-
-    if (Array.isArray(v.detalles) && v.detalles.length > 0) {
-      const tableData = v.detalles.map((item, idx) => [
-        idx + 1,
-        item.nombre || 'Producto',
-        item.cantidad,
-        `$${Number(item.precio_unitario || 0).toFixed(2)}`,
-        item.aplica_iva !== false ? '15%' : '0%',
-        `$${(Number(item.cantidad || 0) * Number(item.precio_unitario || 0)).toFixed(2)}`
-      ])
-      autoTable(doc, {
-        startY: y,
-        head: [['#', 'Producto', 'Cant.', 'P. Unit.', 'IVA', 'Subtotal']],
-        body: tableData,
-        theme: 'striped',
-        headStyles: { fillColor: [26, 58, 92], fontSize: 9 },
-        styles: { fontSize: 9 },
-        margin: { left: 14, right: 14 }
-      })
-      y = doc.lastAutoTable.finalY + 8
-    }
-
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.text(`Subtotal: $${Number(v.subtotal || 0).toFixed(2)}`, pageWidth - 60, y); y += 5
-    doc.text(`IVA: $${Number(v.iva || 0).toFixed(2)}`, pageWidth - 60, y); y += 6
-    doc.setFontSize(12)
-    doc.text(`TOTAL: $${Number(v.total || 0).toFixed(2)}`, pageWidth - 60, y)
-
-    return doc.output('datauristring').split(',')[1]
-  })()
+  const task = pdfService.generarRIDEBase64(props.venta, {
+    obtenerNombreProducto: props.obtenerNombreProducto
+  })
 
   return conTimeout(
     task,
@@ -445,7 +367,6 @@ const enviar = async () => {
 
   touchedEmail.value = true
 
-  // Validación de email
   const errMail = validarEmail(form.value.email)
   if (errMail) {
     errorEmail.value = errMail
@@ -486,10 +407,8 @@ const enviar = async () => {
 
     toast.success(`Comprobante enviado a ${res?.destinatario || form.value.email}`)
 
-    // Refrescar historial
     await cargarHistorial()
 
-    // Cerrar modal tras un breve delay
     setTimeout(() => {
       if (unmounted) return
       const modalEl = document.getElementById('modalEnviarEmail')
@@ -515,9 +434,17 @@ onBeforeUnmount(() => {
     abortController = null
   }
 
-  // Limpiar datos sensibles
-  form.value.mensaje = ''
+  // Limpieza de datos sensibles
+  form.value = {
+    email: '',
+    asunto: '',
+    mensaje: '',
+    incluir_pdf: true,
+    incluir_xml: true
+  }
   historial.value = []
+  error.value = ''
+  errorEmail.value = ''
 })
 </script>
 
@@ -548,7 +475,11 @@ onBeforeUnmount(() => {
   border-bottom: none;
 }
 
-.modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
+.modal-content-clean {
+  border-radius: 14px;
+  overflow: hidden;
+  border: none;
+}
 
 code {
   background: rgba(0, 0, 0, 0.05);
