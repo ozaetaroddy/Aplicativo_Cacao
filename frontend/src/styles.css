@@ -838,11 +838,6 @@ body > .modal.show ~ .modal.show {
    que deberían llegar al modal (defensa extra). */
 body:has(.modal.show) .loader-overlay {
   pointer-events: none;
-}
-
-/* Y bajamos aún más el overlay del loader cuando hay modal,
-   para que sea visualmente un "hint" y no un telón. */
-body:has(.modal.show) .loader-overlay {
   background: rgba(15, 23, 42, 0.25);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);

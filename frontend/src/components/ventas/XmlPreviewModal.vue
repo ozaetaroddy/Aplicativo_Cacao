@@ -23,13 +23,11 @@
         </div>
 
         <div class="modal-body">
-          <!-- Loading -->
           <div v-if="cargando" class="text-center py-5 text-muted">
             <i class="fas fa-spinner fa-spin fa-2x" aria-hidden="true"></i>
             <p class="mt-2 mb-0">Cargando XML…</p>
           </div>
 
-          <!-- Contenido -->
           <template v-else-if="xml">
             <div class="alert alert-info small mb-3">
               <i class="fas fa-info-circle me-2" aria-hidden="true"></i>
@@ -42,12 +40,12 @@
               </template>
             </div>
 
-            <div class="xml-viewer">
+            <!-- 🔧 FIX: ref para resetear scroll al cargar nuevo XML -->
+            <div class="xml-viewer" ref="xmlViewerRef">
               <pre>{{ xml }}</pre>
             </div>
           </template>
 
-          <!-- Sin XML -->
           <div v-else class="text-center py-5 text-muted">
             <i class="fas fa-file-excel fa-2x mb-3" aria-hidden="true"></i>
             <p class="mb-0">No hay XML disponible para este comprobante.</p>
@@ -96,7 +94,8 @@
 </template>
 
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 
@@ -108,16 +107,25 @@ const toast = useToast()
 const xml = ref('')
 const cargando = ref(false)
 const descargando = ref(false)
+const xmlViewerRef = ref(null)
 
+let modalInstance = null
 let unmounted = false
 let abortController = null
 
-/**
- * Carga el XML del comprobante. Cancela requests previas para
- * evitar race conditions si el usuario abre varios modales seguidos.
- */
+// 🔧 API pública para el padre
+const abrir = () => {
+  if (!modalInstance) {
+    const el = document.getElementById('modalXmlPreview')
+    if (!el) return
+    modalInstance = new Modal(el, { backdrop: 'static', keyboard: false })
+  }
+  modalInstance.show()
+}
+
+const cerrar = () => modalInstance?.hide()
+
 const cargar = async (venta) => {
-  // Cancelar previo
   if (abortController) {
     try { abortController.abort() } catch { /* noop */ }
   }
@@ -138,6 +146,10 @@ const cargar = async (venta) => {
     })
     if (unmounted) return
     xml.value = String(res?.xml || '')
+
+    // 🔧 FIX: resetear scroll al abrir un nuevo XML
+    await nextTick()
+    if (xmlViewerRef.value) xmlViewerRef.value.scrollTop = 0
   } catch (e) {
     const esAbort = e?.name === 'AbortError' || /aborted/i.test(e?.message || '')
     if (unmounted || esAbort) return
@@ -147,25 +159,19 @@ const cargar = async (venta) => {
   }
 }
 
-/**
- * Copia al portapapeles con fallback para contextos sin HTTPS
- * (navigator.clipboard solo existe en secure contexts).
- */
 const copiar = async () => {
   if (!xml.value) return
 
-  // 1. Intento con la API moderna
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(xml.value)
       toast.success('XML copiado al portapapeles')
       return
     } catch {
-      // cae al fallback
+      /* fallback */
     }
   }
 
-  // 2. Fallback: textarea oculto + execCommand
   try {
     const ta = document.createElement('textarea')
     ta.value = xml.value
@@ -203,17 +209,25 @@ const descargar = async () => {
   }
 }
 
-// ===== CLEANUP =====
+onMounted(() => {
+  const el = document.getElementById('modalXmlPreview')
+  if (el) {
+    modalInstance = new Modal(el, { backdrop: 'static', keyboard: false })
+  }
+})
+
 onBeforeUnmount(() => {
   unmounted = true
   if (abortController) {
     try { abortController.abort() } catch { /* noop */ }
     abortController = null
   }
+  try { modalInstance?.hide() } catch { /* noop */ }
+  modalInstance = null
   xml.value = ''
 })
 
-defineExpose({ cargar })
+defineExpose({ abrir, cerrar, cargar })
 </script>
 
 <style scoped>

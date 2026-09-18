@@ -162,7 +162,7 @@
                 </div>
               </div>
 
-              <!-- 🔧 Error con aria-live para que lectores de pantalla lo anuncien -->
+              <!-- Error con aria-live -->
               <div
                 v-if="error"
                 class="alert alert-danger mt-3"
@@ -205,7 +205,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { pdfService } from '../../services/pdfService'
@@ -240,6 +240,10 @@ const error = ref('')
 const errorEmail = ref('')
 const touchedEmail = ref(false)
 const historial = ref([])
+
+// 🔧 FIX: instancia de Bootstrap Modal para poder abrirlo
+//    programáticamente desde el padre.
+let modalInstance = null
 
 let unmounted = false
 let abortController = null
@@ -285,6 +289,27 @@ const conTimeout = (promesa, ms, mensaje) => {
     )
   })
 }
+
+// ===== API PÚBLICA (para el padre) =====
+/**
+ * Abre el modal. Se invoca desde el padre (`<EnviarEmailModal ref="..." />`).
+ * 🔧 FIX: antes el modal nunca se abría porque no existía un watcher
+ *    que lo disparara al cambiar `venta`.
+ */
+const abrir = () => {
+  if (!modalInstance) {
+    const el = document.getElementById('modalEnviarEmail')
+    if (!el) return
+    modalInstance = new Modal(el, { backdrop: 'static', keyboard: false })
+  }
+  modalInstance.show()
+}
+
+const cerrar = () => {
+  modalInstance?.hide()
+}
+
+defineExpose({ abrir, cerrar })
 
 // ===== WATCH =====
 watch(
@@ -411,10 +436,7 @@ const enviar = async () => {
 
     setTimeout(() => {
       if (unmounted) return
-      const modalEl = document.getElementById('modalEnviarEmail')
-      if (!modalEl) return
-      const modal = Modal.getInstance(modalEl) || Modal.getOrCreateInstance(modalEl)
-      modal?.hide()
+      cerrar()
     }, 1200)
   } catch (e) {
     if (unmounted) return
@@ -425,7 +447,14 @@ const enviar = async () => {
   }
 }
 
-// ===== CLEANUP =====
+// ===== LIFECYCLE =====
+onMounted(() => {
+  const el = document.getElementById('modalEnviarEmail')
+  if (el) {
+    modalInstance = new Modal(el, { backdrop: 'static', keyboard: false })
+  }
+})
+
 onBeforeUnmount(() => {
   unmounted = true
 
@@ -433,6 +462,9 @@ onBeforeUnmount(() => {
     try { abortController.abort() } catch { /* noop */ }
     abortController = null
   }
+
+  try { modalInstance?.hide() } catch { /* noop */ }
+  modalInstance = null
 
   // Limpieza de datos sensibles
   form.value = {

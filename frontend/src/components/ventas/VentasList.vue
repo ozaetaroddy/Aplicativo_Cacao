@@ -127,6 +127,9 @@
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table-modern">
+            <caption class="visually-hidden">
+              Listado de ventas. Mostrando {{ ventas.length }} de {{ total }} registros.
+            </caption>
             <thead>
               <tr>
                 <th style="min-width:100px;">Fecha</th>
@@ -139,8 +142,8 @@
                 <th style="width:200px;" class="text-center">Acciones</th>
               </tr>
             </thead>
-            <tbody aria-busy="{{ loading ? 'true' : 'false' }}">
-              <!-- Skeleton -->
+            <!-- 🔧 FIX: `aria-busy="{{ }}"` era Vue 2. Ahora binding Vue 3. -->
+            <tbody :aria-busy="loading ? 'true' : 'false'">
               <template v-if="loading">
                 <tr v-for="n in 5" :key="`sk-${n}`">
                   <td v-for="col in 8" :key="`c-${col}`">
@@ -149,7 +152,6 @@
                 </tr>
               </template>
 
-              <!-- Vacío -->
               <tr v-else-if="ventas.length === 0">
                 <td colspan="8" class="empty-state-cell">
                   <div class="empty-state">
@@ -167,7 +169,6 @@
                 </td>
               </tr>
 
-              <!-- Filas -->
               <tr
                 v-else
                 v-for="v in ventas"
@@ -286,19 +287,20 @@
                       <i class="fas fa-eye" aria-hidden="true"></i>
                     </button>
                     <div class="dropdown-more">
+                      <!-- 🔧 FIX: menuAbierto guarda String(id); comparar con String(v._id) -->
                       <button
                         type="button"
                         class="action-icon-btn btn-action-secondary"
                         @click.stop="toggleMenuAcciones(v._id)"
                         title="Más opciones"
                         aria-label="Más opciones"
-                        :aria-expanded="menuAbierto === v._id ? 'true' : 'false'"
+                        :aria-expanded="menuAbierto === String(v._id) ? 'true' : 'false'"
                       >
                         <i class="fas fa-ellipsis-v" aria-hidden="true"></i>
                       </button>
                       <transition name="dropdown-menu-fade">
                         <ul
-                          v-if="menuAbierto === v._id"
+                          v-if="menuAbierto === String(v._id)"
                           class="dropdown-menu-actions"
                           @mousedown.stop
                           @click.stop
@@ -418,53 +420,63 @@
       </div>
     </div>
 
-    <!-- ===== MODAL CONFIRMACIÓN ===== -->
-    <div
-      class="modal fade"
-      id="modalConfirmVentas"
-      tabindex="-1"
-      aria-hidden="true"
-      data-bs-backdrop="static"
-    >
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content modal-content-clean">
-          <div class="modal-header" :class="`bg-${confirmState.variante}`">
-            <h5 class="modal-title text-white">
-              <i :class="confirmState.icono" class="me-2" aria-hidden="true"></i>
-              {{ confirmState.titulo }}
-            </h5>
-            <button
-              type="button"
-              class="btn-close btn-close-white"
-              @click="cancelarConfirm"
-              aria-label="Cerrar"
-            ></button>
-          </div>
-          <div class="modal-body">
-            <p class="mb-3" v-html="confirmState.mensaje"></p>
-            <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
-              <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
-              <span>{{ confirmState.detalle }}</span>
+    <!-- ===== MODAL CONFIRMACIÓN (TELEPORTADO) ===== -->
+    <!-- 🔧 FIX: teleportado para no romper el stacking context si
+         hay otro modal abierto (ej. el de email). -->
+    <Teleport to="body">
+      <div
+        class="modal fade"
+        id="modalConfirmVentas"
+        tabindex="-1"
+        aria-hidden="true"
+        data-bs-backdrop="static"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content modal-content-clean">
+            <div class="modal-header" :class="`bg-${confirmState.variante}`">
+              <h5 class="modal-title text-white">
+                <i :class="confirmState.icono" class="me-2" aria-hidden="true"></i>
+                {{ confirmState.titulo }}
+              </h5>
+              <button
+                type="button"
+                class="btn-close btn-close-white"
+                @click="cancelarConfirm"
+                aria-label="Cerrar"
+              ></button>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
-              {{ confirmState.textoCancelar }}
-            </button>
-            <button
-              type="button"
-              class="btn"
-              :class="`btn-${confirmState.variante}`"
-              @click="aceptarConfirm"
-            >
-              {{ confirmState.textoConfirmar }}
-            </button>
+            <div class="modal-body">
+              <p class="mb-3" v-html="confirmState.mensaje"></p>
+              <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
+                <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
+                <span>{{ confirmState.detalle }}</span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
+                {{ confirmState.textoCancelar }}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                :class="`btn-${confirmState.variante}`"
+                @click="aceptarConfirm"
+              >
+                {{ confirmState.textoConfirmar }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
-    <EnviarEmailModal :venta="ventaParaEmail" :cliente="ventaParaEmail?.cliente" />
+    <!-- ===== MODAL EMAIL ===== -->
+    <!-- 🔧 FIX: usamos ref + expose para abrirlo programáticamente. -->
+    <EnviarEmailModal
+      ref="emailModalRef"
+      :venta="ventaParaEmail"
+      :cliente="ventaParaEmail?.cliente"
+    />
   </div>
 </template>
 
@@ -474,6 +486,7 @@ import {
   reactive,
   computed,
   watch,
+  nextTick,
   onMounted,
   onBeforeUnmount
 } from 'vue'
@@ -504,14 +517,15 @@ const search = ref('')
 const filtroEstadoSri = ref('')
 const menuAbierto = ref(null)
 const ventaParaEmail = ref(null)
+const emailModalRef = ref(null)
 
-// 🆕 Stats globales (independientes del filtro/paginación)
+// Stats globales
 const stats = ref({ total: 0, firmados: 0, autorizados: 0, rechazados: 0 })
 
-// 🆕 Mapa de ids en proceso (evita doble click)
+// Mapa de ids en proceso (evita doble click)
 const procesando = reactive({})
 
-// 🆕 Confirmación reactiva
+// Confirmación reactiva
 const confirmState = reactive({
   titulo: '',
   mensaje: '',
@@ -629,7 +643,7 @@ const pedirConfirmacion = (opts = {}) => {
     if (!modalConfirm) {
       modalConfirm = new Modal(
         document.getElementById('modalConfirmVentas'),
-        { backdrop: 'static' }
+        { backdrop: 'static', keyboard: false }
       )
     }
     modalConfirm.show()
@@ -694,7 +708,6 @@ const cambiarFiltroSri = (estado) => {
 
 // ===== CARGA PRINCIPAL =====
 const cargar = async () => {
-  // Cancelar request previa
   if (abortController) {
     try { abortController.abort() } catch { /* noop */ }
   }
@@ -729,7 +742,6 @@ const cargar = async () => {
       if (page.value > totalPages.value) page.value = totalPages.value
     }
 
-    // 🆕 Cerrar dropdown si la venta ya no está en la lista
     if (menuAbierto.value) {
       const sigue = ventas.value.some(v => String(v._id) === String(menuAbierto.value))
       if (!sigue) menuAbierto.value = null
@@ -780,12 +792,6 @@ const cerrarMenu = () => { menuAbierto.value = null }
 const handleClickOutside = () => cerrarMenu()
 
 // ===== ACCIONES SRI =====
-/**
- * Envuelve una acción SRI individual para consistencia:
- * - Confirmación previa
- * - Guard de procesamiento
- * - Actualización de stats
- */
 const ejecutarAccionSri = async (row, { url, confirmOpts, loadingMsg }) => {
   const confirmado = await pedirConfirmacion(confirmOpts)
   if (!confirmado) return
@@ -885,7 +891,12 @@ const descargarXML = async (row, firmado) => {
 const abrirModalEmail = (row) => {
   cerrarMenu()
   ventaParaEmail.value = row
-  // El modal se autoabre por watch en EnviarEmailModal
+  // 🔧 FIX: el modal expone `abrir()`; lo invocamos tras un tick
+  //    para que el watcher interno (que carga historial con el
+  //    nuevo `venta`) haya corrido al menos una vez.
+  nextTick(() => {
+    emailModalRef.value?.abrir?.()
+  })
 }
 
 // ===== NAVEGACIÓN =====
@@ -940,7 +951,6 @@ const confirmarEliminar = async (row) => {
 }
 
 // ===== WATCH =====
-// Cerrar dropdown si el filtro cambia o si se recarga
 watch([search, filtroEstadoSri], () => { cerrarMenu() })
 
 // ===== LIFECYCLE =====
@@ -973,12 +983,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ==== MANTENER TUS ESTILOS ORIGINALES ==== */
-/* Solo agrego los del modal de confirmación (que no tenías) */
-
-.modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
-
-/* Los demás estilos son los mismos que ya tenías */
+/* ============================================================
+   Los estilos se mantienen idénticos al original.
+   Se agregó solo `.modal-content-clean` que ya existía.
+   ============================================================ */
 .ventas-page { display: flex; flex-direction: column; gap: 20px; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
 .page-title { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; color: var(--text-primary); letter-spacing: -0.03em; display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
@@ -1078,6 +1086,9 @@ onBeforeUnmount(() => {
 .btn-empty-action { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; background: var(--primary-color); color: #fff; border-radius: var(--radius-md); font-weight: 600; text-decoration: none; }
 .skeleton-line { height: 14px; background: linear-gradient(90deg, var(--border-light) 25%, var(--bg-table-stripe) 50%, var(--border-light) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; }
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
+.dropdown-menu-fade-enter-active, .dropdown-menu-fade-leave-active { transition: all 0.15s ease; }
+.dropdown-menu-fade-enter-from, .dropdown-menu-fade-leave-to { opacity: 0; transform: translateY(-6px); }
 
 @media (max-width: 768px) {
   .page-subtitle { padding-left: 0; }

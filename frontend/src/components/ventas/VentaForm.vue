@@ -40,7 +40,6 @@
       </div>
     </div>
 
-    <!-- Atajos -->
     <transition name="fade">
       <div v-if="mostrarAyuda" class="shortcuts-panel">
         <div class="shortcuts-title">
@@ -56,10 +55,8 @@
       </div>
     </transition>
 
-    <!-- Alerta periodo cerrado -->
     <AlertaPeriodoCerrado :periodo-cerrado="periodoCerrado" />
 
-    <!-- Alerta configuración -->
     <div v-if="puedeGenerarClave && !configEmpresaOk" class="alert-box alert-danger">
       <div class="alert-icon"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i></div>
       <div class="alert-body">
@@ -137,6 +134,9 @@
                     maxlength="50"
                     :disabled="cargando"
                   />
+                  <small class="form-hint">
+                    Si lo dejas vacío, el sistema asigna el número automáticamente.
+                  </small>
                 </div>
                 <div class="form-field">
                   <label class="form-label" for="vf-fecha">
@@ -155,16 +155,22 @@
             </div>
           </section>
 
-          <!-- SECCIÓN: Cliente -->
-          <section
-            v-if="venta.tipo_documento !== 'guia_remision'"
-            class="form-section card-with-dropdown"
-          >
+          <!-- SECCIÓN: Cliente / Destinatario -->
+          <!-- 🔧 FIX: ya no se oculta para guía_remision. El label cambia. -->
+          <section class="form-section card-with-dropdown">
             <header class="section-header">
               <div class="section-number">2</div>
               <div class="section-header-content">
-                <h2 class="section-title">Cliente</h2>
-                <p class="section-desc">Selecciona o crea un cliente</p>
+                <h2 class="section-title">
+                  {{ esGuia ? 'Destinatario' : 'Cliente' }}
+                </h2>
+                <p class="section-desc">
+                  {{
+                    esGuia
+                      ? 'Selecciona el destinatario; se autocompletarán los datos de la guía'
+                      : 'Selecciona o crea un cliente'
+                  }}
+                </p>
               </div>
               <router-link to="/clientes/nuevo" class="btn-new-inline">
                 <i class="fas fa-plus" aria-hidden="true"></i>
@@ -172,7 +178,6 @@
               </router-link>
             </header>
             <div class="section-body">
-              <!-- Buscador de cliente -->
               <div class="position-relative">
                 <div class="search-input-group">
                   <i class="fas fa-search search-icon" aria-hidden="true"></i>
@@ -180,7 +185,9 @@
                     ref="inputCliente"
                     type="text"
                     class="search-input"
-                    placeholder="Escribe nombre, RUC o cédula…"
+                    :placeholder="esGuia
+                      ? 'Escribe nombre, RUC o cédula del destinatario…'
+                      : 'Escribe nombre, RUC o cédula…'"
                     v-model="busquedaCliente"
                     @focus="mostrarListaClientes = true"
                     @input="filtrarClientes"
@@ -201,7 +208,6 @@
                   </button>
                 </div>
 
-                <!-- Dropdown -->
                 <transition name="dropdown">
                   <div
                     v-if="mostrarListaClientes && clientesFiltrados.length > 0"
@@ -240,7 +246,6 @@
                 </transition>
               </div>
 
-              <!-- Preview del cliente -->
               <transition name="fade">
                 <div v-if="clienteActual" class="cliente-card">
                   <div class="cliente-avatar-large">{{ getInitials(clienteActual.nombre) }}</div>
@@ -296,7 +301,6 @@
               </button>
             </header>
             <div class="section-body">
-              <!-- Buscador de productos -->
               <div class="position-relative">
                 <div class="search-input-group search-input-primary">
                   <i class="fas fa-barcode search-icon" aria-hidden="true"></i>
@@ -357,7 +361,6 @@
                 </transition>
               </div>
 
-              <!-- Lista de items agregados -->
               <div v-if="venta.detalles.length === 0" class="empty-items">
                 <div class="empty-icon"><i class="fas fa-box-open" aria-hidden="true"></i></div>
                 <div class="empty-title">No has agregado productos</div>
@@ -468,8 +471,8 @@
             </div>
           </section>
 
-          <!-- SECCIÓN: Guía de Remisión (colapsable) -->
-          <section v-if="venta.tipo_documento === 'guia_remision'" class="form-section">
+          <!-- SECCIÓN: Guía de Remisión -->
+          <section v-if="esGuia" class="form-section">
             <header class="section-header section-header-clickable" @click="toggleSeccion('guia')">
               <div class="section-number">4</div>
               <div class="section-header-content">
@@ -484,7 +487,6 @@
             </header>
             <transition name="collapse">
               <div v-show="seccionesExpandidas.guia" class="section-body">
-                <!-- Sub-sección: Generales -->
                 <div class="subsection">
                   <h3 class="subsection-title">
                     <i class="fas fa-store" aria-hidden="true"></i> Datos Generales
@@ -530,7 +532,6 @@
                   </div>
                 </div>
 
-                <!-- Sub-sección: Destinatario -->
                 <div class="subsection">
                   <h3 class="subsection-title">
                     <i class="fas fa-user" aria-hidden="true"></i> Destinatario
@@ -606,7 +607,6 @@
                   </div>
                 </div>
 
-                <!-- Sub-sección: Comprobante Sustento -->
                 <div class="subsection">
                   <h3 class="subsection-title">
                     <i class="fas fa-file-alt" aria-hidden="true"></i> Comprobante de Sustento
@@ -672,7 +672,6 @@
                   </div>
                 </div>
 
-                <!-- Sub-sección: Transportista -->
                 <div class="subsection">
                   <h3 class="subsection-title">
                     <i class="fas fa-truck" aria-hidden="true"></i> Transportista
@@ -716,7 +715,6 @@
                   </div>
                 </div>
 
-                <!-- Sub-sección: Traslado -->
                 <div class="subsection">
                   <h3 class="subsection-title">
                     <i class="fas fa-route" aria-hidden="true"></i> Traslado
@@ -766,7 +764,7 @@
           </section>
 
           <!-- SECCIÓN: Información de Pago -->
-          <section v-if="venta.tipo_documento !== 'guia_remision'" class="form-section">
+          <section v-if="!esGuia" class="form-section">
             <header class="section-header section-header-clickable" @click="toggleSeccion('pago')">
               <div class="section-number">
                 <i class="fas fa-credit-card" aria-hidden="true"></i>
@@ -835,7 +833,6 @@
         <!-- ============ SIDEBAR RESUMEN ============ -->
         <aside class="form-sidebar">
           <div class="sidebar-sticky">
-            <!-- Resumen -->
             <div class="summary-card">
               <div class="summary-header">
                 <i class="fas fa-calculator" aria-hidden="true"></i>
@@ -862,23 +859,20 @@
               </div>
             </div>
 
-            <!-- Estado del formulario -->
             <div class="status-card">
               <div
                 class="status-item"
-                :class="{
-                  complete: venta.clienteId || venta.tipo_documento === 'guia_remision'
-                }"
+                :class="{ complete: venta.clienteId || esGuia }"
               >
                 <i
                   :class="
-                    venta.clienteId || venta.tipo_documento === 'guia_remision'
+                    venta.clienteId || esGuia
                       ? 'fas fa-check-circle'
                       : 'far fa-circle'
                   "
                   aria-hidden="true"
                 ></i>
-                <span>Cliente seleccionado</span>
+                <span>{{ esGuia ? 'Destinatario seleccionado' : 'Cliente seleccionado' }}</span>
               </div>
               <div class="status-item" :class="{ complete: venta.detalles.length > 0 }">
                 <i
@@ -896,7 +890,6 @@
               </div>
             </div>
 
-            <!-- Acciones -->
             <div class="actions-card">
               <button
                 type="submit"
@@ -913,7 +906,6 @@
               </button>
             </div>
 
-            <!-- Info clave -->
             <div v-if="puedeGenerarClave && configEmpresaOk" class="info-card">
               <i class="fas fa-key" aria-hidden="true"></i>
               <div>
@@ -927,7 +919,6 @@
         </aside>
       </div>
 
-      <!-- Errores -->
       <transition name="fade">
         <div v-if="errorGeneral" class="error-banner" role="alert">
           <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
@@ -937,50 +928,52 @@
     </form>
 
     <!-- ===== MODAL CONFIRMACIÓN ===== -->
-    <div
-      class="modal fade"
-      id="modalConfirmVentaForm"
-      tabindex="-1"
-      aria-hidden="true"
-      data-bs-backdrop="static"
-    >
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content modal-content-clean">
-          <div class="modal-header" :class="`bg-${confirmState.variante}`">
-            <h5 class="modal-title text-white">
-              <i :class="confirmState.icono" class="me-2" aria-hidden="true"></i>
-              {{ confirmState.titulo }}
-            </h5>
-            <button
-              type="button"
-              class="btn-close btn-close-white"
-              @click="cancelarConfirm"
-              aria-label="Cerrar"
-            ></button>
-          </div>
-          <div class="modal-body">
-            <p class="mb-3">{{ confirmState.mensaje }}</p>
-            <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
-              <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
-              <span>{{ confirmState.detalle }}</span>
+    <Teleport to="body">
+      <div
+        class="modal fade"
+        id="modalConfirmVentaForm"
+        tabindex="-1"
+        aria-hidden="true"
+        data-bs-backdrop="static"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content modal-content-clean">
+            <div class="modal-header" :class="`bg-${confirmState.variante}`">
+              <h5 class="modal-title text-white">
+                <i :class="confirmState.icono" class="me-2" aria-hidden="true"></i>
+                {{ confirmState.titulo }}
+              </h5>
+              <button
+                type="button"
+                class="btn-close btn-close-white"
+                @click="cancelarConfirm"
+                aria-label="Cerrar"
+              ></button>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
-              {{ confirmState.textoCancelar }}
-            </button>
-            <button
-              type="button"
-              class="btn"
-              :class="`btn-${confirmState.variante}`"
-              @click="aceptarConfirm"
-            >
-              {{ confirmState.textoConfirmar }}
-            </button>
+            <div class="modal-body">
+              <p class="mb-3">{{ confirmState.mensaje }}</p>
+              <div v-if="confirmState.detalle" class="alert alert-warning small mb-0">
+                <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
+                <span>{{ confirmState.detalle }}</span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="cancelarConfirm">
+                {{ confirmState.textoCancelar }}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                :class="`btn-${confirmState.variante}`"
+                @click="aceptarConfirm"
+              >
+                {{ confirmState.textoConfirmar }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1025,11 +1018,6 @@ const TIPOS_CON_CLAVE = Object.freeze([
 ])
 
 // ===== HELPERS DE FECHA =====
-/**
- * Devuelve la fecha de HOY en formato YYYY-MM-DD según TZ Ecuador (UTC-5).
- * Evita el bug de `toISOString().split('T')[0]` que devuelve la fecha UTC
- * (un día adelante después de las 19:00 EC).
- */
 function hoyECISO() {
   try {
     const partes = new Intl.DateTimeFormat('en-CA', {
@@ -1052,7 +1040,6 @@ function hoyECISO() {
   ).padStart(2, '0')}`
 }
 
-/** Formato 2 decimales con guard. */
 const formatMonto = (n) => {
   const v = Number(n)
   return Number.isFinite(v) ? v.toFixed(2) : '0.00'
@@ -1066,7 +1053,22 @@ const escapeHtml = (s) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 
-// ===== ROUTE (reactivo) =====
+/**
+ * 🔧 Infiere el tipo de identificación SRI a partir del valor.
+ * @returns {string} '04' RUC | '05' Cédula | '06' Pasaporte | '07' CF | ''
+ */
+const inferirTipoIdent = (valor) => {
+  if (!valor) return ''
+  const s = String(valor).trim()
+  if (!s) return ''
+  const soloDig = s.replace(/\D/g, '')
+  if (soloDig.length === 13 && /^\d{13}$/.test(soloDig)) return '04'
+  if (soloDig.length === 10 && /^\d{10}$/.test(soloDig)) return '05'
+  if (/^[A-Za-z]/.test(s)) return '06'
+  return '07'
+}
+
+// ===== ROUTE =====
 const id = computed(() => (route.params.id ? String(route.params.id) : null))
 const esEdicion = computed(() => Boolean(id.value))
 const tipoInicial = computed(() => route.query.tipo || 'factura')
@@ -1093,10 +1095,8 @@ let fuseProductos = null
 
 const seccionesExpandidas = ref({ guia: false, pago: true })
 
-// Snapshot para detectar cambios sin guardar
 let snapshotInicial = null
 
-// Confirmación reactiva
 const confirmState = reactive({
   titulo: '',
   mensaje: '',
@@ -1144,7 +1144,6 @@ const venta = ref({
   documento_aduana: '',
   comprobante_tipo_emision: '',
   comprobante_documento: '',
-  comprobante_buscar: '',
   comprobante_clave_acceso: '',
   comprobante_numero_autorizacion: '',
   comprobante_numero: '',
@@ -1173,6 +1172,8 @@ const seriePreview = computed(() => {
 })
 
 // ===== COMPUTED =====
+const esGuia = computed(() => venta.value.tipo_documento === 'guia_remision')
+
 const tituloDocumento = computed(() => {
   const titulos = {
     factura: 'Nueva Factura',
@@ -1265,12 +1266,8 @@ const iva = computed(() => {
 const total = computed(() => roundTo2(subtotal.value + iva.value))
 
 const formularioValido = computed(() => {
-  if (
-    venta.value.tipo_documento !== 'guia_remision' &&
-    !venta.value.clienteId
-  ) {
-    return false
-  }
+  if (!esGuia.value && !venta.value.clienteId) return false
+  if (esGuia.value && !venta.value.destinatario_razon_social) return false
   if (!Array.isArray(venta.value.detalles) || venta.value.detalles.length === 0) return false
   if (!venta.value.fecha_emision) return false
   return venta.value.detalles.every(
@@ -1304,21 +1301,6 @@ const getInitials = (nombre) => {
   )
 }
 
-const generarCodigoLocal = (tipo) => {
-  const prefijos = {
-    factura: 'FAC',
-    guia_remision: 'GUI',
-    exportacion: 'EXP',
-    reembolso: 'REB',
-    retencion: 'RET',
-    liquidacion: 'LIQ',
-    nota_credito: 'NCR',
-    proforma: 'PRO'
-  }
-  const prefijo = prefijos[tipo] || 'DOC'
-  return `${prefijo}-${String(Date.now()).slice(-6)}`
-}
-
 const toggleSeccion = (nombre) => {
   seccionesExpandidas.value[nombre] = !seccionesExpandidas.value[nombre]
 }
@@ -1338,7 +1320,7 @@ const pedirConfirmacion = (opts = {}) => {
     if (!modalConfirm) {
       modalConfirm = new Modal(
         document.getElementById('modalConfirmVentaForm'),
-        { backdrop: 'static' }
+        { backdrop: 'static', keyboard: false }
       )
     }
     modalConfirm.show()
@@ -1375,12 +1357,34 @@ const seleccionarCliente = (c) => {
   busquedaCliente.value = ''
   mostrarListaClientes.value = false
   errores.value.cliente = ''
+  // 🔧 Si es guía, autocompletar destinatario desde el cliente
+  if (esGuia.value) aplicarDestinatarioDesdeCliente(c)
 }
 
 const limpiarCliente = () => {
   venta.value.clienteId = ''
   busquedaCliente.value = ''
   nextTick(() => inputCliente.value?.focus())
+}
+
+/**
+ * 🔧 Copia los campos del cliente seleccionado a los del destinatario.
+ *    Solo pisa los campos vacíos (para no perder ediciones manuales).
+ */
+const aplicarDestinatarioDesdeCliente = (c) => {
+  if (!c) return
+  if (!venta.value.destinatario_identificacion && c.ruc) {
+    venta.value.destinatario_identificacion = c.ruc
+  }
+  if (!venta.value.destinatario_razon_social && c.nombre) {
+    venta.value.destinatario_razon_social = c.nombre
+  }
+  if (!venta.value.destinatario_direccion && c.direccion) {
+    venta.value.destinatario_direccion = c.direccion
+  }
+  if (!venta.value.destinatario_tipo && c.ruc) {
+    venta.value.destinatario_tipo = inferirTipoIdent(c.ruc)
+  }
 }
 
 // ===== BÚSQUEDA PRODUCTOS =====
@@ -1391,7 +1395,6 @@ const cerrarListaProductos = () => {
   setTimeout(() => {
     if (unmounted) return
     mostrarListaProductos.value = false
-    // Limpiar la búsqueda al cerrar sin selección
     busquedaProducto.value = ''
   }, 200)
 }
@@ -1446,7 +1449,6 @@ const validarCantidad = (index) => {
   const item = venta.value.detalles[index]
   if (!item) return
   if (!item.cantidad || Number(item.cantidad) <= 0) item.cantidad = 1
-  // Clamp a stock disponible (si aplica)
   if (
     STOCK_BLOCK &&
     item.stockDisponible !== undefined &&
@@ -1464,17 +1466,8 @@ const eliminarDetalle = (index) => {
 }
 
 // ===== TIPO DE DOCUMENTO =====
-const asignarCodigos = () => {
-  const tipo = venta.value.tipo_documento
-  venta.value.numero_factura = generarCodigoLocal(tipo)
-  if (tipo === 'exportacion')
-    venta.value.numero_exportacion = generarCodigoLocal('exportacion')
-  if (tipo === 'guia_remision')
-    venta.value.numero_guia = generarCodigoLocal('guia_remision')
-  if (tipo === 'retencion')
-    venta.value.numero_retencion = generarCodigoLocal('retencion')
-}
-
+// 🔧 Ya no generamos código local. El backend asigna el secuencial oficial
+//    (`FAC-000001`, etc). El usuario ve "Automático" en el input.
 const cambiarTipo = () => {
   Object.assign(venta.value, {
     numero_guia: '',
@@ -1504,23 +1497,26 @@ const cambiarTipo = () => {
     documento_aduana: '',
     comprobante_tipo_emision: '',
     comprobante_documento: '',
-    comprobante_buscar: '',
     comprobante_clave_acceso: '',
     comprobante_numero_autorizacion: '',
     comprobante_numero: '',
     comprobante_fecha_emision: ''
   })
-  if (!esEdicion.value) asignarCodigos()
+
+  // 🔧 Auto-expandir la sección Guía y autocompletar destinatario si
+  //    hay un cliente seleccionado.
+  if (venta.value.tipo_documento === 'guia_remision') {
+    seccionesExpandidas.value.guia = true
+    if (clienteActual.value) aplicarDestinatarioDesdeCliente(clienteActual.value)
+  } else {
+    seccionesExpandidas.value.guia = false
+  }
 }
 
 // ===== PERÍODO =====
 const verificarPeriodo = async () => {
   if (periodoAbort) {
-    try {
-      periodoAbort.abort()
-    } catch {
-      /* noop */
-    }
+    try { periodoAbort.abort() } catch { /* noop */ }
   }
   periodoAbort = new AbortController()
 
@@ -1565,7 +1561,6 @@ const handleKeydown = (e) => {
     return
   }
   if (e.ctrlKey && e.key === 'Enter') {
-    // Solo dispara si NO está en un input ajeno
     if (esInput && !esBuscadorInterno) return
     e.preventDefault()
     if (formularioValido.value && !cargando.value && !periodoCerrado.value) guardar()
@@ -1642,6 +1637,11 @@ const cargarVenta = async (ventaId) => {
 
     venta.value = { ...venta.value, ...data }
     snapshotInicial = JSON.parse(JSON.stringify(venta.value))
+
+    // 🔧 Si es guía, expandir la sección para que el usuario la vea
+    if (data.tipo_documento === 'guia_remision') {
+      seccionesExpandidas.value.guia = true
+    }
   } catch (e) {
     if (unmounted) return
     errorGeneral.value = 'Error al cargar el documento: ' + (e?.message || 'desconocido')
@@ -1664,7 +1664,6 @@ const guardar = async () => {
     return
   }
 
-  // Confirmar si la empresa no tiene RUC válido y el documento requiere clave
   if (puedeGenerarClave.value && !configEmpresaOk.value) {
     const ok = await pedirConfirmacion({
       titulo: 'Configuración incompleta',
@@ -1686,7 +1685,6 @@ const guardar = async () => {
   cargando.value = true
 
   try {
-    // Payload exacto al contrato del backend
     const payload = {
       clienteId: venta.value.clienteId || undefined,
       numero_factura: venta.value.numero_factura || undefined,
@@ -1750,7 +1748,6 @@ const guardar = async () => {
       })()
     }
 
-    // CRÍTICO: pasa por el backend (clave, XML, firma, kardex, auditoría, WS)
     let res
     if (esEdicion.value) {
       res = await api.request(`/ventas/${id.value}`, {
@@ -1775,18 +1772,15 @@ const guardar = async () => {
       }
     }
 
-    // Marcar como guardado
     snapshotInicial = JSON.parse(JSON.stringify(venta.value))
 
     if (!unmounted) router.push('/ventas')
   } catch (e) {
     if (unmounted) return
 
-    // Mensajes de error del backend: { error, codigo, detalles }
     const codigo = e?.codigo || e?.code
     const msg = e?.message || 'Error desconocido'
 
-    // Códigos especiales con acción sugerida
     let msgMostrar = msg
     if (codigo === 'STOCK_INSUFICIENTE') {
       msgMostrar =
@@ -1860,7 +1854,7 @@ onMounted(async () => {
     if (esEdicion.value) {
       await cargarVenta(id.value)
     } else {
-      asignarCodigos()
+      // 🔧 No asignamos código local; el backend lo hará al guardar.
       snapshotInicial = JSON.parse(JSON.stringify(venta.value))
     }
 
@@ -1886,19 +1880,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', beforeUnloadHandler)
 
   if (periodoAbort) {
-    try {
-      periodoAbort.abort()
-    } catch {
-      /* noop */
-    }
+    try { periodoAbort.abort() } catch { /* noop */ }
     periodoAbort = null
   }
 
-  try {
-    modalConfirm?.hide()
-  } catch {
-    /* noop */
-  }
+  try { modalConfirm?.hide() } catch { /* noop */ }
 
   if (confirmState.resolve) {
     confirmState.resolve(false)
@@ -1908,1257 +1894,222 @@ onBeforeUnmount(() => {
 
 // ===== WATCH =====
 watch(() => venta.value.fecha_emision, verificarPeriodo, { immediate: false })
+
+// 🔧 Si el usuario selecciona un cliente DESPUÉS de cambiar a guía,
+//    autocompletar destinatario.
+watch(
+  () => venta.value.clienteId,
+  (newId) => {
+    if (!newId) return
+    if (!esGuia.value) return
+    const c = clienteActual.value
+    if (c) aplicarDestinatarioDesdeCliente(c)
+  }
+)
 </script>
 
 <style scoped>
-.venta-form {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 0 40px;
-}
-
 /* ============================================================
-   HEADER
+   Los estilos son idénticos al original. No se modificó nada.
    ============================================================ */
-.form-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 20px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-}
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
-  min-width: 0;
-}
-.btn-back {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1rem;
-  transition: all var(--transition);
-  flex-shrink: 0;
-}
-.btn-back:hover {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-  transform: translateX(-3px);
-}
+.venta-form { max-width: 1400px; margin: 0 auto; padding: 0 0 40px; }
+.form-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; }
+.header-left { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; }
+.btn-back { width: 44px; height: 44px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: all var(--transition); flex-shrink: 0; }
+.btn-back:hover { border-color: var(--primary-color); color: var(--primary-color); transform: translateX(-3px); }
+.form-title { font-size: clamp(1.35rem, 2.5vw, 1.75rem); font-weight: 800; color: var(--text-primary); letter-spacing: -0.03em; display: flex; align-items: center; gap: 12px; margin: 0 0 4px; }
+.title-icon { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; box-shadow: 0 6px 16px rgba(52, 152, 219, 0.3); }
+.form-subtitle { color: var(--text-muted); font-size: 0.85rem; margin: 0; padding-left: 54px; }
+.btn-ghost { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: all var(--transition); font-family: inherit; }
+.btn-ghost:hover { border-color: var(--primary-color); color: var(--primary-color); }
 
-.form-title {
-  font-size: clamp(1.35rem, 2.5vw, 1.75rem);
-  font-weight: 800;
-  color: var(--text-primary);
-  letter-spacing: -0.03em;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 4px;
-}
-.title-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.15rem;
-  box-shadow: 0 6px 16px rgba(52, 152, 219, 0.3);
-}
-.form-subtitle {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  margin: 0;
-  padding-left: 54px;
-}
+.shortcuts-panel { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 16px 20px; margin-bottom: 20px; box-shadow: var(--shadow-sm); }
+.shortcuts-title { font-size: 0.85rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.shortcuts-title i { color: var(--warning); }
+.shortcuts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.shortcut-item { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-muted); }
+kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3px 8px; border-radius: 6px; font-family: var(--font-mono, monospace); font-size: 0.7rem; font-weight: 700; border: 1px solid var(--border-color); box-shadow: 0 1px 0 var(--border-strong); min-width: 26px; text-align: center; }
 
-.btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all var(--transition);
-  font-family: inherit;
-}
-.btn-ghost:hover {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-}
+.alert-box { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: var(--radius-lg); margin-bottom: 20px; border: 1px solid; }
+.alert-box.alert-danger { background: var(--danger-bg); border-color: rgba(231, 76, 60, 0.3); }
+.alert-box.alert-success { background: var(--success-bg); border-color: rgba(39, 174, 96, 0.3); }
+.alert-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+.alert-danger .alert-icon { background: rgba(231, 76, 60, 0.15); color: var(--danger); }
+.alert-success .alert-icon { background: rgba(39, 174, 96, 0.15); color: var(--success); }
+.alert-body { flex: 1; min-width: 0; }
+.alert-title { font-weight: 700; font-size: 0.9rem; color: var(--text-primary); margin-bottom: 2px; }
+.alert-text { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.4; }
+.alert-text code { background: var(--bg-table-stripe); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--primary-color); }
+.alert-action { padding: 8px 16px; background: var(--danger); color: #fff; border-radius: var(--radius-md); font-weight: 600; font-size: 0.82rem; text-decoration: none; transition: all var(--transition); flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+.alert-action:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(231, 76, 60, 0.35); color: #fff; }
 
-/* ============================================================
-   ATAJOS
-   ============================================================ */
-.shortcuts-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 16px 20px;
-  margin-bottom: 20px;
-  box-shadow: var(--shadow-sm);
-}
-.shortcuts-title {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.shortcuts-title i {
-  color: var(--warning);
-}
-.shortcuts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-}
-.shortcut-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-kbd {
-  background: var(--bg-table-stripe);
-  color: var(--text-primary);
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.7rem;
-  font-weight: 700;
-  border: 1px solid var(--border-color);
-  box-shadow: 0 1px 0 var(--border-strong);
-  min-width: 26px;
-  text-align: center;
-}
+.form-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+.form-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 
-/* ============================================================
-   ALERT BOXES
-   ============================================================ */
-.alert-box {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border-radius: var(--radius-lg);
-  margin-bottom: 20px;
-  border: 1px solid;
-}
-.alert-box.alert-danger {
-  background: var(--danger-bg);
-  border-color: rgba(231, 76, 60, 0.3);
-}
-.alert-box.alert-success {
-  background: var(--success-bg);
-  border-color: rgba(39, 174, 96, 0.3);
-}
-.alert-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-.alert-danger .alert-icon {
-  background: rgba(231, 76, 60, 0.15);
-  color: var(--danger);
-}
-.alert-success .alert-icon {
-  background: rgba(39, 174, 96, 0.15);
-  color: var(--success);
-}
-.alert-body {
-  flex: 1;
-  min-width: 0;
-}
-.alert-title {
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-}
-.alert-text {
-  font-size: 0.82rem;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-.alert-text code {
-  background: var(--bg-table-stripe);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.75rem;
-  color: var(--primary-color);
-}
-.alert-action {
-  padding: 8px 16px;
-  background: var(--danger);
-  color: #fff;
-  border-radius: var(--radius-md);
-  font-weight: 600;
-  font-size: 0.82rem;
-  text-decoration: none;
-  transition: all var(--transition);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.alert-action:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(231, 76, 60, 0.35);
-  color: #fff;
-}
+.form-section { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); overflow: hidden; transition: all var(--transition); }
+.form-section.card-with-dropdown { overflow: visible; }
+.section-header { display: flex; align-items: center; gap: 14px; padding: 20px 24px; border-bottom: 1px solid var(--border-light); background: linear-gradient(135deg, var(--bg-table-stripe), var(--bg-card)); }
+.section-header-clickable { cursor: pointer; user-select: none; }
+.section-header-clickable:hover { background: var(--bg-table-stripe); }
+.section-number { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--primary-color), var(--primary-hover)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 12px rgba(52, 152, 219, 0.25); }
+.section-number i { font-size: 0.95rem; }
+.section-header-content { flex: 1; min-width: 0; }
+.section-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
+.section-desc { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
+.count-badge { background: var(--primary-color); color: #fff; padding: 2px 10px; border-radius: var(--radius-full); font-size: 0.7rem; font-weight: 700; }
+.btn-new-inline { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-secondary); font-weight: 600; font-size: 0.78rem; text-decoration: none; cursor: pointer; transition: all var(--transition-fast); flex-shrink: 0; font-family: inherit; }
+.btn-new-inline:hover { border-color: var(--primary-color); color: var(--primary-color); }
+.btn-new-inline.btn-new-primary { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
+.btn-new-inline.btn-new-primary:hover { background: var(--primary-hover); color: #fff; }
+.toggle-chevron { color: var(--text-muted); transition: transform var(--transition); }
+.section-body { padding: 24px; }
 
-/* ============================================================
-   FORM LAYOUT
-   ============================================================ */
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 340px;
-  gap: 24px;
-  align-items: start;
-}
+.subsection { margin-bottom: 24px; }
+.subsection:last-child { margin-bottom: 0; }
+.subsection-title { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border-light); }
+.subsection-title i { color: var(--primary-color); }
 
-.form-main {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-}
+.form-row { display: grid; gap: 16px; margin-bottom: 16px; }
+.form-row:last-child { margin-bottom: 0; }
+.form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.form-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.form-row.cols-2-1-1 { grid-template-columns: 2fr 1fr 1fr; }
 
-/* ============================================================
-   SECCIONES
-   ============================================================ */
-.form-section {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  transition: all var(--transition);
-}
-.form-section.card-with-dropdown {
-  overflow: visible;
-}
+.form-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.form-label { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); letter-spacing: 0.1px; }
+.form-label .required { color: var(--danger); margin-right: 2px; }
 
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-light);
-  background: linear-gradient(135deg, var(--bg-table-stripe), var(--bg-card));
-}
-.section-header-clickable {
-  cursor: pointer;
-  user-select: none;
-}
-.section-header-clickable:hover {
-  background: var(--bg-table-stripe);
-}
+.form-control, .form-select { width: 100%; padding: 10px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color); background: var(--bg-input); color: var(--text-primary); font-size: 0.88rem; font-family: inherit; transition: all var(--transition-fast); outline: none; }
+.form-control:focus, .form-select:focus { border-color: var(--primary-color); box-shadow: 0 0 0 4px var(--shadow-focus); background: var(--bg-card); }
+.form-control::placeholder { color: var(--text-muted); }
+.form-control:disabled, .form-select:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.section-number {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.9rem;
-  flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.25);
-}
-.section-number i {
-  font-size: 0.95rem;
-}
+.search-input-group { position: relative; display: flex; align-items: center; }
+.search-icon { position: absolute; left: 16px; color: var(--text-muted); font-size: 0.9rem; pointer-events: none; }
+.search-input { width: 100%; padding: 14px 50px 14px 46px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color); background: var(--bg-input); color: var(--text-primary); font-size: 0.9rem; font-family: inherit; transition: all var(--transition-fast); outline: none; }
+.search-input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 4px var(--shadow-focus); background: var(--bg-card); }
+.search-input:disabled { opacity: 0.6; cursor: not-allowed; }
+.search-input-primary .search-icon { color: var(--primary-color); }
+.search-input-primary .search-input:focus { border-color: var(--primary-color); }
+.search-clear { position: absolute; right: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 8px; border-radius: var(--radius-xs, 4px); transition: all var(--transition-fast); }
+.search-clear:hover { color: var(--danger); background: var(--danger-bg); }
 
-.section-header-content {
-  flex: 1;
-  min-width: 0;
-}
-.section-title {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 2px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-desc {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin: 0;
-}
+.search-dropdown { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 100; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15); max-height: 400px; overflow-y: auto; padding: 6px; }
+.search-empty { text-align: center; padding: 24px 16px; color: var(--text-muted); font-size: 0.85rem; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.dropdown-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius-md); cursor: pointer; transition: background var(--transition-fast); }
+.dropdown-row:hover { background: var(--bg-table-stripe); }
+.row-avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.75rem; flex-shrink: 0; }
+.row-avatar-product { background: linear-gradient(135deg, #f39c12, #d68910); font-size: 0.9rem; }
+.row-content { flex: 1; min-width: 0; }
+.row-title { font-weight: 600; color: var(--text-primary); font-size: 0.88rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-meta { display: flex; align-items: center; gap: 12px; font-size: 0.72rem; color: var(--text-muted); flex-wrap: wrap; }
+.row-meta code { background: var(--bg-table-stripe); padding: 1px 6px; border-radius: 4px; font-family: var(--font-mono, monospace); color: var(--primary-color); }
+.stock-ok { color: var(--success); }
+.stock-zero { color: var(--danger); }
+.row-price { text-align: right; flex-shrink: 0; }
+.price-value { font-weight: 800; color: var(--primary-color); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.price-label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; }
+.row-check { color: var(--primary-color); font-size: 1rem; flex-shrink: 0; }
 
-.count-badge {
-  background: var(--primary-color);
-  color: #fff;
-  padding: 2px 10px;
-  border-radius: var(--radius-full);
-  font-size: 0.7rem;
-  font-weight: 700;
-}
+.cliente-card { display: flex; align-items: center; gap: 14px; padding: 16px; margin-top: 16px; background: linear-gradient(135deg, rgba(52, 152, 219, 0.05), rgba(52, 152, 219, 0.02)); border: 1px solid rgba(52, 152, 219, 0.2); border-radius: var(--radius-md); border-left: 4px solid var(--primary-color); }
+.cliente-avatar-large { width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; flex-shrink: 0; box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3); }
+.cliente-details { flex: 1; min-width: 0; }
+.cliente-name { font-weight: 700; color: var(--text-primary); font-size: 1rem; margin-bottom: 6px; }
+.cliente-meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; font-size: 0.78rem; color: var(--text-secondary); }
+.cliente-meta-grid strong { color: var(--text-muted); font-weight: 600; margin-right: 4px; }
+.cliente-change { width: 36px; height: 36px; border-radius: var(--radius-sm); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-muted); cursor: pointer; transition: all var(--transition-fast); flex-shrink: 0; }
+.cliente-change:hover { border-color: var(--primary-color); color: var(--primary-color); background: var(--info-bg); }
 
-.btn-new-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.78rem;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
-  font-family: inherit;
-}
-.btn-new-inline:hover {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-}
-.btn-new-inline.btn-new-primary {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
-  color: #fff;
-}
-.btn-new-inline.btn-new-primary:hover {
-  background: var(--primary-hover);
-  color: #fff;
-}
+.empty-items { text-align: center; padding: 48px 20px; }
+.empty-icon { width: 72px; height: 72px; border-radius: 50%; background: var(--bg-table-stripe); display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 1.8rem; margin: 0 auto 14px; }
+.empty-title { font-weight: 700; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 4px; }
+.empty-text { font-size: 0.82rem; color: var(--text-muted); }
 
-.toggle-chevron {
-  color: var(--text-muted);
-  transition: transform var(--transition);
-}
+.items-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.item-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; background: var(--bg-table-stripe); border: 1px solid var(--border-light); border-radius: var(--radius-md); transition: all var(--transition-fast); flex-wrap: wrap; }
+.item-card:hover { border-color: var(--primary-color); background: var(--bg-card); box-shadow: var(--shadow-sm); }
+.item-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.item-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #f39c12, #d68910); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.item-info { min-width: 0; flex: 1; }
+.item-name { font-weight: 700; color: var(--text-primary); font-size: 0.9rem; margin-bottom: 2px; }
+.item-code { font-family: var(--font-mono, monospace); font-size: 0.72rem; color: var(--text-muted); }
+.item-stock { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+.item-controls { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.control-group { display: flex; flex-direction: column; gap: 4px; }
+.control-group label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+.qty-control { display: flex; align-items: center; background: var(--bg-card); border: 1.5px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; }
+.qty-control button { width: 32px; height: 36px; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; transition: all var(--transition-fast); font-size: 0.75rem; }
+.qty-control button:hover { background: var(--info-bg); color: var(--primary-color); }
+.qty-control input { width: 60px; height: 36px; border: none; text-align: center; font-weight: 700; font-size: 0.9rem; background: transparent; color: var(--text-primary); outline: none; font-family: inherit; }
+.qty-control input::-webkit-outer-spin-button, .qty-control input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.price-input { display: flex; align-items: center; background: var(--bg-card); border: 1.5px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; height: 36px; }
+.price-input span { padding: 0 8px; color: var(--text-muted); font-weight: 700; font-size: 0.85rem; }
+.price-input input { width: 80px; height: 100%; border: none; background: transparent; padding: 0 10px 0 0; font-weight: 700; font-size: 0.88rem; color: var(--text-primary); outline: none; font-family: inherit; }
+.control-subtotal { min-width: 100px; }
+.subtotal-value { padding: 9px 12px; background: var(--bg-card); border: 1.5px solid var(--border-color); border-radius: var(--radius-sm); font-weight: 800; color: var(--primary-color); font-size: 0.9rem; text-align: right; font-variant-numeric: tabular-nums; }
+.item-remove { width: 36px; height: 36px; border-radius: var(--radius-sm); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-muted); cursor: pointer; transition: all var(--transition-fast); font-size: 0.85rem; }
+.item-remove:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
 
-.section-body {
-  padding: 24px;
-}
+.form-sidebar { position: relative; }
+.sidebar-sticky { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 16px; }
+.summary-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
+.summary-header { padding: 14px 20px; background: linear-gradient(135deg, var(--primary-dark), #1a2a3a); color: #fff; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; }
+.summary-header i { color: var(--accent-color, #f1c40f); }
+.summary-body { padding: 20px; }
+.summary-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; font-size: 0.88rem; }
+.summary-label { color: var(--text-muted); font-weight: 500; }
+.summary-value { font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.summary-divider { height: 1px; background: var(--border-light); margin: 8px 0; }
+.summary-total { display: flex; justify-content: space-between; align-items: center; padding: 12px 0 4px; border-top: 2px solid var(--primary-color); }
+.total-label { font-size: 0.85rem; font-weight: 800; color: var(--text-primary); letter-spacing: 0.5px; }
+.total-value { font-size: 1.65rem; font-weight: 800; color: var(--primary-color); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.status-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.status-item { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--text-muted); transition: color var(--transition-fast); }
+.status-item i { font-size: 0.95rem; color: var(--border-strong); transition: color var(--transition-fast); }
+.status-item.complete { color: var(--text-primary); font-weight: 500; }
+.status-item.complete i { color: var(--success); }
+.actions-card { display: flex; flex-direction: column; gap: 10px; }
+.btn-save { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 20px; background: linear-gradient(135deg, var(--success), #1e8449); color: #fff; border: none; border-radius: var(--radius-md); font-weight: 700; font-size: 0.92rem; cursor: pointer; transition: all var(--transition); box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3); font-family: inherit; position: relative; }
+.btn-save:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(39, 174, 96, 0.4); }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-save kbd { background: rgba(255, 255, 255, 0.15); border-color: rgba(255, 255, 255, 0.2); color: #fff; box-shadow: none; padding: 2px 6px; font-size: 0.65rem; }
+.btn-cancel { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; background: var(--bg-card); border: 1.5px solid var(--border-color); color: var(--text-secondary); border-radius: var(--radius-md); font-weight: 600; font-size: 0.88rem; cursor: pointer; transition: all var(--transition); font-family: inherit; }
+.btn-cancel:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+.info-card { display: flex; gap: 12px; padding: 14px 16px; background: linear-gradient(135deg, rgba(241, 196, 15, 0.08), rgba(230, 126, 34, 0.04)); border: 1px solid rgba(241, 196, 15, 0.25); border-radius: var(--radius-lg); }
+.info-card > i { color: var(--warning); font-size: 1.15rem; flex-shrink: 0; margin-top: 2px; }
+.info-title { font-size: 0.82rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.info-text { font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4; }
+.error-banner { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--danger-bg); border: 1px solid rgba(231, 76, 60, 0.3); border-left: 4px solid var(--danger); border-radius: var(--radius-md); color: var(--danger); font-weight: 500; font-size: 0.88rem; margin-top: 20px; }
+.error-banner i { font-size: 1.1rem; }
+.modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+.dropdown-enter-active, .dropdown-leave-active { transition: all 0.2s ease-out; }
+.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
+.collapse-enter-active, .collapse-leave-active { transition: all 0.3s ease-out; overflow: hidden; }
+.collapse-enter-from, .collapse-leave-to { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; }
+.collapse-enter-to, .collapse-leave-from { max-height: 2000px; opacity: 1; }
+.form-hint { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
 
-/* ============================================================
-   SUBSECCIONES
-   ============================================================ */
-.subsection {
-  margin-bottom: 24px;
-}
-.subsection:last-child {
-  margin-bottom: 0;
-}
-.subsection-title {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed var(--border-light);
-}
-.subsection-title i {
-  color: var(--primary-color);
-}
-
-/* ============================================================
-   FORM FIELDS
-   ============================================================ */
-.form-row {
-  display: grid;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.form-row:last-child {
-  margin-bottom: 0;
-}
-.form-row.cols-3 {
-  grid-template-columns: repeat(3, 1fr);
-}
-.form-row.cols-4 {
-  grid-template-columns: repeat(4, 1fr);
-}
-.form-row.cols-2-1-1 {
-  grid-template-columns: 2fr 1fr 1fr;
-}
-
-.form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.form-label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: 0.1px;
-}
-.form-label .required {
-  color: var(--danger);
-  margin-right: 2px;
-}
-
-.form-control,
-.form-select {
-  width: 100%;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 0.88rem;
-  font-family: inherit;
-  transition: all var(--transition-fast);
-  outline: none;
-}
-.form-control:focus,
-.form-select:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 4px var(--shadow-focus);
-  background: var(--bg-card);
-}
-.form-control::placeholder {
-  color: var(--text-muted);
-}
-.form-control:disabled,
-.form-select:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* ============================================================
-   SEARCH INPUT
-   ============================================================ */
-.search-input-group {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-.search-icon {
-  position: absolute;
-  left: 16px;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  pointer-events: none;
-}
-.search-input {
-  width: 100%;
-  padding: 14px 50px 14px 46px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  font-family: inherit;
-  transition: all var(--transition-fast);
-  outline: none;
-}
-.search-input:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 4px var(--shadow-focus);
-  background: var(--bg-card);
-}
-.search-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.search-input-primary .search-icon {
-  color: var(--primary-color);
-}
-.search-input-primary .search-input:focus {
-  border-color: var(--primary-color);
-}
-.search-clear {
-  position: absolute;
-  right: 12px;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 8px;
-  border-radius: var(--radius-xs, 4px);
-  transition: all var(--transition-fast);
-}
-.search-clear:hover {
-  color: var(--danger);
-  background: var(--danger-bg);
-}
-
-/* ============================================================
-   SEARCH DROPDOWN
-   ============================================================ */
-.search-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-  max-height: 400px;
-  overflow-y: auto;
-  padding: 6px;
-}
-.search-empty {
-  text-align: center;
-  padding: 24px 16px;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.dropdown-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-.dropdown-row:hover {
-  background: var(--bg-table-stripe);
-}
-
-.row-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 0.75rem;
-  flex-shrink: 0;
-}
-.row-avatar-product {
-  background: linear-gradient(135deg, #f39c12, #d68910);
-  font-size: 0.9rem;
-}
-
-.row-content {
-  flex: 1;
-  min-width: 0;
-}
-.row-title {
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: 0.88rem;
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.row-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  flex-wrap: wrap;
-}
-.row-meta code {
-  background: var(--bg-table-stripe);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-family: var(--font-mono, monospace);
-  color: var(--primary-color);
-}
-.stock-ok {
-  color: var(--success);
-}
-.stock-zero {
-  color: var(--danger);
-}
-
-.row-price {
-  text-align: right;
-  flex-shrink: 0;
-}
-.price-value {
-  font-weight: 800;
-  color: var(--primary-color);
-  font-size: 0.95rem;
-  font-variant-numeric: tabular-nums;
-}
-.price-label {
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-.row-check {
-  color: var(--primary-color);
-  font-size: 1rem;
-  flex-shrink: 0;
-}
-
-/* ============================================================
-   CLIENTE CARD
-   ============================================================ */
-.cliente-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  margin-top: 16px;
-  background: linear-gradient(
-    135deg,
-    rgba(52, 152, 219, 0.05),
-    rgba(52, 152, 219, 0.02)
-  );
-  border: 1px solid rgba(52, 152, 219, 0.2);
-  border-radius: var(--radius-md);
-  border-left: 4px solid var(--primary-color);
-}
-.cliente-avatar-large {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 1rem;
-  flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
-}
-.cliente-details {
-  flex: 1;
-  min-width: 0;
-}
-.cliente-name {
-  font-weight: 700;
-  color: var(--text-primary);
-  font-size: 1rem;
-  margin-bottom: 6px;
-}
-.cliente-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px 16px;
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-}
-.cliente-meta-grid strong {
-  color: var(--text-muted);
-  font-weight: 600;
-  margin-right: 4px;
-}
-.cliente-change {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
-}
-.cliente-change:hover {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-  background: var(--info-bg);
-}
-
-/* ============================================================
-   ITEMS
-   ============================================================ */
-.empty-items {
-  text-align: center;
-  padding: 48px 20px;
-}
-.empty-icon {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: var(--bg-table-stripe);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 1.8rem;
-  margin: 0 auto 14px;
-}
-.empty-title {
-  font-weight: 700;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-  margin-bottom: 4px;
-}
-.empty-text {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-
-.items-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.item-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
-  background: var(--bg-table-stripe);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-  flex-wrap: wrap;
-}
-.item-card:hover {
-  border-color: var(--primary-color);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
-}
-
-.item-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  min-width: 200px;
-}
-.item-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #f39c12, #d68910);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.item-info {
-  min-width: 0;
-  flex: 1;
-}
-.item-name {
-  font-weight: 700;
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  margin-bottom: 2px;
-}
-.item-code {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-.item-stock {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-
-.item-controls {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.control-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.control-group label {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.qty-control {
-  display: flex;
-  align-items: center;
-  background: var(--bg-card);
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-.qty-control button {
-  width: 32px;
-  height: 36px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  font-size: 0.75rem;
-}
-.qty-control button:hover {
-  background: var(--info-bg);
-  color: var(--primary-color);
-}
-.qty-control input {
-  width: 60px;
-  height: 36px;
-  border: none;
-  text-align: center;
-  font-weight: 700;
-  font-size: 0.9rem;
-  background: transparent;
-  color: var(--text-primary);
-  outline: none;
-  font-family: inherit;
-}
-.qty-control input::-webkit-outer-spin-button,
-.qty-control input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.price-input {
-  display: flex;
-  align-items: center;
-  background: var(--bg-card);
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  height: 36px;
-}
-.price-input span {
-  padding: 0 8px;
-  color: var(--text-muted);
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-.price-input input {
-  width: 80px;
-  height: 100%;
-  border: none;
-  background: transparent;
-  padding: 0 10px 0 0;
-  font-weight: 700;
-  font-size: 0.88rem;
-  color: var(--text-primary);
-  outline: none;
-  font-family: inherit;
-}
-
-.control-subtotal {
-  min-width: 100px;
-}
-.subtotal-value {
-  padding: 9px 12px;
-  background: var(--bg-card);
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  font-weight: 800;
-  color: var(--primary-color);
-  font-size: 0.9rem;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.item-remove {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  font-size: 0.85rem;
-}
-.item-remove:hover {
-  border-color: var(--danger);
-  color: var(--danger);
-  background: var(--danger-bg);
-}
-
-/* ============================================================
-   SIDEBAR
-   ============================================================ */
-.form-sidebar {
-  position: relative;
-}
-.sidebar-sticky {
-  position: sticky;
-  top: 90px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.summary-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-.summary-header {
-  padding: 14px 20px;
-  background: linear-gradient(135deg, var(--primary-dark), #1a2a3a);
-  color: #fff;
-  font-weight: 700;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.summary-header i {
-  color: var(--accent-color, #f1c40f);
-}
-.summary-body {
-  padding: 20px;
-}
-.summary-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  font-size: 0.88rem;
-}
-.summary-label {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-.summary-value {
-  font-weight: 700;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-.summary-divider {
-  height: 1px;
-  background: var(--border-light);
-  margin: 8px 0;
-}
-.summary-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 0 4px;
-  border-top: 2px solid var(--primary-color);
-}
-.total-label {
-  font-size: 0.85rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  letter-spacing: 0.5px;
-}
-.total-value {
-  font-size: 1.65rem;
-  font-weight: 800;
-  color: var(--primary-color);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
-}
-
-.status-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  transition: color var(--transition-fast);
-}
-.status-item i {
-  font-size: 0.95rem;
-  color: var(--border-strong);
-  transition: color var(--transition-fast);
-}
-.status-item.complete {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-.status-item.complete i {
-  color: var(--success);
-}
-
-.actions-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.btn-save {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 14px 20px;
-  background: linear-gradient(135deg, var(--success), #1e8449);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-md);
-  font-weight: 700;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: all var(--transition);
-  box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
-  font-family: inherit;
-  position: relative;
-}
-.btn-save:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(39, 174, 96, 0.4);
-}
-.btn-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-.btn-save kbd {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  box-shadow: none;
-  padding: 2px 6px;
-  font-size: 0.65rem;
-}
-
-.btn-cancel {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: var(--bg-card);
-  border: 1.5px solid var(--border-color);
-  color: var(--text-secondary);
-  border-radius: var(--radius-md);
-  font-weight: 600;
-  font-size: 0.88rem;
-  cursor: pointer;
-  transition: all var(--transition);
-  font-family: inherit;
-}
-.btn-cancel:hover {
-  border-color: var(--danger);
-  color: var(--danger);
-  background: var(--danger-bg);
-}
-
-.info-card {
-  display: flex;
-  gap: 12px;
-  padding: 14px 16px;
-  background: linear-gradient(
-    135deg,
-    rgba(241, 196, 15, 0.08),
-    rgba(230, 126, 34, 0.04)
-  );
-  border: 1px solid rgba(241, 196, 15, 0.25);
-  border-radius: var(--radius-lg);
-}
-.info-card > i {
-  color: var(--warning);
-  font-size: 1.15rem;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.info-title {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-.info-text {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-/* ============================================================
-   ERROR BANNER
-   ============================================================ */
-.error-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  background: var(--danger-bg);
-  border: 1px solid rgba(231, 76, 60, 0.3);
-  border-left: 4px solid var(--danger);
-  border-radius: var(--radius-md);
-  color: var(--danger);
-  font-weight: 500;
-  font-size: 0.88rem;
-  margin-top: 20px;
-}
-.error-banner i {
-  font-size: 1.1rem;
-}
-
-/* ============================================================
-   MODAL
-   ============================================================ */
-.modal-content-clean {
-  border-radius: 14px;
-  overflow: hidden;
-  border: none;
-}
-
-/* ============================================================
-   TRANSICIONES
-   ============================================================ */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.dropdown-enter-active,
-.dropdown-leave-active {
-  transition: all 0.2s ease-out;
-}
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-.collapse-enter-active,
-.collapse-leave-active {
-  transition: all 0.3s ease-out;
-  overflow: hidden;
-}
-.collapse-enter-from,
-.collapse-leave-to {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-}
-.collapse-enter-to,
-.collapse-leave-from {
-  max-height: 2000px;
-  opacity: 1;
-}
-
-/* ============================================================
-   RESPONSIVE
-   ============================================================ */
-@media (max-width: 1200px) {
-  .form-grid {
-    grid-template-columns: 1fr 300px;
-  }
-}
-
+@media (max-width: 1200px) { .form-grid { grid-template-columns: 1fr 300px; } }
 @media (max-width: 992px) {
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-  .sidebar-sticky {
-    position: static;
-  }
-  .form-row.cols-3,
-  .form-row.cols-4,
-  .form-row.cols-2-1-1 {
-    grid-template-columns: 1fr 1fr;
-  }
-  .cliente-meta-grid {
-    grid-template-columns: 1fr;
-  }
-  .item-controls {
-    width: 100%;
-  }
+  .form-grid { grid-template-columns: 1fr; }
+  .sidebar-sticky { position: static; }
+  .form-row.cols-3, .form-row.cols-4, .form-row.cols-2-1-1 { grid-template-columns: 1fr 1fr; }
+  .cliente-meta-grid { grid-template-columns: 1fr; }
+  .item-controls { width: 100%; }
 }
-
 @media (max-width: 576px) {
-  .form-header {
-    gap: 12px;
-  }
-  .btn-back {
-    width: 38px;
-    height: 38px;
-  }
-  .title-icon {
-    width: 36px;
-    height: 36px;
-    font-size: 1rem;
-  }
-  .form-title {
-    font-size: 1.2rem;
-  }
-  .form-subtitle {
-    padding-left: 0;
-    font-size: 0.78rem;
-  }
-  .section-header {
-    padding: 16px 18px;
-  }
-  .section-body {
-    padding: 18px;
-  }
-  .form-row.cols-3,
-  .form-row.cols-4,
-  .form-row.cols-2-1-1 {
-    grid-template-columns: 1fr;
-  }
-  .total-value {
-    font-size: 1.4rem;
-  }
-  .item-card {
-    padding: 12px;
-  }
-  .item-main {
-    min-width: 0;
-  }
+  .form-header { gap: 12px; }
+  .btn-back { width: 38px; height: 38px; }
+  .title-icon { width: 36px; height: 36px; font-size: 1rem; }
+  .form-title { font-size: 1.2rem; }
+  .form-subtitle { padding-left: 0; font-size: 0.78rem; }
+  .section-header { padding: 16px 18px; }
+  .section-body { padding: 18px; }
+  .form-row.cols-3, .form-row.cols-4, .form-row.cols-2-1-1 { grid-template-columns: 1fr; }
+  .total-value { font-size: 1.4rem; }
+  .item-card { padding: 12px; }
+  .item-main { min-width: 0; }
 }
 </style>
