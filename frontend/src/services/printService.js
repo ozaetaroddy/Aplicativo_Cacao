@@ -8,29 +8,21 @@
 //   - Impresión robusta vía <iframe> oculto (sin popup blockers)
 //   - Espera `document.fonts.ready` antes de imprimir
 //   - Soporte A4 / A2 / Ticket 80mm
-//   - Diseño profesional con jerarquía visual clara
+//   - Layout específico para GUÍA DE REMISIÓN
 //
 // 🔧 FIX 2025-XX:
-//   1. `printDocument` ya NO usa `window.open()`. Usa un <iframe>
-//      oculto adjunto al DOM actual. Elimina popup blockers y
-//      problemas de timing/foco entre ventanas.
-//   2. `@page size` usa SOLO valores válidos de CSS Paged Media.
-//      Antes tenía `80mm auto` (no estándar) y `A2` (no existe).
-//      Ahora A2 se emite como dimensiones explícitas `420mm 594mm`.
-//   3. Se eliminó el `<script>` interno del HTML generado (el
-//      print() lo dispara el padre cuando el iframe está listo).
-//   4. `onload` del iframe reemplazado por polling de `readyState`
-//      + `document.fonts.ready`, más fiable que un solo evento.
-//   5. Diseño rediseñado: header con jerarquía clara, badge de
-//      ambiente prominente, caja de autorización SRI, tabla de
-//      items espaciada, totales destacados, watermark PRUEBAS.
+//   1. Detección de tipo `guia_remision` → layout con 3 secciones:
+//      destinatario + transportista + traslado. Antes caía al
+//      fallback "Consumidor Final" porque las guías no tienen
+//      `clienteId`.
+//   2. `printDocument` usa un <iframe> oculto en lugar de window.open().
+//   3. `@page size` con valores válidos de CSS Paged Media.
 // ============================================================
 'use strict'
 
 // ============================================================
 // CÓDIGO DE BARRAS (Code128 subset C)
 // ============================================================
-// Patrones oficiales Code128. Cada símbolo son 11 módulos (STOP = 13).
 const CODE128_PATTERNS = [
   '11011001100', '11001101100', '11001100110', '10010011000', '10010001100',
   '10001001100', '10011001000', '10011000100', '10001100100', '11001001000',
@@ -59,27 +51,18 @@ const CODE128_PATTERNS = [
 const CODE128_START_C = 105
 const CODE128_STOP = 106
 
-/**
- * Genera la secuencia de bits (string de 0s y 1s) para Code128 subset C.
- * Solo acepta dígitos. Si la longitud es impar, prepende un 0.
- */
 function generarBitsCode128C(data) {
   const str = String(data ?? '')
-  if (!/^\d+$/.test(str)) {
-    throw new Error('Code128C solo acepta dígitos')
-  }
+  if (!/^\d+$/.test(str)) throw new Error('Code128C solo acepta dígitos')
 
   const normalizada = str.length % 2 !== 0 ? '0' + str : str
-
   const symbols = [CODE128_START_C]
   for (let i = 0; i < normalizada.length; i += 2) {
     symbols.push(parseInt(normalizada.substr(i, 2), 10))
   }
 
   let checksum = CODE128_START_C
-  for (let i = 1; i < symbols.length; i++) {
-    checksum += symbols[i] * i
-  }
+  for (let i = 1; i < symbols.length; i++) checksum += symbols[i] * i
   checksum %= 103
   symbols.push(checksum)
   symbols.push(CODE128_STOP)
@@ -89,14 +72,10 @@ function generarBitsCode128C(data) {
   return bits
 }
 
-/**
- * Genera el SVG del código de barras Code128C.
- */
 function generarBarcodeSVG(texto, formato = 'A4', maxHeight = 45) {
   if (!texto) return ''
 
   let dataBarcode = String(texto)
-
   if (formato === 'ticket' && dataBarcode.length > 30) {
     dataBarcode = dataBarcode.slice(-22)
   }
@@ -166,7 +145,6 @@ function n2(v) {
   return Number.isFinite(n) ? n.toFixed(2) : '0.00'
 }
 
-/** Formatea con separador de miles estilo contable: 1,260.00 */
 function n2m(v) {
   const n = Number(v)
   if (!Number.isFinite(n)) return '0.00'
@@ -187,30 +165,32 @@ function fmtFechaHora(f) {
   try {
     return new Date(f).toLocaleString('es-EC', {
       day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
+      hour: '2-digit', minute: '2-digit'
     })
   } catch { return '' }
 }
 
+function getTipoIdentLabel(codigo) {
+  const s = String(codigo || '').trim()
+  return (
+    {
+      '04': 'RUC',
+      '05': 'Cédula',
+      '06': 'Pasaporte',
+      '07': 'Consumidor Final',
+      '08': 'Identificación Exterior',
+      '09': 'Placa'
+    }[s] || s || '—'
+  )
+}
+
 // ============================================================
-// IMPRESIÓN VÍA IFRAME (robusta)
+// IMPRESIÓN VÍA IFRAME
 // ============================================================
-/**
- * Crea un iframe oculto, escribe el HTML, espera fuentes y
- * dispara `print()`. Elimina el iframe cuando el usuario cierra
- * el diálogo (o tras un timeout de seguridad).
- *
- * Ventajas frente a window.open():
- *   - Cero popup blockers (el iframe vive en el DOM actual).
- *   - Timing controlado por eventos reales (readyState + fonts).
- *   - El CSS @page se aplica correctamente en todos los navegadores.
- *
- * @param {string} html
- */
 function imprimirViaIframe(html) {
-  // 1. Crear iframe oculto
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
+  iframe.setAttribute('data-print-iframe', '1')
   iframe.style.position = 'fixed'
   iframe.style.right = '0'
   iframe.style.bottom = '0'
@@ -225,7 +205,6 @@ function imprimirViaIframe(html) {
     try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe) } catch { /* noop */ }
   }
 
-  // Timeout duro: si algo se cuelga, limpiamos a los 60s
   const timeoutDuro = setTimeout(limpiar, 60_000)
 
   try {
@@ -234,7 +213,6 @@ function imprimirViaIframe(html) {
     doc.write(html)
     doc.close()
 
-    // 2. Polling de readyState del iframe
     const esperarListo = () => {
       const d = iframe.contentDocument || iframe.contentWindow.document
       if (!d || d.readyState !== 'complete') {
@@ -242,14 +220,12 @@ function imprimirViaIframe(html) {
         return
       }
 
-      // 3. Esperar fuentes dentro del iframe
       const fw = iframe.contentWindow
       const fuentesReady = (fw.document && fw.document.fonts && fw.document.fonts.ready)
         ? fw.document.fonts.ready
         : Promise.resolve()
 
       fuentesReady.then(() => {
-        // Pequeño delay para que el navegador pinte
         setTimeout(() => {
           try {
             fw.focus()
@@ -259,8 +235,6 @@ function imprimirViaIframe(html) {
             alert('No se pudo abrir el diálogo de impresión.')
           } finally {
             clearTimeout(timeoutDuro)
-            // Limpiar cuando el usuario termine. Algunos navegadores
-            // disparan afterprint, otros no → usamos ambos.
             const limpiarDespues = () => {
               setTimeout(() => {
                 clearTimeout(timeoutDuro)
@@ -270,12 +244,10 @@ function imprimirViaIframe(html) {
             try {
               fw.addEventListener('afterprint', limpiarDespues, { once: true })
             } catch { /* noop */ }
-            // Fallback por si no dispara afterprint
             setTimeout(limpiar, 30_000)
           }
         }, 250)
       }).catch(() => {
-        // Si fonts.ready falla, imprimimos igual
         try { fw.print() } catch { /* noop */ }
         clearTimeout(timeoutDuro)
         setTimeout(limpiar, 1000)
@@ -295,12 +267,6 @@ function imprimirViaIframe(html) {
 // SERVICIO DE IMPRESIÓN
 // ============================================================
 export const printService = {
-  /**
-   * Imprime un documento.
-   * @param {object} doc
-   * @param {'A4'|'A2'|'ticket'} formato
-   * @param {(id:string)=>string} obtenerNombreProducto
-   */
   printDocument(doc, formato = 'A4', obtenerNombreProducto = () => 'Producto') {
     if (!doc) {
       console.warn('printDocument: doc vacío')
@@ -319,16 +285,16 @@ export const printService = {
     imprimirViaIframe(html)
   },
 
-  /**
-   * Construye el HTML del RIDE (formato profesional).
-   */
   generarHTML(doc, formato = 'A4', obtenerNombreProducto = () => 'Producto') {
     if (!doc || typeof doc !== 'object') {
       throw new Error('generarHTML: doc inválido')
     }
 
-    const esVenta = !!doc.cliente
-    const contraparte = esVenta ? doc.cliente : doc.proveedor
+    // ---- Detectar tipo ----
+    const tipoDocLower = String(doc.tipo_documento || 'factura').toLowerCase()
+    const esGuia = tipoDocLower === 'guia_remision'
+    const esVenta = !esGuia && Boolean(doc.cliente)
+    const esCompra = !esVenta && !esGuia
 
     // ---- Datos del emisor ----
     const razonSocialEmisor = escHtml(doc.razon_social_emisor || "System Ozaet's Electronics")
@@ -339,19 +305,39 @@ export const printService = {
     const obligadoContabilidad = 'NO'
 
     // ---- Datos de la contraparte ----
-    const nombreCliente = escHtml(contraparte?.nombre || (esVenta ? 'Consumidor Final' : 'Proveedor N/A'))
-    const rucCliente = escHtml(contraparte?.ruc || (esVenta ? '9999999999999' : ''))
-    const dirCliente = escHtml(contraparte?.direccion || '')
-    const telCliente = escHtml(contraparte?.telefono || '')
-    const emailCliente = escHtml(contraparte?.email || '')
+    let nombreContraparte = ''
+    let rucContraparte = ''
+    let dirContraparte = ''
+    let telContraparte = ''
+    let emailContraparte = ''
+
+    if (esGuia) {
+      nombreContraparte = escHtml(doc.destinatario_razon_social || doc.cliente?.nombre || '')
+      rucContraparte = escHtml(doc.destinatario_identificacion || doc.cliente?.ruc || '')
+      dirContraparte = escHtml(doc.destinatario_direccion || '')
+      telContraparte = escHtml(doc.cliente?.telefono || '')
+      emailContraparte = escHtml(doc.cliente?.email || '')
+    } else if (esVenta) {
+      nombreContraparte = escHtml(doc.cliente?.nombre || 'Consumidor Final')
+      rucContraparte = escHtml(doc.cliente?.ruc || '9999999999999')
+      dirContraparte = escHtml(doc.cliente?.direccion || '')
+      telContraparte = escHtml(doc.cliente?.telefono || '')
+      emailContraparte = escHtml(doc.cliente?.email || '')
+    } else {
+      nombreContraparte = escHtml(doc.proveedor?.nombre || 'Proveedor N/A')
+      rucContraparte = escHtml(doc.proveedor?.ruc || '')
+      dirContraparte = escHtml(doc.proveedor?.direccion || '')
+      telContraparte = escHtml(doc.proveedor?.telefono || '')
+      emailContraparte = escHtml(doc.proveedor?.email || '')
+    }
 
     // ---- Datos del documento ----
-    const tipoDoc = escHtml((doc.tipo_documento || 'factura').toUpperCase())
+    const tipoDoc = escHtml((doc.tipo_documento || 'factura').toUpperCase().replace(/_/g, ' '))
     const numero = escHtml(doc.numero_factura || doc.numero_guia || 'N/A')
     const fechaEmision = escHtml(fmtFecha(doc.fecha_emision))
     const claveAcceso = String(doc.clave_acceso || '')
     const numeroAutorizacion = escHtml(doc.numero_autorizacion || claveAcceso || '')
-    const fechaAutorizacion = escHtml(fmtFechaHora(doc.fecha_emision))
+    const fechaAutorizacion = escHtml(fmtFechaHora(doc.fecha_autorizacion) || fmtFechaHora(doc.fecha_emision))
     const esProduccion = doc.ambiente_sri === '2'
     const ambiente = esProduccion ? 'PRODUCCIÓN' : 'PRUEBAS'
     const tipoEmision = 'NORMAL'
@@ -372,7 +358,6 @@ export const printService = {
 
     if (detalles.length > 0) {
       if (esTicket) {
-        // ---- Formato ticket: cada línea en 2 filas compactas ----
         detallesHtml = detalles.map((d, idx) => {
           const cantidad = Number(d.cantidad) || 0
           const precioUnit = Number(d.precio_unitario ?? d.costo_unitario) || 0
@@ -386,15 +371,16 @@ export const printService = {
               <td>
                 <div class="product-name">${nombreProducto}</div>
                 ${codigo ? `<div class="product-code">${codigo}</div>` : ''}
-                <div class="product-meta">IVA ${aplicaIVA ? '15%' : '0%'}</div>
+                ${!esGuia ? `<div class="product-meta">IVA ${aplicaIVA ? '15%' : '0%'}</div>` : ''}
               </td>
               <td class="text-center">${cantidad}</td>
-              <td class="text-right">$${n2(precioUnit)}</td>
-              <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
+              ${!esGuia ? `
+                <td class="text-right">$${n2(precioUnit)}</td>
+                <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
+              ` : ''}
             </tr>`
         }).join('')
       } else {
-        // ---- Formato A4/A2: tabla completa ----
         detallesHtml = detalles.map((d, idx) => {
           const cantidad = Number(d.cantidad) || 0
           const precioUnit = Number(d.precio_unitario ?? d.costo_unitario) || 0
@@ -411,10 +397,12 @@ export const printService = {
                 ${codigo ? `<div class="product-code">Código: ${codigo}</div>` : ''}
               </td>
               <td class="text-center">${cantidad}</td>
-              <td class="text-right">$${n2(precioUnit)}</td>
-              <td class="text-right">$${n2(descuento)}</td>
-              <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
-              <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
+              ${!esGuia ? `
+                <td class="text-right">$${n2(precioUnit)}</td>
+                <td class="text-right">$${n2(descuento)}</td>
+                <td class="text-center">${aplicaIVA ? '15%' : '0%'}</td>
+                <td class="text-right fw-bold">$${n2(subtotalItem)}</td>
+              ` : ''}
             </tr>`
         }).join('')
       }
@@ -434,8 +422,6 @@ export const printService = {
       fontSize = '14px'
       formatoClase = 'a2'
       barcodeHeight = 55
-      // A2 no es un keyword válido en CSS Paged Media →
-      // usamos dimensiones explícitas en mm (A2 = 420×594mm).
       pageRule = 'size: 420mm 594mm; margin: 12mm;'
     } else if (esTicket) {
       ancho = '80mm'
@@ -443,15 +429,13 @@ export const printService = {
       fontSize = '9px'
       formatoClase = 'ticket'
       barcodeHeight = 32
-      // Para rollo térmico 80mm: ancho fijo, alto automático.
-      // `size: 80mm auto` NO es estándar → usar solo ancho.
       pageRule = 'size: 80mm auto; margin: 2mm;'
     }
 
     // ---- Código de barras ----
     const barcodeHtml = claveAcceso ? generarBarcodeSVG(claveAcceso, formato, barcodeHeight) : ''
 
-    // ---- Clave formateada en chunks ----
+    // ---- Clave formateada ----
     const chunkSize = esTicket ? 12 : 16
     const claveChunks = String(claveAcceso).match(new RegExp(`.{1,${chunkSize}}`, 'g')) || []
     const claveFormateada = escHtml(claveChunks.join(' '))
@@ -459,9 +443,164 @@ export const printService = {
     // ---- Colores ambiente ----
     const ambienteColor = esProduccion ? '#1e7e34' : '#e67e22'
 
-    // ============================================================
-    // HTML FINAL
-    // ============================================================
+    // ---- Secciones específicas de guía ----
+    const seccionGuiaHtml = esGuia ? `
+      <div class="cliente-section">
+        <div class="cliente-box">
+          <div class="cliente-box-title">Datos del Destinatario</div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Razón Social:</span>
+            <span class="cliente-row-value">${nombreContraparte || '—'}</span>
+          </div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Identificación:</span>
+            <span class="cliente-row-value">${rucContraparte || '—'}</span>
+          </div>
+          ${doc.destinatario_tipo ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Tipo ID:</span>
+            <span class="cliente-row-value">${escHtml(getTipoIdentLabel(doc.destinatario_tipo))}</span>
+          </div>` : ''}
+          ${dirContraparte ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Dir. Destino:</span>
+            <span class="cliente-row-value">${dirContraparte}</span>
+          </div>` : ''}
+        </div>
+        <div class="cliente-box">
+          <div class="cliente-box-title">Datos del Documento</div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Motivo:</span>
+            <span class="cliente-row-value">${escHtml(doc.motivo || '—')}</span>
+          </div>
+          ${doc.ruta ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Ruta:</span>
+            <span class="cliente-row-value">${escHtml(doc.ruta)}</span>
+          </div>` : ''}
+          <div class="cliente-row">
+            <span class="cliente-row-label">Estado:</span>
+            <span class="cliente-row-value">${estadoPago}</span>
+          </div>
+          ${doc.documento_aduana ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Doc. Aduanero:</span>
+            <span class="cliente-row-value">${escHtml(doc.documento_aduana)}</span>
+          </div>` : ''}
+        </div>
+      </div>
+      <div class="cliente-section">
+        <div class="cliente-box">
+          <div class="cliente-box-title">Datos del Transportista</div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Razón Social:</span>
+            <span class="cliente-row-value">${escHtml(doc.transportista_razon_social || doc.transportista || '—')}</span>
+          </div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Identificación:</span>
+            <span class="cliente-row-value">${escHtml(doc.transportista_identificacion || '—')}</span>
+          </div>
+          ${doc.transportista_tipo ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Tipo ID:</span>
+            <span class="cliente-row-value">${escHtml(getTipoIdentLabel(doc.transportista_tipo))}</span>
+          </div>` : ''}
+          ${doc.transportista_correo ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Correo:</span>
+            <span class="cliente-row-value">${escHtml(doc.transportista_correo)}</span>
+          </div>` : ''}
+        </div>
+        <div class="cliente-box">
+          <div class="cliente-box-title">Datos del Traslado</div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Dir. Partida:</span>
+            <span class="cliente-row-value">${escHtml(doc.direccion_partida || '—')}</span>
+          </div>
+          ${doc.inicio_transporte ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Inicio:</span>
+            <span class="cliente-row-value">${escHtml(fmtFechaHora(doc.inicio_transporte))}</span>
+          </div>` : ''}
+          ${doc.fin_transporte ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Fin:</span>
+            <span class="cliente-row-value">${escHtml(fmtFechaHora(doc.fin_transporte))}</span>
+          </div>` : ''}
+          <div class="cliente-row">
+            <span class="cliente-row-label">Placa:</span>
+            <span class="cliente-row-value">${escHtml(doc.placa_transporte || doc.placa || '—')}</span>
+          </div>
+        </div>
+      </div>
+    ` : ''
+
+    const seccionContraparteHtml = !esGuia ? `
+      <div class="cliente-section">
+        <div class="cliente-box">
+          <div class="cliente-box-title">${esVenta ? 'Datos del Cliente' : 'Datos del Proveedor'}</div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Razón Social:</span>
+            <span class="cliente-row-value">${nombreContraparte}</span>
+          </div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">RUC/Cédula:</span>
+            <span class="cliente-row-value">${rucContraparte}</span>
+          </div>
+          ${dirContraparte ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Dirección:</span>
+            <span class="cliente-row-value">${dirContraparte}</span>
+          </div>` : ''}
+          ${telContraparte && !esTicket ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Teléfono:</span>
+            <span class="cliente-row-value">${telContraparte}</span>
+          </div>` : ''}
+          ${emailContraparte && !esTicket ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Email:</span>
+            <span class="cliente-row-value">${emailContraparte}</span>
+          </div>` : ''}
+        </div>
+        ${!esTicket ? `
+        <div class="cliente-box">
+          <div class="cliente-box-title">Condiciones del Documento</div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Forma Pago:</span>
+            <span class="cliente-row-value">${formaPago}</span>
+          </div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Estado:</span>
+            <span class="cliente-row-value">${estadoPago}</span>
+          </div>
+          <div class="cliente-row">
+            <span class="cliente-row-label">Obligado Cont.:</span>
+            <span class="cliente-row-value">${obligadoContabilidad}</span>
+          </div>
+          ${contribuyenteEspecial ? `
+          <div class="cliente-row">
+            <span class="cliente-row-label">Contrib. Especial:</span>
+            <span class="cliente-row-value">${contribuyenteEspecial}</span>
+          </div>` : ''}
+          <div class="cliente-row">
+            <span class="cliente-row-label">Moneda:</span>
+            <span class="cliente-row-value">DÓLAR</span>
+          </div>
+        </div>
+        ` : ''}
+      </div>
+    ` : ''
+
+    // Tabla de detalles: cabecera condicional
+    const tablaHeadHtml = esTicket
+      ? (esGuia
+          ? `<tr><th class="text-center">#</th><th>Producto</th><th class="text-center">Cant</th></tr>`
+          : `<tr><th class="text-center">#</th><th>Producto</th><th class="text-center">Cant</th><th class="text-right">P.U.</th><th class="text-right">Total</th></tr>`)
+      : (esGuia
+          ? `<tr><th style="width:32px;" class="text-center">#</th><th>Descripción</th><th style="width:80px;" class="text-center">Cant.</th></tr>`
+          : `<tr><th style="width:32px;" class="text-center">#</th><th>Descripción</th><th style="width:70px;" class="text-center">Cant.</th><th style="width:85px;" class="text-right">P. Unit.</th><th style="width:75px;" class="text-right">Desc.</th><th style="width:60px;" class="text-center">IVA</th><th style="width:95px;" class="text-right">Subtotal</th></tr>`)
+
     return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -469,7 +608,6 @@ export const printService = {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${tipoDoc} ${numero}</title>
   <style>
-    /* ===== RESET ===== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; }
     body {
@@ -481,8 +619,6 @@ export const printService = {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-
-    /* ===== CONTENEDOR ===== */
     .container {
       width: ${ancho};
       min-height: ${esTicket ? 'auto' : esA2 ? '594mm' : '297mm'};
@@ -491,8 +627,6 @@ export const printService = {
       background: #fff;
       position: relative;
     }
-
-    /* ===== WATERMARK AMBIENTE (solo PRUEBAS) ===== */
     ${!esProduccion && !esTicket ? `
     .watermark {
       position: absolute;
@@ -509,8 +643,6 @@ export const printService = {
       white-space: nowrap;
     }
     ` : ''}
-
-    /* ===== HEADER ===== */
     .header {
       display: flex;
       justify-content: space-between;
@@ -524,7 +656,6 @@ export const printService = {
     }
     .header-left { flex: 1; min-width: 0; }
     .header-right { flex-shrink: 0; text-align: right; }
-
     .logo-empresa { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
     .logo-icon {
       width: 48px; height: 48px;
@@ -535,18 +666,11 @@ export const printService = {
       flex-shrink: 0;
       box-shadow: 0 2px 6px rgba(26, 58, 92, 0.2);
     }
-    .empresa-nombre {
-      font-size: 1.25em; font-weight: 800; color: #1a3a5c;
-      line-height: 1.15; letter-spacing: 0.2px;
-    }
+    .empresa-nombre { font-size: 1.25em; font-weight: 800; color: #1a3a5c; line-height: 1.15; letter-spacing: 0.2px; }
     .empresa-sub { font-size: 0.72em; color: #888; letter-spacing: 0.3px; margin-top: 2px; }
-    .empresa-info {
-      font-size: 0.78em; color: #444; margin-top: 8px; line-height: 1.5;
-    }
+    .empresa-info { font-size: 0.78em; color: #444; margin-top: 8px; line-height: 1.5; }
     .empresa-info div { margin: 1px 0; }
     .empresa-info strong { color: #1a3a5c; font-weight: 700; }
-
-    /* ===== CAJA DE COMPROBANTE (derecha) ===== */
     .comprobante-box {
       border: 2px solid #1a3a5c;
       border-radius: 8px;
@@ -575,11 +699,7 @@ export const printService = {
       font-size: 0.68em; font-weight: 800;
       letter-spacing: 0.6px;
     }
-    .comprobante-meta {
-      font-size: 0.7em; color: #666; margin-top: 6px; line-height: 1.4;
-    }
-
-    /* ===== SECCIÓN CLAVE + CÓDIGO DE BARRAS ===== */
+    .comprobante-meta { font-size: 0.7em; color: #666; margin-top: 6px; line-height: 1.4; }
     .clave-section {
       display: flex;
       gap: 14px;
@@ -626,8 +746,6 @@ export const printService = {
       word-break: break-all; max-width: 100%;
       overflow: hidden; line-height: 1.1;
     }
-
-    /* ===== BLOQUE CLIENTE ===== */
     .cliente-section {
       display: grid;
       grid-template-columns: ${esTicket ? '1fr' : '1.6fr 1fr'};
@@ -655,15 +773,13 @@ export const printService = {
       line-height: 1.4; word-break: break-word;
     }
     .cliente-row-label {
-      min-width: 90px; color: #666; font-weight: 600;
+      min-width: 95px; color: #666; font-weight: 600;
       flex-shrink: 0;
     }
     .cliente-row-value {
       flex: 1; color: #1a1a1a; font-weight: 500;
       min-width: 0; word-break: break-word;
     }
-
-    /* ===== TABLA DE DETALLES ===== */
     .detalles-section { margin-bottom: 12px; position: relative; z-index: 1; }
     .detalles-title {
       font-size: 0.72em; font-weight: 800; color: #1a3a5c;
@@ -671,10 +787,7 @@ export const printService = {
       padding: 6px 0; margin-bottom: 4px;
       border-bottom: 2px solid #1a3a5c;
     }
-    .detalles-table {
-      width: 100%; border-collapse: collapse;
-      margin-top: 4px; font-size: 0.82em;
-    }
+    .detalles-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 0.82em; }
     .detalles-table thead { background: #1a3a5c; color: #fff; }
     .detalles-table thead th {
       padding: 8px 6px; text-align: left;
@@ -690,22 +803,10 @@ export const printService = {
     .detalles-table .text-center { text-align: center; }
     .detalles-table .text-right { text-align: right; }
     .detalles-table .fw-bold { font-weight: 700; }
-    .product-name {
-      font-weight: 600; color: #1a1a1a;
-      margin-bottom: 2px; font-size: 0.98em;
-    }
-    .product-code {
-      font-size: 0.85em; color: #888;
-      font-family: 'Courier New', monospace;
-    }
+    .product-name { font-weight: 600; color: #1a1a1a; margin-bottom: 2px; font-size: 0.98em; }
+    .product-code { font-size: 0.85em; color: #888; font-family: 'Courier New', monospace; }
     .product-meta { font-size: 0.72em; color: #888; font-style: italic; }
-
-    /* ===== TOTALES ===== */
-    .totales-section {
-      display: flex; justify-content: flex-end;
-      margin-top: 12px; margin-bottom: 12px;
-      position: relative; z-index: 1;
-    }
+    .totales-section { display: flex; justify-content: flex-end; margin-top: 12px; margin-bottom: 12px; position: relative; z-index: 1; }
     .totales-box {
       width: 100%;
       max-width: ${esTicket ? '100%' : esA2 ? '380px' : '310px'};
@@ -721,10 +822,7 @@ export const printService = {
     }
     .total-row:last-child { border-bottom: none; }
     .total-row .label { color: #555; font-weight: 500; }
-    .total-row .value {
-      color: #1a1a1a; font-weight: 600;
-      font-family: 'Courier New', monospace;
-    }
+    .total-row .value { color: #1a1a1a; font-weight: 600; font-family: 'Courier New', monospace; }
     .total-final {
       display: flex; justify-content: space-between;
       padding: 11px 14px;
@@ -732,12 +830,7 @@ export const printService = {
       color: #fff;
       font-size: 1em; font-weight: 800;
     }
-    .total-final .value {
-      font-family: 'Courier New', monospace;
-      font-size: 1.05em;
-    }
-
-    /* ===== INFO ADICIONAL ===== */
+    .total-final .value { font-family: 'Courier New', monospace; font-size: 1.05em; }
     .info-adicional {
       padding: 9px 12px;
       background: #fdf6e3;
@@ -753,27 +846,17 @@ export const printService = {
       font-weight: 700; margin-bottom: 3px;
     }
     .info-adicional-body { color: #5a4a1e; line-height: 1.5; }
-
-    /* ===== FIRMA ===== */
     .firma-section {
       margin-top: 30px;
-      display: ${esTicket ? 'flex' : 'flex'};
+      display: flex;
       flex-direction: ${esTicket ? 'column' : 'row'};
       justify-content: ${esTicket ? 'flex-start' : 'space-around'};
       gap: ${esTicket ? '20px' : '40px'};
       position: relative; z-index: 1;
     }
     .firma-box { flex: 1; text-align: center; }
-    .firma-line {
-      border-top: 1px solid #1a1a1a;
-      margin: 40px 20px 6px;
-    }
-    .firma-label {
-      font-size: 0.72em; color: #555; font-weight: 600;
-      letter-spacing: 0.3px;
-    }
-
-    /* ===== FOOTER ===== */
+    .firma-line { border-top: 1px solid #1a1a1a; margin: 40px 20px 6px; }
+    .firma-label { font-size: 0.72em; color: #555; font-weight: 600; letter-spacing: 0.3px; }
     .footer {
       margin-top: 18px;
       padding-top: 10px;
@@ -785,21 +868,9 @@ export const printService = {
       position: relative; z-index: 1;
     }
     .footer strong { color: #1a3a5c; font-weight: 700; }
-    .footer .legal-note {
-      color: #1e7e34; font-weight: 600;
-      margin-top: 4px;
-    }
-
-    /* ===== TICKET 80mm ===== */
+    .footer .legal-note { color: #1e7e34; font-weight: 600; margin-top: 4px; }
     .container.ticket { padding: 3mm; }
-    .ticket .header {
-      flex-direction: column;
-      align-items: stretch;
-      text-align: center;
-      gap: 8px;
-      padding-bottom: 8px;
-      margin-bottom: 8px;
-    }
+    .ticket .header { flex-direction: column; align-items: stretch; text-align: center; gap: 8px; padding-bottom: 8px; margin-bottom: 8px; }
     .ticket .header-left, .ticket .header-right { text-align: center; flex: none; width: 100%; }
     .ticket .logo-empresa { justify-content: center; }
     .ticket .logo-icon { width: 36px; height: 36px; font-size: 18px; }
@@ -822,11 +893,6 @@ export const printService = {
     .ticket .detalles-table { font-size: 0.75em; table-layout: fixed; width: 100%; }
     .ticket .detalles-table thead th { padding: 5px 3px; font-size: 0.62em; }
     .ticket .detalles-table tbody td { padding: 6px 3px; word-wrap: break-word; }
-    .ticket .detalles-table thead th:nth-child(1) { width: 22px; }
-    .ticket .detalles-table thead th:nth-child(2) { width: auto; }
-    .ticket .detalles-table thead th:nth-child(3) { width: 38px; }
-    .ticket .detalles-table thead th:nth-child(4) { width: 55px; }
-    .ticket .detalles-table thead th:nth-child(5) { width: 65px; }
     .ticket .product-name { font-size: 0.95em; word-wrap: break-word; overflow-wrap: break-word; }
     .ticket .product-code { font-size: 0.72em; }
     .ticket .product-meta { font-size: 0.68em; }
@@ -834,8 +900,6 @@ export const printService = {
     .ticket .total-final { padding: 8px 10px; font-size: 0.9em; }
     .ticket .firma-line { margin: 25px 30px 6px; }
     .ticket .footer { font-size: 0.6em; }
-
-    /* ===== PRINT ===== */
     @media print {
       body { margin: 0; padding: 0; background: #fff; }
       .container {
@@ -846,14 +910,10 @@ export const printService = {
         margin: 0;
       }
       .no-print { display: none !important; }
-      .header, .clave-section, .cliente-section,
-      .totales-section, .info-adicional, .footer {
-        page-break-inside: avoid;
-      }
+      .header, .clave-section, .cliente-section, .totales-section, .info-adicional, .footer { page-break-inside: avoid; }
       .detalles-table tr { page-break-inside: avoid; }
       .detalles-table thead { display: table-header-group; }
       .firma-section { page-break-inside: avoid; }
-      /* @page válido en todos los navegadores */
       @page { ${pageRule} }
     }
   </style>
@@ -862,7 +922,6 @@ export const printService = {
   ${!esProduccion && !esTicket ? `<div class="watermark">PRUEBAS</div>` : ''}
 
   <div class="container ${formatoClase}">
-    <!-- ===== HEADER ===== -->
     <div class="header">
       <div class="header-left">
         <div class="logo-empresa">
@@ -878,7 +937,6 @@ export const printService = {
           ${!esTicket ? `<div><strong>Dir. Sucursal:</strong> ${dirSucursal}</div>` : ''}
         </div>
       </div>
-
       <div class="header-right">
         <div class="comprobante-box">
           <div class="comprobante-tipo">${tipoDoc}</div>
@@ -892,7 +950,6 @@ export const printService = {
       </div>
     </div>
 
-    <!-- ===== CLAVE + CÓDIGO DE BARRAS ===== -->
     ${claveAcceso ? `
     <div class="clave-section">
       <div class="clave-left">
@@ -915,103 +972,34 @@ export const printService = {
     </div>
     ` : ''}
 
-    <!-- ===== CLIENTE / PROVEEDOR ===== -->
-    <div class="cliente-section">
-      <div class="cliente-box">
-        <div class="cliente-box-title">${esVenta ? 'Información del Cliente' : 'Información del Proveedor'}</div>
-        <div class="cliente-row">
-          <span class="cliente-row-label">Razón Social:</span>
-          <span class="cliente-row-value">${nombreCliente}</span>
-        </div>
-        <div class="cliente-row">
-          <span class="cliente-row-label">RUC / Cédula:</span>
-          <span class="cliente-row-value">${rucCliente}</span>
-        </div>
-        ${dirCliente ? `<div class="cliente-row"><span class="cliente-row-label">Dirección:</span><span class="cliente-row-value">${dirCliente}</span></div>` : ''}
-        ${telCliente && !esTicket ? `<div class="cliente-row"><span class="cliente-row-label">Teléfono:</span><span class="cliente-row-value">${telCliente}</span></div>` : ''}
-        ${emailCliente && !esTicket ? `<div class="cliente-row"><span class="cliente-row-label">Email:</span><span class="cliente-row-value">${emailCliente}</span></div>` : ''}
-      </div>
+    ${seccionGuiaHtml}
+    ${seccionContraparteHtml}
 
-      ${!esTicket ? `
-      <div class="cliente-box">
-        <div class="cliente-box-title">Condiciones del Documento</div>
-        <div class="cliente-row">
-          <span class="cliente-row-label">Forma Pago:</span>
-          <span class="cliente-row-value">${formaPago}</span>
-        </div>
-        <div class="cliente-row">
-          <span class="cliente-row-label">Estado:</span>
-          <span class="cliente-row-value">${estadoPago}</span>
-        </div>
-        <div class="cliente-row">
-          <span class="cliente-row-label">Obligado Cont.:</span>
-          <span class="cliente-row-value">${obligadoContabilidad}</span>
-        </div>
-        ${contribuyenteEspecial ? `<div class="cliente-row"><span class="cliente-row-label">Contrib. Especial:</span><span class="cliente-row-value">${contribuyenteEspecial}</span></div>` : ''}
-        <div class="cliente-row">
-          <span class="cliente-row-label">Moneda:</span>
-          <span class="cliente-row-value">DÓLAR</span>
-        </div>
-      </div>
-      ` : ''}
-    </div>
-
-    <!-- ===== DETALLES ===== -->
     <div class="detalles-section">
-      <div class="detalles-title">Detalle de Productos y Servicios</div>
+      <div class="detalles-title">
+        ${esGuia ? 'Detalle de Productos a Trasladar' : 'Detalle de Productos y Servicios'}
+      </div>
       <table class="detalles-table">
-        ${esTicket ? `
-          <thead>
-            <tr>
-              <th class="text-center">#</th>
-              <th>Producto</th>
-              <th class="text-center">Cant</th>
-              <th class="text-right">P.U.</th>
-              <th class="text-right">Total</th>
-            </tr>
-          </thead>
-        ` : `
-          <thead>
-            <tr>
-              <th style="width:32px;" class="text-center">#</th>
-              <th>Descripción</th>
-              <th style="width:70px;" class="text-center">Cant.</th>
-              <th style="width:85px;" class="text-right">P. Unit.</th>
-              <th style="width:75px;" class="text-right">Desc.</th>
-              <th style="width:60px;" class="text-center">IVA</th>
-              <th style="width:95px;" class="text-right">Subtotal</th>
-            </tr>
-          </thead>
-        `}
+        <thead>
+          ${tablaHeadHtml}
+        </thead>
         <tbody>
-          ${detallesHtml || `<tr><td colspan="${esTicket ? 5 : 7}" class="text-center" style="padding:24px;color:#888;">Sin detalles registrados</td></tr>`}
+          ${detallesHtml || `<tr><td colspan="${esGuia ? (esTicket ? 3 : 3) : (esTicket ? 5 : 7)}" class="text-center" style="padding:24px;color:#888;">Sin detalles registrados</td></tr>`}
         </tbody>
       </table>
     </div>
 
-    <!-- ===== TOTALES ===== -->
+    ${!esGuia ? `
     <div class="totales-section">
       <div class="totales-box">
-        <div class="total-row">
-          <span class="label">Subtotal</span>
-          <span class="value">$${n2m(subtotal)}</span>
-        </div>
-        <div class="total-row">
-          <span class="label">Descuento</span>
-          <span class="value">$0.00</span>
-        </div>
-        <div class="total-row">
-          <span class="label">IVA 15%</span>
-          <span class="value">$${n2m(iva)}</span>
-        </div>
-        <div class="total-final">
-          <span class="label">TOTAL A PAGAR</span>
-          <span class="value">$${n2m(total)}</span>
-        </div>
+        <div class="total-row"><span class="label">Subtotal</span><span class="value">$${n2m(subtotal)}</span></div>
+        <div class="total-row"><span class="label">Descuento</span><span class="value">$0.00</span></div>
+        <div class="total-row"><span class="label">IVA 15%</span><span class="value">$${n2m(iva)}</span></div>
+        <div class="total-final"><span class="label">TOTAL A PAGAR</span><span class="value">$${n2m(total)}</span></div>
       </div>
     </div>
+    ` : ''}
 
-    <!-- ===== INFO ADICIONAL ===== -->
     ${observaciones ? `
       <div class="info-adicional">
         <div class="info-adicional-title">Información Adicional</div>
@@ -1019,12 +1007,11 @@ export const printService = {
       </div>
     ` : ''}
 
-    <!-- ===== FIRMA ===== -->
     ${!esTicket ? `
     <div class="firma-section">
       <div class="firma-box">
         <div class="firma-line"></div>
-        <div class="firma-label">Firma del Cliente</div>
+        <div class="firma-label">${esGuia ? 'Recibí Conforme (Destinatario)' : 'Firma del Cliente'}</div>
       </div>
       <div class="firma-box">
         <div class="firma-line"></div>
@@ -1033,7 +1020,6 @@ export const printService = {
     </div>
     ` : ''}
 
-    <!-- ===== FOOTER ===== -->
     <div class="footer">
       <div><strong>Documento generado por Sistema Contable</strong></div>
       <div>${razonSocialEmisor} — RUC: ${rucEmisor}</div>

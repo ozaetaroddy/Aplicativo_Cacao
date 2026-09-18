@@ -74,7 +74,6 @@
     <div class="card card-cacao">
       <div class="card-body table-responsive">
         <table class="table table-cacao">
-          <!-- 🔧 a11y: caption oculto para lectores de pantalla -->
           <caption class="visually-hidden">
             Listado de documentos filtrados. Mostrando {{ documentos.length }}
             resultado{{ documentos.length === 1 ? '' : 's' }}.
@@ -82,7 +81,7 @@
           <thead>
             <tr>
               <th>Fecha</th>
-              <th>Cliente/Proveedor</th>
+              <th>Cliente / Proveedor / Destinatario</th>
               <th>Nº Documento</th>
               <th>Clave de Acceso</th>
               <th>Estado SRI</th>
@@ -90,8 +89,6 @@
               <th style="width: 200px;">Acciones</th>
             </tr>
           </thead>
-          <!-- 🔧 FIX: `aria-busy="{{ ... }}"` era sintaxis Vue 2 (interpolación literal).
-               Ahora usa binding Vue 3. -->
           <tbody :aria-busy="cargando ? 'true' : 'false'">
             <tr v-for="doc in documentos" :key="String(doc._id)">
               <td>{{ formatFecha(doc.fecha_emision) }}</td>
@@ -101,7 +98,7 @@
                   @click.prevent="verDocumento(doc)"
                   class="text-primary"
                 >
-                  {{ doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A' }}
+                  {{ nombreContraparte(doc) }}
                 </a>
               </td>
               <td class="font-monospace small">
@@ -345,68 +342,222 @@
                 </button>
               </div>
 
-              <!-- CLIENTE / PROVEEDOR -->
-              <div class="cliente-section">
-                <div class="cliente-box">
-                  <div class="cliente-box-title">
-                    <i class="fas fa-user me-1" aria-hidden="true"></i>
-                    {{ documentoActual.cliente ? 'Datos del Cliente' : 'Datos del Proveedor' }}
-                  </div>
-                  <div class="cliente-row">
-                    <span class="cliente-row-label">Razón Social:</span>
-                    <span class="cliente-row-value">
-                      {{
-                        documentoActual.cliente?.nombre ||
-                        documentoActual.proveedor?.nombre ||
-                        'Consumidor Final'
-                      }}
-                    </span>
-                  </div>
-                  <div class="cliente-row">
-                    <span class="cliente-row-label">RUC/Cédula:</span>
-                    <span class="cliente-row-value font-monospace">
-                      {{
-                        documentoActual.cliente?.ruc ||
-                        documentoActual.proveedor?.ruc ||
-                        '9999999999999'
-                      }}
-                    </span>
-                  </div>
-                </div>
-                <div class="cliente-box">
-                  <div class="cliente-box-title">
-                    <i class="fas fa-info-circle me-1" aria-hidden="true"></i>
-                    Datos del Documento
-                  </div>
-                  <div class="cliente-row">
-                    <span class="cliente-row-label">Forma Pago:</span>
-                    <span class="cliente-row-value">
-                      {{ documentoActual.forma_pago || 'Sin sistema financiero' }}
-                    </span>
-                  </div>
-                  <div class="cliente-row">
-                    <span class="cliente-row-label">Estado:</span>
-                    <span class="cliente-row-value">
-                      <span class="badge" :class="getEstadoSriClass(documentoActual.estado_sri)">
-                        {{ documentoActual.estado_sri || 'N/A' }}
+              <!-- ====== SECCIÓN CONDICIONAL: GUÍA DE REMISIÓN vs VENTA/COMPRA ====== -->
+              <template v-if="esGuiaRemision(documentoActual)">
+                <!-- GUÍA: Destinatario + Datos del documento -->
+                <div class="cliente-section">
+                  <div class="cliente-box">
+                    <div class="cliente-box-title">
+                      <i class="fas fa-user-check me-1" aria-hidden="true"></i>
+                      Datos del Destinatario
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Razón Social:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.destinatario_razon_social || documentoActual.cliente?.nombre || '—' }}
                       </span>
-                    </span>
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Identificación:</span>
+                      <span class="cliente-row-value font-monospace">
+                        {{ documentoActual.destinatario_identificacion || documentoActual.cliente?.ruc || '—' }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.destinatario_tipo">
+                      <span class="cliente-row-label">Tipo ID:</span>
+                      <span class="cliente-row-value">
+                        {{ getTipoIdentLabel(documentoActual.destinatario_tipo) }}
+                      </span>
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Dir. Destino:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.destinatario_direccion || '—' }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="cliente-box">
+                    <div class="cliente-box-title">
+                      <i class="fas fa-info-circle me-1" aria-hidden="true"></i>
+                      Datos del Documento
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Motivo:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.motivo || '—' }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.ruta">
+                      <span class="cliente-row-label">Ruta:</span>
+                      <span class="cliente-row-value">{{ documentoActual.ruta }}</span>
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Estado:</span>
+                      <span class="cliente-row-value">
+                        <span class="badge" :class="getEstadoSriClass(documentoActual.estado_sri)">
+                          {{ documentoActual.estado_sri || 'N/A' }}
+                        </span>
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.documento_aduana">
+                      <span class="cliente-row-label">Doc. Aduanero:</span>
+                      <span class="cliente-row-value font-monospace">
+                        {{ documentoActual.documento_aduana }}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <!-- DETALLES -->
+                <!-- GUÍA: Transportista + Traslado -->
+                <div class="cliente-section">
+                  <div class="cliente-box">
+                    <div class="cliente-box-title">
+                      <i class="fas fa-truck me-1" aria-hidden="true"></i>
+                      Datos del Transportista
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Razón Social:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.transportista_razon_social || documentoActual.transportista || '—' }}
+                      </span>
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Identificación:</span>
+                      <span class="cliente-row-value font-monospace">
+                        {{ documentoActual.transportista_identificacion || '—' }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.transportista_tipo">
+                      <span class="cliente-row-label">Tipo ID:</span>
+                      <span class="cliente-row-value">
+                        {{ getTipoIdentLabel(documentoActual.transportista_tipo) }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.transportista_correo">
+                      <span class="cliente-row-label">Correo:</span>
+                      <span class="cliente-row-value">{{ documentoActual.transportista_correo }}</span>
+                    </div>
+                  </div>
+
+                  <div class="cliente-box">
+                    <div class="cliente-box-title">
+                      <i class="fas fa-route me-1" aria-hidden="true"></i>
+                      Datos del Traslado
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Dir. Partida:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.direccion_partida || '—' }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.inicio_transporte">
+                      <span class="cliente-row-label">Inicio:</span>
+                      <span class="cliente-row-value">
+                        {{ formatFechaHora(documentoActual.inicio_transporte) }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.fin_transporte">
+                      <span class="cliente-row-label">Fin:</span>
+                      <span class="cliente-row-value">
+                        {{ formatFechaHora(documentoActual.fin_transporte) }}
+                      </span>
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Placa:</span>
+                      <span class="cliente-row-value font-monospace">
+                        {{ documentoActual.placa_transporte || documentoActual.placa || '—' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- VENTA / COMPRA: Cliente o Proveedor + Datos del documento -->
+              <template v-else>
+                <div class="cliente-section">
+                  <div class="cliente-box">
+                    <div class="cliente-box-title">
+                      <i class="fas fa-user me-1" aria-hidden="true"></i>
+                      {{ documentoActual.cliente ? 'Datos del Cliente' : 'Datos del Proveedor' }}
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Razón Social:</span>
+                      <span class="cliente-row-value">
+                        {{
+                          documentoActual.cliente?.nombre ||
+                          documentoActual.proveedor?.nombre ||
+                          'Consumidor Final'
+                        }}
+                      </span>
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">RUC/Cédula:</span>
+                      <span class="cliente-row-value font-monospace">
+                        {{
+                          documentoActual.cliente?.ruc ||
+                          documentoActual.proveedor?.ruc ||
+                          '9999999999999'
+                        }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.cliente?.direccion || documentoActual.proveedor?.direccion">
+                      <span class="cliente-row-label">Dirección:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.cliente?.direccion || documentoActual.proveedor?.direccion }}
+                      </span>
+                    </div>
+                    <div class="cliente-row" v-if="documentoActual.cliente?.email || documentoActual.proveedor?.email">
+                      <span class="cliente-row-label">Email:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.cliente?.email || documentoActual.proveedor?.email }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="cliente-box">
+                    <div class="cliente-box-title">
+                      <i class="fas fa-info-circle me-1" aria-hidden="true"></i>
+                      Datos del Documento
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Forma Pago:</span>
+                      <span class="cliente-row-value">
+                        {{ documentoActual.forma_pago || 'Sin sistema financiero' }}
+                      </span>
+                    </div>
+                    <div class="cliente-row">
+                      <span class="cliente-row-label">Estado:</span>
+                      <span class="cliente-row-value">
+                        <span class="badge" :class="getEstadoSriClass(documentoActual.estado_sri)">
+                          {{ documentoActual.estado_sri || 'N/A' }}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- DETALLES (común a todos los tipos) -->
               <div class="detalles-section">
-                <div class="detalles-title">Detalle de Productos y Servicios</div>
+                <div class="detalles-title">
+                  <template v-if="esGuiaRemision(documentoActual)">
+                    Detalle de Productos a Trasladar
+                  </template>
+                  <template v-else>
+                    Detalle de Productos y Servicios
+                  </template>
+                </div>
                 <table class="detalles-table">
                   <thead>
                     <tr>
                       <th style="width: 35px;" class="text-center">#</th>
                       <th>Descripción</th>
                       <th style="width: 75px;" class="text-center">Cant.</th>
-                      <th style="width: 85px;" class="text-right">P. Unit.</th>
-                      <th style="width: 65px;" class="text-center">IVA</th>
-                      <th style="width: 95px;" class="text-right">Subtotal</th>
+                      <template v-if="!esGuiaRemision(documentoActual)">
+                        <th style="width: 85px;" class="text-right">P. Unit.</th>
+                        <th style="width: 65px;" class="text-center">IVA</th>
+                        <th style="width: 95px;" class="text-right">Subtotal</th>
+                      </template>
                     </tr>
                   </thead>
                   <tbody>
@@ -424,36 +575,46 @@
                         </div>
                       </td>
                       <td class="text-center">{{ item.cantidad }}</td>
-                      <td class="text-right font-monospace">
-                        ${{
-                          Number(
-                            item.precio_unitario || item.costo_unitario || 0
-                          ).toFixed(2)
-                        }}
-                      </td>
-                      <td class="text-center">
-                        <span
-                          class="badge-iva"
-                          :class="item.aplica_iva !== false ? 'iva-si' : 'iva-no'"
-                        >
-                          {{ item.aplica_iva !== false ? '15%' : '0%' }}
-                        </span>
-                      </td>
-                      <td class="text-right font-monospace fw-bold">
-                        ${{
-                          (
-                            Number(item.cantidad || 0) *
-                            Number(item.precio_unitario || item.costo_unitario || 0)
-                          ).toFixed(2)
-                        }}
+                      <template v-if="!esGuiaRemision(documentoActual)">
+                        <td class="text-right font-monospace">
+                          ${{
+                            Number(
+                              item.precio_unitario || item.costo_unitario || 0
+                            ).toFixed(2)
+                          }}
+                        </td>
+                        <td class="text-center">
+                          <span
+                            class="badge-iva"
+                            :class="item.aplica_iva !== false ? 'iva-si' : 'iva-no'"
+                          >
+                            {{ item.aplica_iva !== false ? '15%' : '0%' }}
+                          </span>
+                        </td>
+                        <td class="text-right font-monospace fw-bold">
+                          ${{
+                            (
+                              Number(item.cantidad || 0) *
+                              Number(item.precio_unitario || item.costo_unitario || 0)
+                            ).toFixed(2)
+                          }}
+                        </td>
+                      </template>
+                    </tr>
+                    <tr v-if="!(documentoActual.detalles || []).length">
+                      <td
+                        :colspan="esGuiaRemision(documentoActual) ? 3 : 6"
+                        class="text-center text-muted py-3"
+                      >
+                        Sin detalles registrados
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
-              <!-- TOTALES -->
-              <div class="totales-section">
+              <!-- TOTALES (no aplica a guía de remisión) -->
+              <div v-if="!esGuiaRemision(documentoActual)" class="totales-section">
                 <div class="totales-box">
                   <div class="total-row">
                     <span class="label">Subtotal</span>
@@ -547,7 +708,6 @@
               ></button>
             </div>
             <div class="modal-body">
-              <!-- 🔧 ref="xmlViewerRef" para resetear scroll al abrir uno nuevo -->
               <div v-if="xmlDoc" class="xml-viewer" ref="xmlViewerRef">
                 <pre>{{ xmlDoc }}</pre>
               </div>
@@ -678,17 +838,14 @@ const productosMap = ref({})
 const qrDataUrl = ref('')
 
 const xmlDoc = ref('')
-// 🔧 ref del contenedor del XML para resetear scroll al abrir uno nuevo
 const xmlViewerRef = ref(null)
 
 let modalXmlInstance = null
 let modalConfirm = null
 
-// 🔧 Flags de coordinación entre modales.
 const reabrirPreviewTrasXml = ref(false)
 const abriendoEmail = ref(false)
 
-// Confirmación reactiva (reemplaza `confirm()` nativo)
 const confirmState = reactive({
   titulo: '',
   mensaje: '',
@@ -715,6 +872,42 @@ const hayFiltros = computed(() =>
 )
 
 // ===== HELPERS =====
+
+/** ¿El documento es una guía de remisión? */
+const esGuiaRemision = (doc) =>
+  String(doc?.tipo_documento || '').toLowerCase() === 'guia_remision'
+
+/**
+ * Nombre a mostrar en la columna "Cliente / Proveedor / Destinatario".
+ * Para guías usa el destinatario; para el resto, cliente o proveedor.
+ */
+const nombreContraparte = (doc) => {
+  if (!doc) return 'N/A'
+  if (esGuiaRemision(doc)) {
+    return (
+      doc.destinatario_razon_social ||
+      doc.cliente?.nombre ||
+      'Destinatario'
+    )
+  }
+  return doc.cliente?.nombre || doc.proveedor?.nombre || 'N/A'
+}
+
+/** Etiqueta legible del tipo de identificación SRI. */
+const getTipoIdentLabel = (codigo) => {
+  const s = String(codigo || '').trim()
+  return (
+    {
+      '04': 'RUC',
+      '05': 'Cédula',
+      '06': 'Pasaporte',
+      '07': 'Consumidor Final',
+      '08': 'Identificación Exterior',
+      '09': 'Placa'
+    }[s] || s || '—'
+  )
+}
+
 const obtenerNombreProducto = (id) => {
   if (!id) return 'Producto eliminado'
   return productosMap.value[String(id)]?.nombre || 'Producto eliminado'
@@ -955,7 +1148,7 @@ const imprimirModal = (formato) => {
   }
 }
 
-// ===== PDF (usa pdfService) =====
+// ===== PDF =====
 const guardarPDF = async () => {
   const doc = documentoActual.value
   if (!doc || generandoPdf.value) return
@@ -982,7 +1175,7 @@ const generarClave = async (doc) => {
   const confirmado = await pedirConfirmacion({
     titulo: 'Generar clave de acceso',
     mensaje: `¿Generar clave de acceso para <strong>${escapeHtml(
-      doc.numero_factura || 'este documento'
+      doc.numero_factura || doc.numero_guia || 'este documento'
     )}</strong>?`,
     detalle:
       'Se generará la clave de 49 dígitos y se intentará firmar automáticamente.',
@@ -1036,7 +1229,7 @@ const firmarDocumento = async (doc) => {
   const confirmado = await pedirConfirmacion({
     titulo: 'Firmar documento',
     mensaje: `¿Firmar electrónicamente <strong>${escapeHtml(
-      doc.numero_factura || ''
+      doc.numero_factura || doc.numero_guia || ''
     )}</strong>?`,
     detalle: 'Se usará el certificado configurado actualmente.',
     textoConfirmar: 'Firmar',
@@ -1072,7 +1265,7 @@ const enviarSRI = async (doc) => {
   const confirmado = await pedirConfirmacion({
     titulo: 'Enviar al SRI',
     mensaje: `¿Enviar <strong>${escapeHtml(
-      doc.numero_factura || ''
+      doc.numero_factura || doc.numero_guia || ''
     )}</strong> al SRI?`,
     detalle: 'Esta acción puede tardar hasta 30 segundos.',
     textoConfirmar: 'Enviar',
@@ -1132,9 +1325,6 @@ const abrirModalEmail = (doc) => {
   previewEl.addEventListener('hidden.bs.modal', onHidden, { once: true })
   modalInstance.value?.hide()
 
-  // 🔧 Fallback: si `hidden.bs.modal` no dispara en 600ms (raro pero
-  //    posible si Bootstrap se confunde con animación CSS), abrimos
-  //    el email igual. Idempotente gracias a `yaAbierto`.
   setTimeout(() => {
     if (!yaAbierto) {
       previewEl.removeEventListener('hidden.bs.modal', onHidden)
@@ -1161,7 +1351,6 @@ const verXml = async (doc) => {
       previewEl.addEventListener('hidden.bs.modal', onHidden, { once: true })
       modalInstance.value?.hide()
 
-      // Fallback defensivo
       setTimeout(resolve, 600)
     })
     if (unmounted) return
@@ -1180,7 +1369,6 @@ const verXml = async (doc) => {
     if (unmounted) return
     xmlDoc.value = res?.xml || ''
 
-    // 🔧 Reset del scroll del viewer al abrir uno nuevo
     await nextTick()
     if (xmlViewerRef.value) xmlViewerRef.value.scrollTop = 0
   } catch (e) {
@@ -1478,8 +1666,8 @@ onBeforeUnmount(() => {
   border-bottom: 1px dashed #d5dbe0;
 }
 .cliente-row { display: flex; font-size: 0.78rem; margin: 3px 0; line-height: 1.3; }
-.cliente-row-label { min-width: 85px; color: #666; font-weight: 600; }
-.cliente-row-value { flex: 1; color: #1a1a1a; font-weight: 500; }
+.cliente-row-label { min-width: 95px; color: #666; font-weight: 600; }
+.cliente-row-value { flex: 1; color: #1a1a1a; font-weight: 500; word-break: break-word; }
 
 .detalles-section { margin-bottom: 14px; }
 .detalles-title {
