@@ -211,42 +211,58 @@
 }
 
 /* ============================================================
-   DARK MODE
+   DARK MODE — Azul profundo (midnight blue)
+   ------------------------------------------------------------
+   🆕 El fondo se calcula con el HUE primario (`--primary-hue`,
+      por defecto 220 = azul). Si en el futuro cambias el color
+      primario, cambia también `--primary-hue` y TODO el dark
+      mode se adapta (fondo, tarjetas, bordes).
+   ------------------------------------------------------------
+   🆕 Se eliminó el gradiente ámbar del `body::before` que daba
+      el aspecto "café". Ahora los glows son azul/cian/violeta.
    ============================================================ */
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --bg-body: #0a0f1c;
-  --bg-body-alt: #0f1524;
-  --bg-card: #131a2b;
-  --bg-card-hover: #172033;
-  --bg-input: #0f1729;
-  --bg-table-stripe: #131c30;
-  --bg-table-hover: #182238;
-  --bg-navbar: linear-gradient(135deg, #050912 0%, #0d1526 55%, #131d33 100%);
-  --bg-sidebar: #0f1524;
-  --bg-glass: rgba(19, 26, 43, 0.82);
-  --bg-overlay: rgba(5, 9, 18, 0.7);
+  /* Hue de la paleta dark (220 = azul). Cambiar para otros temas. */
+  --primary-hue: 220;
 
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
+  --bg-body: hsl(var(--primary-hue), 45%, 7%);
+  --bg-body-alt: hsl(var(--primary-hue), 42%, 9%);
+  --bg-card: hsl(var(--primary-hue), 38%, 11%);
+  --bg-card-hover: hsl(var(--primary-hue), 38%, 13%);
+  --bg-input: hsl(var(--primary-hue), 40%, 9%);
+  --bg-table-stripe: hsl(var(--primary-hue), 35%, 12%);
+  --bg-table-hover: hsl(var(--primary-hue), 40%, 15%);
+  --bg-navbar: linear-gradient(
+    135deg,
+    hsl(var(--primary-hue), 50%, 5%) 0%,
+    hsl(var(--primary-hue), 45%, 10%) 55%,
+    hsl(var(--primary-hue), 42%, 14%) 100%
+  );
+  --bg-sidebar: hsl(var(--primary-hue), 42%, 9%);
+  --bg-glass: hsla(var(--primary-hue), 38%, 11%, 0.82);
+  --bg-overlay: hsla(var(--primary-hue), 50%, 4%, 0.7);
+
+  --text-primary: #eef2f9;
+  --text-secondary: #b8c4d8;
   --text-muted: #64748b;
   --text-disabled: #475569;
 
-  --border-color: #1e293b;
-  --border-light: #172033;
-  --border-strong: #334155;
-  --border-focus: #3b82f6;
+  --border-color: hsl(var(--primary-hue), 25%, 18%);
+  --border-light: hsl(var(--primary-hue), 25%, 14%);
+  --border-strong: hsl(var(--primary-hue), 20%, 28%);
+  --border-focus: hsl(var(--primary-hue), 70%, 55%);
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.55), 0 8px 16px rgba(0, 0, 0, 0.35);
-  --shadow-2xl: 0 32px 64px rgba(0, 0, 0, 0.65);
-  --shadow-color: rgba(0, 0, 0, 0.3);
-  --shadow-hover: rgba(0, 0, 0, 0.5);
-  --shadow-focus: rgba(59, 130, 246, 0.25);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.55), 0 4px 8px rgba(0, 0, 0, 0.35);
+  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.65), 0 8px 16px rgba(0, 0, 0, 0.4);
+  --shadow-2xl: 0 32px 64px rgba(0, 0, 0, 0.75);
+  --shadow-color: rgba(0, 0, 0, 0.35);
+  --shadow-hover: rgba(0, 0, 0, 0.55);
+  --shadow-focus: hsla(var(--primary-hue), 70%, 55%, 0.28);
 
   --success-bg: rgba(16, 185, 129, 0.14);
   --warning-bg: rgba(245, 158, 11, 0.14);
@@ -303,11 +319,29 @@ body::before {
   z-index: -1;
 }
 
+/* ============================================================
+   DARK MODE — Fondos ambientales (glows)
+   ------------------------------------------------------------
+   🆕 Antes: gradiente ÁMBAR (245, 158, 11) → sensación "café".
+      Ahora: azul + cian + violeta → sensación "midnight blue".
+   ============================================================ */
 [data-theme="dark"] body::before {
   background:
-    radial-gradient(ellipse 800px 600px at 10% 0%, rgba(37, 99, 235, 0.14), transparent 60%),
-    radial-gradient(ellipse 700px 500px at 90% 100%, rgba(245, 158, 11, 0.1), transparent 60%),
-    radial-gradient(ellipse 500px 400px at 50% 50%, rgba(139, 92, 246, 0.08), transparent 60%);
+    radial-gradient(
+      ellipse 900px 600px at 10% 0%,
+      hsla(var(--primary-hue), 80%, 55%, 0.18),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 700px 500px at 90% 100%,
+      hsla(190, 85%, 45%, 0.10),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 500px 400px at 50% 50%,
+      hsla(265, 70%, 55%, 0.08),
+      transparent 60%
+    );
 }
 
 #app {

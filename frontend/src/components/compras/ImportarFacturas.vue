@@ -169,6 +169,10 @@
                   <i class="fas fa-user-plus me-1"></i>
                   {{ resultadoImportacion.proveedoresCreados }} proveedor(es) creado(s)
                 </div>
+                <div v-if="resultadoImportacion.retencionesCreadas > 0" class="small">
+  <i class="fas fa-percent me-1"></i>
+  {{ resultadoImportacion.retencionesCreadas }} retención(es) generada(s) automáticamente
+</div>
                 <div
                   v-if="(resultadoImportacion.errores?.length || 0) > 0"
                   class="small text-danger"

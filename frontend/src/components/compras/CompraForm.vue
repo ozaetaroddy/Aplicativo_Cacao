@@ -60,6 +60,21 @@
 
       <AlertaPeriodoCerrado :periodo-cerrado="periodoCerrado" />
 
+      <!-- Aviso: la retención se emitirá automáticamente -->
+      <transition name="fade">
+        <div v-if="tieneRetencion && !id" class="alert-card alert-info-banner">
+          <div class="alert-icon"><i class="fas fa-magic"></i></div>
+          <div class="alert-body">
+            <strong>Retención automática</strong>
+            <div class="small">
+              Al guardar, el sistema generará automáticamente el
+              <strong>comprobante de retención electrónico</strong> con clave de acceso SRI
+              y firma digital (si hay certificado cargado).
+            </div>
+          </div>
+        </div>
+      </transition>
+
       <form @submit.prevent="guardar" novalidate>
         <div class="form-grid">
           <div class="form-main">
@@ -401,7 +416,7 @@
               </div>
             </section>
 
-            <!-- SECCIÓN 4: Pago y retención -->
+            <!-- SECCIÓN 4: Pago -->
             <section class="form-section">
               <header
                 class="section-header section-header-clickable"
@@ -411,8 +426,8 @@
                   <i class="fas fa-credit-card"></i>
                 </div>
                 <div class="section-header-content">
-                  <h2 class="section-title">Pago y Retención</h2>
-                  <p class="section-desc">Forma de pago y valores retenidos</p>
+                  <h2 class="section-title">Pago</h2>
+                  <p class="section-desc">Forma, estado y fecha de pago</p>
                 </div>
                 <i
                   class="fas toggle-chevron"
@@ -421,7 +436,7 @@
               </header>
               <transition name="collapse">
                 <div v-show="seccionesExpandidas.pago" class="section-body">
-                  <div class="form-row cols-4">
+                  <div class="form-row cols-3">
                     <div class="form-field">
                       <label class="form-label" for="cmp-pago-estado">Estado de pago</label>
                       <select
@@ -452,35 +467,309 @@
                         :disabled="cargando"
                       />
                     </div>
-                    <div class="form-field">
-                      <label class="form-label" for="cmp-retencion">Valor retenido ($)</label>
+                  </div>
+                </div>
+              </transition>
+            </section>
+
+            <!-- SECCIÓN 5: Retención (🆕) -->
+            <section class="form-section form-section-retencion">
+              <header
+                class="section-header section-header-purple section-header-clickable"
+                @click="seccionesExpandidas.retencion = !seccionesExpandidas.retencion"
+              >
+                <div class="section-number section-number-purple">
+                  <i class="fas fa-percent"></i>
+                </div>
+                <div class="section-header-content">
+                  <h2 class="section-title">
+                    Retención
+                    <span
+                      v-if="compra.impuestos_retencion.length > 0"
+                      class="count-badge count-badge-purple"
+                    >
+                      {{ compra.impuestos_retencion.length }}
+                    </span>
+                  </h2>
+                  <p class="section-desc">
+                    Si aplica retención, se emitirá el comprobante automáticamente
+                  </p>
+                </div>
+                <i
+                  class="fas toggle-chevron"
+                  :class="seccionesExpandidas.retencion ? 'fa-chevron-up' : 'fa-chevron-down'"
+                ></i>
+              </header>
+              <transition name="collapse">
+                <div v-show="seccionesExpandidas.retencion" class="section-body">
+                  <!-- Toggle activar retención -->
+                  <div class="ret-toggle-row">
+                    <label class="ret-toggle">
                       <input
-                        id="cmp-retencion"
-                        type="number"
-                        step="0.01"
-                        class="form-control"
-                        v-model.number="compra.retencion_valor"
-                        min="0"
+                        type="checkbox"
+                        :checked="tieneRetencion"
+                        @change="toggleRetencion($event.target.checked)"
                         :disabled="cargando"
                       />
-                    </div>
+                      <span class="ret-toggle-slider"></span>
+                      <span class="ret-toggle-text">
+                        <strong>Aplicar retención</strong>
+                        <small>
+                          Al activar, se emitirá un comprobante de retención electrónico
+                          con clave de acceso SRI
+                        </small>
+                      </span>
+                    </label>
                   </div>
-                  <div class="form-row">
-                    <div class="form-field">
-                      <label class="form-label" for="cmp-obs">Observaciones</label>
-                      <textarea
-                        id="cmp-obs"
-                        class="form-control"
-                        v-model="compra.observaciones"
-                        rows="2"
-                        placeholder="Notas adicionales..."
-                        maxlength="1000"
+
+                  <!-- Impuestos retenidos -->
+                  <template v-if="tieneRetencion">
+                    <div class="subsection">
+                      <h3 class="subsection-title">
+                        <i class="fas fa-calculator"></i>
+                        Impuestos Retenidos
+                        <span class="badge-hint">
+                          Catálogo SRI oficial
+                        </span>
+                      </h3>
+
+                      <div
+                        v-if="compra.impuestos_retencion.length === 0"
+                        class="empty-items empty-items-compact"
+                      >
+                        <div class="empty-icon"><i class="fas fa-percent"></i></div>
+                        <div class="empty-title">No hay impuestos retenidos</div>
+                        <div class="empty-text">
+                          Agrega al menos un impuesto del catálogo SRI
+                        </div>
+                      </div>
+
+                      <div v-else class="items-list">
+                        <div
+                          v-for="(imp, idx) in compra.impuestos_retencion"
+                          :key="`ret-${idx}`"
+                          class="item-card item-card-retencion"
+                        >
+                          <div class="form-row cols-4" style="width: 100%; margin: 0;">
+                            <div class="form-field" style="grid-column: span 2;">
+                              <label :for="`ret-codigo-${idx}`" class="form-label">
+                                <span class="required">*</span> Código Retención (SRI)
+                              </label>
+                              <select
+                                :id="`ret-codigo-${idx}`"
+                                class="form-select"
+                                :value="`${imp.impuesto}:${imp.codigoRetencion}`"
+                                :disabled="cargando"
+                                @change="onCambiarCodigoRetencion(idx, $event.target.value)"
+                              >
+                                <option value="">— Seleccione del catálogo SRI —</option>
+                                <optgroup label="Impuesto a la Renta">
+                                  <option
+                                    v-for="t in RETENCIONES_RENTA"
+                                    :key="`RENTA:${t.codigo}`"
+                                    :value="`RENTA:${t.codigo}`"
+                                  >
+                                    {{ t.codigo }} — {{ t.nombre }} ({{ t.porcentaje }}%)
+                                  </option>
+                                </optgroup>
+                                <optgroup label="IVA">
+                                  <option
+                                    v-for="t in RETENCIONES_IVA"
+                                    :key="`IVA:${t.codigo}`"
+                                    :value="`IVA:${t.codigo}`"
+                                  >
+                                    {{ t.codigo }} — {{ t.nombre }} ({{ t.porcentaje }}%)
+                                  </option>
+                                </optgroup>
+                              </select>
+                              <small v-if="imp.concepto" class="form-hint">
+                                <i class="fas fa-info-circle"></i>
+                                {{ imp.impuesto }} · {{ imp.concepto }}
+                              </small>
+                            </div>
+
+                            <div class="form-field">
+                              <label :for="`ret-base-${idx}`" class="form-label">
+                                <span class="required">*</span> Base ($)
+                              </label>
+                              <input
+                                :id="`ret-base-${idx}`"
+                                type="number"
+                                class="form-control"
+                                v-model.number="imp.baseImponible"
+                                min="0"
+                                step="0.01"
+                                placeholder="0.00"
+                                @input="recalcularValorRetencion(idx)"
+                              />
+                            </div>
+
+                            <div class="form-field">
+                              <label :for="`ret-porcentaje-${idx}`" class="form-label">
+                                % Retener
+                              </label>
+                              <input
+                                :id="`ret-porcentaje-${idx}`"
+                                type="number"
+                                class="form-control"
+                                v-model.number="imp.porcentajeRetener"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                placeholder="0.00"
+                                @input="recalcularValorRetencion(idx)"
+                              />
+                            </div>
+                          </div>
+
+                          <div
+                            class="form-row cols-4"
+                            style="width: 100%; margin: 12px 0 0;"
+                          >
+                            <div class="form-field">
+                              <label :for="`ret-valor-${idx}`" class="form-label">
+                                Valor Retenido ($)
+                              </label>
+                              <input
+                                :id="`ret-valor-${idx}`"
+                                type="number"
+                                class="form-control"
+                                :value="imp.valorRetenido"
+                                readonly
+                                class="input-readonly"
+                              />
+                            </div>
+                            <div class="form-field">
+                              <label :for="`ret-doc-codigo-${idx}`" class="form-label">
+                                Código Doc. Sustento
+                              </label>
+                              <input
+                                :id="`ret-doc-codigo-${idx}`"
+                                type="text"
+                                class="form-control"
+                                v-model="imp.codigoDocumento"
+                                placeholder="01"
+                                maxlength="3"
+                              />
+                            </div>
+                            <div class="form-field">
+                              <label :for="`ret-doc-numero-${idx}`" class="form-label">
+                                Nº Doc. Sustento
+                              </label>
+                              <input
+                                :id="`ret-doc-numero-${idx}`"
+                                type="text"
+                                class="form-control"
+                                v-model="imp.numeroDocumento"
+                                :placeholder="compra.numero_factura || '001-001-000000001'"
+                              />
+                            </div>
+                            <div class="form-field">
+                              <label :for="`ret-doc-fecha-${idx}`" class="form-label">
+                                Fecha Doc. Sustento
+                              </label>
+                              <input
+                                :id="`ret-doc-fecha-${idx}`"
+                                type="date"
+                                class="form-control"
+                                v-model="imp.fechaEmisionDocSustento"
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            class="item-remove"
+                            @click="eliminarImpuestoRetencion(idx)"
+                            title="Quitar impuesto"
+                            aria-label="Quitar impuesto"
+                          >
+                            <i class="fas fa-times"></i>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div
+                        v-if="compra.impuestos_retencion.length > 0"
+                        class="ret-total"
+                      >
+                        <span>
+                          <i class="fas fa-calculator"></i>
+                          Total retenido:
+                        </span>
+                        <strong>${{ totalRetenido.toFixed(2) }}</strong>
+                      </div>
+
+                      <button
+                        type="button"
+                        class="btn-new-inline btn-new-purple"
+                        @click="agregarImpuestoRetencion"
+                        style="margin-top: 12px;"
                         :disabled="cargando"
-                      ></textarea>
+                      >
+                        <i class="fas fa-plus"></i>
+                        <span>Agregar impuesto</span>
+                      </button>
+                    </div>
+
+                    <!-- Advertencia de equivalencia -->
+                    <div
+                      v-if="compra.impuestos_retencion.length > 0 && !coincideRetencionManual"
+                      class="advertencia-box"
+                    >
+                      <i class="fas fa-info-circle"></i>
+                      <span>
+                        El monto de los impuestos (<strong>${{ totalRetenido.toFixed(2) }}</strong>)
+                        se usará como retención oficial. Si querías solo un valor aproximado,
+                        ajusta los impuestos o desactiva la retención.
+                      </span>
+                    </div>
+                  </template>
+
+                  <!-- Ayuda cuando está desactivado -->
+                  <div v-else class="ret-help">
+                    <div class="ret-help-icon">
+                      <i class="fas fa-info-circle"></i>
+                    </div>
+                    <div>
+                      <strong>¿Cuándo aplicar retención?</strong>
+                      <ul>
+                        <li>Cuando el proveedor es contribuyente especial o presta servicios profesionales.</li>
+                        <li>Cuando la compra supera el umbral del SRI según el tipo de bien/servicio.</li>
+                        <li>La retención se calcula según el <strong>catálogo oficial del SRI</strong>.</li>
+                      </ul>
                     </div>
                   </div>
                 </div>
               </transition>
+            </section>
+
+            <!-- SECCIÓN 6: Observaciones -->
+            <section class="form-section">
+              <header class="section-header">
+                <div class="section-number section-number-orange">
+                  <i class="fas fa-comment-alt"></i>
+                </div>
+                <div class="section-header-content">
+                  <h2 class="section-title">Observaciones</h2>
+                  <p class="section-desc">Notas internas sobre esta compra</p>
+                </div>
+              </header>
+              <div class="section-body">
+                <div class="form-field">
+                  <textarea
+                    class="form-control"
+                    v-model="compra.observaciones"
+                    rows="3"
+                    placeholder="Notas adicionales..."
+                    maxlength="1000"
+                    :disabled="cargando"
+                  ></textarea>
+                  <small class="form-hint">
+                    {{ (compra.observaciones || '').length }} / 1000 caracteres
+                  </small>
+                </div>
+              </div>
             </section>
           </div>
 
@@ -507,11 +796,28 @@
                   </div>
                   <div class="summary-divider"></div>
                   <div class="summary-total summary-total-orange">
-                    <span class="total-label">TOTAL</span>
+                    <span class="total-label">TOTAL COMPRA</span>
                     <span class="total-value total-value-orange">
                       ${{ total.toFixed(2) }}
                     </span>
                   </div>
+
+                  <!-- Retención en el resumen -->
+                  <template v-if="tieneRetencion">
+                    <div class="summary-divider"></div>
+                    <div class="summary-row">
+                      <span class="summary-label">Retención</span>
+                      <span class="summary-value summary-value-purple">
+                        -${{ totalRetenido.toFixed(2) }}
+                      </span>
+                    </div>
+                    <div class="summary-row">
+                      <span class="summary-label">A pagar al proveedor</span>
+                      <span class="summary-value">
+                        ${{ (total - totalRetenido).toFixed(2) }}
+                      </span>
+                    </div>
+                  </template>
                 </div>
               </div>
 
@@ -538,6 +844,16 @@
                   ></i>
                   <span>Fecha establecida</span>
                 </div>
+                <div
+                  v-if="tieneRetencion"
+                  class="status-item"
+                  :class="{ complete: retencionValida }"
+                >
+                  <i
+                    :class="retencionValida ? 'fas fa-check-circle' : 'far fa-circle'"
+                  ></i>
+                  <span>Impuestos de retención</span>
+                </div>
               </div>
 
               <div class="actions-card">
@@ -554,6 +870,16 @@
                   <i class="fas fa-times"></i>
                   <span>Cancelar</span>
                 </button>
+              </div>
+
+              <div v-if="tieneRetencion && !id" class="info-card info-card-purple">
+                <i class="fas fa-magic"></i>
+                <div>
+                  <div class="info-title">Retención automática</div>
+                  <div class="info-text">
+                    Se generará un comprobante de retención electrónico al guardar
+                  </div>
+                </div>
               </div>
             </div>
           </aside>
@@ -586,6 +912,9 @@ const route = useRoute()
 const router = useRouter()
 const { catalogos, cargarCatalogos } = useCatalogosSRI()
 
+// ===== CONSTANTES =====
+const CODIGO_IMPUESTO_RETENCION = Object.freeze({ RENTA: '1', IVA: '2' })
+
 // ===== STATE =====
 const id = route.params.id || null
 const proveedores = ref([])
@@ -603,7 +932,7 @@ const mostrarListaProveedores = ref(false)
 const mostrarListaProductos = ref(false)
 const mostrarAyuda = ref(false)
 
-const seccionesExpandidas = ref({ pago: true })
+const seccionesExpandidas = ref({ pago: true, retencion: true })
 
 let fuseProveedores = null
 let fuseProductos = null
@@ -620,9 +949,9 @@ const compra = ref({
   estado_pago: 'pendiente',
   forma_pago: '',
   fecha_pago: '',
-  retencion_valor: 0,
-  retencion_porcentaje: 0,
-  observaciones: ''
+  observaciones: '',
+  // 🆕 Impuestos de retención
+  impuestos_retencion: []
 })
 const formOriginal = ref(null)
 
@@ -656,6 +985,17 @@ const productosFiltrados = computed(() => {
   }
 })
 
+// 🆕 Catálogos de retención desde useCatalogosSRI
+const RETENCIONES_RENTA = computed(() => {
+  const arr = catalogos.value?.TIPO_RETENCION || []
+  return arr.filter(t => t.impuesto === 'RENTA')
+})
+
+const RETENCIONES_IVA = computed(() => {
+  const arr = catalogos.value?.TIPO_RETENCION || []
+  return arr.filter(t => t.impuesto === 'IVA')
+})
+
 const subtotal = computed(() =>
   roundTo2(
     compra.value.detalles.reduce(
@@ -677,12 +1017,51 @@ const iva = computed(() => {
 
 const total = computed(() => roundTo2(subtotal.value + iva.value))
 
+// 🆕 Retención
+const tieneRetencion = computed(() => {
+  return Array.isArray(compra.value.impuestos_retencion)
+    && compra.value.impuestos_retencion.length > 0
+})
+
+const totalRetenido = computed(() => {
+  if (!tieneRetencion.value) return 0
+  return roundTo2(
+    compra.value.impuestos_retencion.reduce(
+      (s, x) => s + (Number(x.valorRetenido) || 0),
+      0
+    )
+  )
+})
+
+const retencionValida = computed(() => {
+  if (!tieneRetencion.value) return true
+  return compra.value.impuestos_retencion.every(
+    imp =>
+      imp.codigoRetencion &&
+      Number(imp.baseImponible) >= 0 &&
+      Number(imp.porcentajeRetener) > 0 &&
+      Number(imp.valorRetenido) > 0
+  )
+})
+
+/**
+ * ¿El total retenido coincide con lo que el usuario esperaría?
+ * Se usa solo para mostrar advertencia informativa.
+ */
+const coincideRetencionManual = computed(() => {
+  if (!tieneRetencion.value) return true
+  return true // ya no hay campo "retencion_valor" separado, siempre coincide
+})
+
 const formularioValido = computed(() => {
   if (!compra.value.proveedorId) return false
   if (!Array.isArray(compra.value.detalles) || compra.value.detalles.length === 0) return false
-  return compra.value.detalles.every(
+  const detallesOk = compra.value.detalles.every(
     d => d.productoId && Number(d.cantidad) > 0 && Number(d.costo_unitario) >= 0
   )
+  if (!detallesOk) return false
+  if (!retencionValida.value) return false
+  return true
 })
 
 const hayCambios = computed(() => {
@@ -804,6 +1183,102 @@ const eliminarDetalle = (index) => {
   compra.value.detalles.splice(index, 1)
 }
 
+// ============================================================
+// 🆕 RETENCIÓN — Helpers
+// ============================================================
+
+const buscarRetencionLocal = (codigo, impuesto) => {
+  if (!codigo || !impuesto) return null
+  const arr = catalogos.value?.TIPO_RETENCION || []
+  return arr.find(t => t.codigo === codigo && t.impuesto === impuesto) || null
+}
+
+const toggleRetencion = (activar) => {
+  if (activar) {
+    if (compra.value.impuestos_retencion.length === 0) {
+      agregarImpuestoRetencion()
+    }
+  } else {
+    compra.value.impuestos_retencion = []
+  }
+}
+
+const agregarImpuestoRetencion = () => {
+  // Sugerir base según el subtotal y código IVA 30% (más común)
+  const baseSugerida = subtotal.value > 0 ? subtotal.value : 0
+  const ivaSugerido = iva.value > 0 ? iva.value : 0
+
+  compra.value.impuestos_retencion.push({
+    codigo: '',
+    codigoRetencion: '',
+    impuesto: '',
+    concepto: '',
+    baseImponible: baseSugerida,
+    porcentajeRetener: 0,
+    valorRetenido: 0,
+    codigoDocumento: '01',
+    numeroDocumento: compra.value.numero_factura || '',
+    fechaEmisionDocSustento: compra.value.fecha_emision || ''
+  })
+
+  // Si hay IVA en la compra, sugerir el código de retención IVA 30%
+  if (ivaSugerido > 0) {
+    const ivaDefault = buscarRetencionLocal('721', 'IVA')
+    if (ivaDefault) {
+      const idx = compra.value.impuestos_retencion.length - 1
+      compra.value.impuestos_retencion[idx].codigoRetencion = '721'
+      compra.value.impuestos_retencion[idx].impuesto = 'IVA'
+      compra.value.impuestos_retencion[idx].codigo = '2'
+      compra.value.impuestos_retencion[idx].concepto = ivaDefault.nombre
+      compra.value.impuestos_retencion[idx].porcentajeRetener = ivaDefault.porcentaje
+      compra.value.impuestos_retencion[idx].baseImponible = ivaSugerido
+      recalcularValorRetencion(idx)
+    }
+  }
+}
+
+const eliminarImpuestoRetencion = (index) => {
+  compra.value.impuestos_retencion.splice(index, 1)
+}
+
+const onCambiarCodigoRetencion = (idx, value) => {
+  const imp = compra.value.impuestos_retencion[idx]
+  if (!imp) return
+
+  if (!value) {
+    imp.codigoRetencion = ''
+    imp.impuesto = ''
+    imp.codigo = ''
+    imp.concepto = ''
+    imp.porcentajeRetener = 0
+    imp.valorRetenido = 0
+    return
+  }
+
+  const [impuesto, codigo] = String(value).split(':')
+  if (!impuesto || !codigo) return
+
+  imp.impuesto = impuesto
+  imp.codigoRetencion = codigo
+  imp.codigo = CODIGO_IMPUESTO_RETENCION[impuesto] || '1'
+
+  const cat = buscarRetencionLocal(codigo, impuesto)
+  if (cat) {
+    imp.concepto = cat.nombre
+    imp.porcentajeRetener = cat.porcentaje
+  }
+
+  recalcularValorRetencion(idx)
+}
+
+const recalcularValorRetencion = (idx) => {
+  const imp = compra.value.impuestos_retencion[idx]
+  if (!imp) return
+  const base = Number(imp.baseImponible) || 0
+  const pct = Number(imp.porcentajeRetener) || 0
+  imp.valorRetenido = roundTo2(base * (pct / 100))
+}
+
 // ===== PERIODO =====
 const verificarPeriodo = async () => {
   if (!compra.value.fecha_emision) {
@@ -849,10 +1324,8 @@ const volver = () => {
 const cargarDatos = async () => {
   cargandoInicial.value = true
   try {
-    // Catálogos (no bloqueante)
     cargarCatalogos().catch(() => {})
 
-    // Cargar proveedores y productos en paralelo
     const [provsRes, prodsRes] = await Promise.all([
       api.request('/proveedores?limit=2000', { method: 'GET', skipLoader: true }),
       api.request('/productos?limit=5000', { method: 'GET', skipLoader: true })
@@ -862,7 +1335,6 @@ const cargarDatos = async () => {
     proveedores.value = Array.isArray(provsRes) ? provsRes : (provsRes?.data || [])
     productos.value = Array.isArray(prodsRes) ? prodsRes : (prodsRes?.data || [])
 
-    // Inicializar Fuse
     try {
       if (proveedores.value.length > 0) {
         fuseProveedores = new Fuse(proveedores.value, {
@@ -876,11 +1348,8 @@ const cargarDatos = async () => {
           threshold: 0.3
         })
       }
-    } catch {
-      /* Fuse opcional */
-    }
+    } catch { /* Fuse opcional */ }
 
-    // Cargar compra si es edición
     if (id) {
       const data = await api.request(`/compras/${id}`, {
         method: 'GET',
@@ -893,7 +1362,6 @@ const cargarDatos = async () => {
         return
       }
 
-      // Enriquecer detalles con info del producto
       const detalles = Array.isArray(data.detalles)
         ? data.detalles.map(d => {
             const prod = productos.value.find(p => p._id === d.productoId)
@@ -903,6 +1371,25 @@ const cargarDatos = async () => {
               nombre: prod?.nombre || d.nombre || 'Producto'
             }
           })
+        : []
+
+      // 🆕 Normalizar impuestos de retención existentes
+      const impuestos = Array.isArray(data.impuestos_retencion)
+        ? data.impuestos_retencion.map(imp => ({
+            codigo: imp.codigo || (imp.impuesto === 'IVA' ? '2' : '1'),
+            codigoRetencion: imp.codigoRetencion || imp.tipo_retencion || '',
+            impuesto: imp.impuesto || imp.impuesto_retencion || '',
+            concepto: imp.concepto || '',
+            baseImponible: Number(imp.baseImponible) || 0,
+            porcentajeRetener: Number(imp.porcentajeRetener) || 0,
+            valorRetenido: Number(imp.valorRetenido) || 0,
+            codigoDocumento: imp.codigoDocumento || '01',
+            numeroDocumento: imp.numeroDocumento || data.numero_factura || '',
+            fechaEmisionDocSustento:
+              imp.fechaEmisionDocSustento || (data.fecha_emision
+                ? new Date(data.fecha_emision).toISOString().split('T')[0]
+                : '')
+          }))
         : []
 
       compra.value = {
@@ -921,9 +1408,8 @@ const cargarDatos = async () => {
         fecha_pago: data.fecha_pago
           ? new Date(data.fecha_pago).toISOString().split('T')[0]
           : '',
-        retencion_valor: data.retencion_valor || 0,
-        retencion_porcentaje: data.retencion_porcentaje || 0,
-        observaciones: data.observaciones || ''
+        observaciones: data.observaciones || '',
+        impuestos_retencion: impuestos
       }
     } else {
       compra.value.numero_factura = generarCodigoCompra()
@@ -951,7 +1437,7 @@ const guardar = async () => {
     return
   }
   if (!formularioValido.value) {
-    errorGeneral.value = 'Completa el proveedor y agrega al menos un producto'
+    errorGeneral.value = 'Completa el proveedor, productos y verifica los impuestos de retención'
     toast.warning('Verifica los datos')
     return
   }
@@ -961,6 +1447,22 @@ const guardar = async () => {
   cargando.value = true
 
   try {
+    // 🆕 Filtrar impuestos con código válido
+    const impuestosValidos = compra.value.impuestos_retencion
+      .filter(imp => imp.codigoRetencion)
+      .map(imp => ({
+        codigo: imp.codigo || (imp.impuesto === 'IVA' ? '2' : '1'),
+        codigoRetencion: String(imp.codigoRetencion).trim(),
+        impuesto: imp.impuesto || '',
+        concepto: imp.concepto || '',
+        baseImponible: roundTo2(Number(imp.baseImponible) || 0),
+        porcentajeRetener: roundTo2(Number(imp.porcentajeRetener) || 0),
+        valorRetenido: roundTo2(Number(imp.valorRetenido) || 0),
+        codigoDocumento: imp.codigoDocumento || '01',
+        numeroDocumento: imp.numeroDocumento || compra.value.numero_factura || '',
+        fechaEmisionDocSustento: imp.fechaEmisionDocSustento || compra.value.fecha_emision
+      }))
+
     const payload = {
       proveedorId: compra.value.proveedorId,
       numero_factura: compra.value.numero_factura,
@@ -978,27 +1480,60 @@ const guardar = async () => {
       estado_pago: compra.value.estado_pago,
       forma_pago: compra.value.forma_pago || '',
       fecha_pago: compra.value.fecha_pago || null,
-      retencion_valor: Number(compra.value.retencion_valor) || 0,
-      retencion_porcentaje: Number(compra.value.retencion_porcentaje) || 0,
+      // 🆕 retención
+      retencion_valor: totalRetenido.value,
+      retencion_porcentaje: 0,
+      impuestos_retencion: impuestosValidos.length > 0 ? impuestosValidos : undefined,
       observaciones: compra.value.observaciones || ''
     }
 
+    let response
     if (id) {
-      await api.request(`/compras/${id}`, {
+      response = await api.request(`/compras/${id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
         loaderMessage: 'Guardando cambios...'
       })
       if (unmounted) return
-      toast.success('Compra actualizada')
+
+      if (response?._retencion_creada) {
+        toast.success(
+          `Compra actualizada · Retención ${response._retencion_creada.numero} generada`,
+          { timeout: 6000 }
+        )
+      } else {
+        toast.success('Compra actualizada')
+      }
+
+      if (response?._advertencia) {
+        toast.warning(response._advertencia, { timeout: 8000 })
+      }
     } else {
-      await api.request('/compras', {
+      response = await api.request('/compras', {
         method: 'POST',
         body: JSON.stringify(payload),
         loaderMessage: 'Creando compra...'
       })
       if (unmounted) return
-      toast.success('Compra creada exitosamente')
+
+      if (response?._retencion_creada) {
+        toast.success(
+          `Compra creada · Retención ${response._retencion_creada.numero} generada automáticamente`,
+          { timeout: 6000 }
+        )
+      } else {
+        toast.success('Compra creada exitosamente')
+      }
+
+      if (response?._advertencia) {
+        toast.warning(response._advertencia, { timeout: 10000 })
+      }
+
+      if (Array.isArray(response?._advertencias_retencion)) {
+        for (const adv of response._advertencias_retencion) {
+          toast.info(adv, { timeout: 8000 })
+        }
+      }
     }
 
     formOriginal.value = JSON.parse(JSON.stringify(compra.value))
@@ -1025,6 +1560,13 @@ const guardar = async () => {
     } else if (codigo === 'FECHA_INVALIDA') {
       errorGeneral.value = 'Fecha inválida'
       toast.error('Fecha inválida')
+    } else if (codigo === 'RETENCION_INVALIDA' || codigo === 'RETENCION_SIN_IMPUESTOS') {
+      errorGeneral.value = e.message || 'Retención inválida'
+      toast.error('Revisa los impuestos de retención')
+    } else if (codigo === 'RUC_INVALIDO') {
+      errorGeneral.value =
+        'La empresa no tiene RUC válido configurado. La retención no se pudo emitir.'
+      toast.error('Configura el RUC de la empresa')
     } else if (codigo === 'VALIDACION') {
       errorGeneral.value = e.message || 'Datos inválidos'
       toast.error(e.message || 'Datos inválidos')
@@ -1044,6 +1586,25 @@ watch(
     debounce('periodo', verificarPeriodo, 400)
   },
   { immediate: true }
+)
+
+// Autocompletar el N° de doc. sustento en los impuestos de retención
+watch(
+  () => compra.value.numero_factura,
+  (nuevo) => {
+    for (const imp of compra.value.impuestos_retencion) {
+      if (!imp.numeroDocumento) imp.numeroDocumento = nuevo || ''
+    }
+  }
+)
+
+watch(
+  () => compra.value.fecha_emision,
+  (nuevo) => {
+    for (const imp of compra.value.impuestos_retencion) {
+      if (!imp.fechaEmisionDocSustento) imp.fechaEmisionDocSustento = nuevo || ''
+    }
+  }
 )
 
 // ===== PREVENIR SALIDA =====
@@ -1149,17 +1710,44 @@ kbd {
   min-width: 26px; text-align: center;
 }
 
+/* ALERT BANNER */
+.alert-card {
+  display: flex; gap: 14px;
+  padding: 14px 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid;
+  margin-bottom: 20px;
+}
+.alert-info-banner {
+  background: linear-gradient(135deg, rgba(142, 68, 173, 0.08), rgba(142, 68, 173, 0.03));
+  border-color: rgba(142, 68, 173, 0.25);
+}
+.alert-info-banner .alert-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: rgba(142, 68, 173, 0.15); color: #8e44ad;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; flex-shrink: 0;
+}
+.alert-info-banner .alert-body { flex: 1; font-size: 0.85rem; color: var(--text-secondary); }
+.alert-info-banner .alert-body strong { color: #8e44ad; display: block; margin-bottom: 4px; }
+.alert-info-banner .alert-body .small { font-size: 0.78rem; line-height: 1.5; }
+
 /* LAYOUT */
 .form-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
 .form-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 
 .form-section { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); overflow: hidden; }
 .form-section.card-with-dropdown { overflow: visible; }
+.form-section-retencion { border-color: rgba(142, 68, 173, 0.2); }
 
 .section-header {
   display: flex; align-items: center; gap: 14px;
   padding: 20px 24px; border-bottom: 1px solid var(--border-light);
   background: linear-gradient(135deg, var(--bg-table-stripe), var(--bg-card));
+}
+.section-header-purple {
+  background: linear-gradient(135deg, rgba(142, 68, 173, 0.08), rgba(142, 68, 173, 0.02));
+  border-bottom-color: rgba(142, 68, 173, 0.15);
 }
 .section-header-clickable { cursor: pointer; user-select: none; }
 .section-header-clickable:hover { background: var(--bg-table-stripe); }
@@ -1174,6 +1762,10 @@ kbd {
   background: linear-gradient(135deg, #e67e22, #d35400);
   box-shadow: 0 4px 12px rgba(230, 126, 34, 0.25);
 }
+.section-number-purple {
+  background: linear-gradient(135deg, #8e44ad, #6c3483);
+  box-shadow: 0 4px 12px rgba(142, 68, 173, 0.3);
+}
 .section-header-content { flex: 1; min-width: 0; }
 .section-title {
   font-size: 1rem; font-weight: 700; color: var(--text-primary);
@@ -1186,6 +1778,7 @@ kbd {
   font-size: 0.7rem; font-weight: 700;
 }
 .count-badge-orange { background: #e67e22; }
+.count-badge-purple { background: #8e44ad; }
 
 .btn-new-inline {
   display: inline-flex; align-items: center; gap: 6px;
@@ -1199,6 +1792,8 @@ kbd {
 .btn-new-inline:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-new-orange { background: #e67e22; border-color: #e67e22; color: #fff; }
 .btn-new-orange:hover:not(:disabled) { background: #d35400; color: #fff; border-color: #d35400; }
+.btn-new-purple { background: #8e44ad; border-color: #8e44ad; color: #fff; }
+.btn-new-purple:hover:not(:disabled) { background: #6c3483; color: #fff; border-color: #6c3483; }
 
 .toggle-chevron { color: var(--text-muted); transition: transform var(--transition); }
 .section-body { padding: 24px; }
@@ -1206,6 +1801,7 @@ kbd {
 .form-row { display: grid; gap: 16px; margin-bottom: 16px; }
 .form-row:last-child { margin-bottom: 0; }
 .form-row.cols-2-1-1 { grid-template-columns: 2fr 1fr 1fr; }
+.form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .form-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
 
 .form-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -1224,6 +1820,13 @@ kbd {
   background: var(--bg-card);
 }
 .form-control:disabled, .form-select:disabled { opacity: 0.6; cursor: not-allowed; }
+.input-readonly {
+  background: var(--bg-table-stripe) !important;
+  cursor: not-allowed;
+  font-weight: 800;
+  color: #8e44ad !important;
+}
+.form-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
 
 /* SEARCH */
 .search-input-group { position: relative; display: flex; align-items: center; }
@@ -1321,6 +1924,7 @@ kbd {
 
 /* EMPTY ITEMS */
 .empty-items { text-align: center; padding: 48px 20px; }
+.empty-items-compact { padding: 24px 20px; }
 .empty-icon {
   width: 72px; height: 72px; border-radius: 50%;
   background: var(--bg-table-stripe); display: flex; align-items: center;
@@ -1338,6 +1942,16 @@ kbd {
   border-radius: var(--radius-md); transition: all var(--transition-fast); flex-wrap: wrap;
 }
 .item-card:hover { border-color: #e67e22; background: var(--bg-card); box-shadow: var(--shadow-sm); }
+.item-card-retencion {
+  border-left: 4px solid #8e44ad;
+  background: linear-gradient(135deg, rgba(142, 68, 173, 0.04), rgba(142, 68, 173, 0.01));
+  align-items: flex-start;
+  flex-direction: column;
+}
+.item-card-retencion:hover {
+  border-color: rgba(142, 68, 173, 0.4);
+  border-left-color: #8e44ad;
+}
 .item-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
 .item-icon {
   width: 40px; height: 40px; border-radius: 10px;
@@ -1401,6 +2015,155 @@ kbd {
 .item-remove:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
 .item-remove:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* RETENCIÓN — Toggle */
+.ret-toggle-row {
+  padding: 16px 18px;
+  background: linear-gradient(135deg, rgba(142, 68, 173, 0.05), rgba(142, 68, 173, 0.02));
+  border: 1.5px solid rgba(142, 68, 173, 0.2);
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+}
+.ret-toggle {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.ret-toggle input { display: none; }
+.ret-toggle-slider {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--border-color);
+  border-radius: 999px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.ret-toggle-slider::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+.ret-toggle input:checked + .ret-toggle-slider {
+  background: #8e44ad;
+}
+.ret-toggle input:checked + .ret-toggle-slider::before {
+  transform: translateX(20px);
+}
+.ret-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+.ret-toggle-text strong { color: var(--text-primary); font-size: 0.9rem; }
+.ret-toggle-text small { color: var(--text-muted); font-size: 0.75rem; }
+
+/* RETENCIÓN — Section */
+.subsection { margin-bottom: 16px; }
+.subsection:last-child { margin-bottom: 0; }
+.subsection-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #6c3483;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(142, 68, 173, 0.2);
+}
+.subsection-title i { color: #8e44ad; }
+
+.badge-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0.3px;
+  background: rgba(142, 68, 173, 0.12);
+  color: #6c3483;
+  border: 1px solid rgba(142, 68, 173, 0.25);
+  margin-left: 6px;
+}
+
+.ret-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(142, 68, 173, 0.08), rgba(142, 68, 173, 0.03));
+  border: 1px solid rgba(142, 68, 173, 0.25);
+  border-left: 4px solid #8e44ad;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.ret-total span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.ret-total span i { color: #8e44ad; }
+.ret-total strong {
+  font-size: 1.15rem;
+  color: #8e44ad;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.ret-help {
+  display: flex;
+  gap: 14px;
+  padding: 16px 18px;
+  background: rgba(52, 152, 219, 0.05);
+  border: 1px solid rgba(52, 152, 219, 0.2);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.ret-help-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(52, 152, 219, 0.15);
+  color: #3498db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.ret-help strong { color: var(--text-primary); display: block; margin-bottom: 6px; }
+.ret-help ul { margin: 0; padding-left: 18px; line-height: 1.7; }
+.ret-help li { font-size: 0.78rem; }
+
+.advertencia-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-top: 12px;
+  background: rgba(52, 152, 219, 0.08);
+  border: 1px solid rgba(52, 152, 219, 0.3);
+  border-radius: var(--radius-md);
+  color: #2980b9;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.advertencia-box i { margin-top: 2px; flex-shrink: 0; }
+
 /* SIDEBAR */
 .form-sidebar { position: relative; }
 .sidebar-sticky { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 16px; }
@@ -1417,6 +2180,7 @@ kbd {
 .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; font-size: 0.88rem; }
 .summary-label { color: var(--text-muted); font-weight: 500; }
 .summary-value { font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.summary-value-purple { color: #8e44ad; font-weight: 800; }
 .summary-divider { height: 1px; background: var(--border-light); margin: 8px 0; }
 .summary-total { display: flex; justify-content: space-between; align-items: center; padding: 12px 0 4px; border-top: 2px solid var(--primary-color); }
 .summary-total-orange { border-top-color: #e67e22; }
@@ -1472,6 +2236,18 @@ kbd {
 .btn-cancel:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
 .btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.info-card {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(142, 68, 173, 0.08), rgba(142, 68, 173, 0.03));
+  border: 1px solid rgba(142, 68, 173, 0.25);
+  border-radius: var(--radius-lg);
+}
+.info-card-purple > i { color: #8e44ad; font-size: 1.15rem; flex-shrink: 0; margin-top: 2px; }
+.info-title { font-size: 0.82rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.info-text { font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4; }
+
 .error-banner {
   display: flex; align-items: center; gap: 12px;
   padding: 14px 18px; background: var(--danger-bg);
@@ -1498,10 +2274,11 @@ kbd {
 }
 
 @media (max-width: 576px) {
-  .form-row.cols-2-1-1, .form-row.cols-4 { grid-template-columns: 1fr; }
+  .form-row.cols-2-1-1, .form-row.cols-4, .form-row.cols-3 { grid-template-columns: 1fr; }
   .form-title { font-size: 1.2rem; }
   .form-subtitle { padding-left: 0; }
   .section-header { padding: 16px 18px; }
   .section-body { padding: 18px; }
+  .ret-toggle-text small { display: none; }
 }
 </style>

@@ -119,6 +119,7 @@
                 <th style="min-width:200px;">Proveedor</th>
                 <th style="min-width:110px;">Tipo</th>
                 <th style="min-width:110px;">Estado</th>
+                <th style="min-width:130px;">Retención</th>
                 <th style="min-width:110px;" class="text-end">Subtotal</th>
                 <th style="min-width:100px;" class="text-end">IVA</th>
                 <th style="min-width:110px;" class="text-end">Total</th>
@@ -217,6 +218,33 @@
                     {{ c.estado_pago || 'pendiente' }}
                   </span>
                 </td>
+                <td>
+  <div v-if="c.retencion_id || c.retencion_numero" class="ret-cell">
+    <span
+      class="badge-retencion"
+      :class="claseRetencionEstado(c.retencion_estado_sri)"
+      :title="`Retención ${c.retencion_numero || ''} · Estado: ${c.retencion_estado_sri || 'PENDIENTE'}`"
+    >
+      <i :class="iconoRetencionEstado(c.retencion_estado_sri)"></i>
+      {{ c.retencion_numero || 'RET' }}
+    </span>
+    <span
+      v-if="c.retencion_valor > 0"
+      class="ret-value"
+      :title="`Monto retenido: $${Number(c.retencion_valor).toFixed(2)}`"
+    >
+      -${{ Number(c.retencion_valor).toFixed(2) }}
+    </span>
+  </div>
+  <div v-else-if="c.retencion_valor > 0" class="ret-cell">
+    <span class="badge-retencion badge-retencion-pending" title="Retención pendiente de emisión">
+      <i class="fas fa-hourglass-half"></i>
+      Pendiente
+    </span>
+    <span class="ret-value">-${{ Number(c.retencion_valor).toFixed(2) }}</span>
+  </div>
+  <span v-else class="text-muted small">—</span>
+</td>
                 <td class="text-end">
                   <div class="cell-money">${{ (c.subtotal || 0).toFixed(2) }}</div>
                 </td>
@@ -456,6 +484,13 @@
                       {{ resultadoImportacion.proveedoresCreados }} proveedor(es) creado(s)
                     </small>
                   </span>
+                  <span v-if="resultadoImportacion.retencionesCreadas > 0">
+  <br>
+  <small>
+    <i class="fas fa-percent me-1"></i>
+    {{ resultadoImportacion.retencionesCreadas }} retención(es) generada(s)
+  </small>
+</span>
                   <span v-if="(resultadoImportacion.errores?.length || 0) > 0">
                     <br>
                     <small>{{ resultadoImportacion.errores.length }} error(es) encontrado(s)</small>
@@ -624,7 +659,25 @@ const getInitials = (n) =>
         .join('')
         .toUpperCase()
     : '?'
+const claseRetencionEstado = (estado) => {
+  switch (estado) {
+    case 'AUTORIZADO': return 'ret-autorizado'
+    case 'FIRMADO':    return 'ret-firmado'
+    case 'PENDIENTE':  return 'ret-pendiente'
+    case 'RECHAZADA':  return 'ret-rechazado'
+    default:           return 'ret-neutral'
+  }
+}
 
+const iconoRetencionEstado = (estado) => {
+  switch (estado) {
+    case 'AUTORIZADO': return 'fas fa-check-double'
+    case 'FIRMADO':    return 'fas fa-signature'
+    case 'PENDIENTE':  return 'fas fa-clock'
+    case 'RECHAZADA':  return 'fas fa-times-circle'
+    default:           return 'fas fa-percent'
+  }
+}
 // ===== DEBOUNCE =====
 const onSearchInput = () => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -1162,5 +1215,40 @@ onBeforeUnmount(() => {
   .import-file-row { flex-direction: column; }
   .import-actions { justify-content: stretch; }
   .btn-import-action { flex: 1; justify-content: center; }
+}
+/* ============ RETENCIÓN ============ */
+.ret-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+.badge-retencion {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.ret-autorizado { background: rgba(39, 174, 96, 0.12); color: #1e8449; }
+.ret-firmado    { background: rgba(52, 152, 219, 0.12); color: #2980b9; }
+.ret-pendiente  { background: rgba(243, 156, 18, 0.12); color: #b9770e; }
+.ret-rechazado  { background: rgba(231, 76, 60, 0.12); color: #c0392b; }
+.ret-neutral    { background: rgba(142, 68, 173, 0.12); color: #6c3483; }
+.badge-retencion-pending {
+  background: rgba(243, 156, 18, 0.12);
+  color: #b9770e;
+}
+.ret-value {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #8e44ad;
+  font-variant-numeric: tabular-nums;
+  padding-left: 4px;
 }
 </style>

@@ -1,6 +1,6 @@
 // backend/routes/compras.js
 // ============================================================
-// Compras — CRUD + reportes + importación TXT
+// Compras — CRUD + reportes + importación TXT + AUTO-RETENCIÓN
 // ------------------------------------------------------------
 // Endpoints:
 //   GET    /                                     → listado
@@ -19,22 +19,22 @@
 //   - Cambios de stock se hacen dentro de transacción con guard de cantidad.
 //   - Errores se delegan al `errorHandler` central.
 //
-// 🔧 FIX 2025-XX:
+// 🔧 FIXES HISTÓRICOS:
 //   1. Los contadores de compra se reservan FUERA de la transacción.
-//      Antes se llamaba `findOneAndUpdate` DENTRO del callback de
-//      `conTransaccion`. Si el driver reintentaba por
-//      `TransientTransactionError` (conflicto de escritura), el `$inc`
-//      se ejecutaba 2+ veces → secuenciales SALTADOS y auditoría
-//      descuadrada. Ahora reservamos ANTES y pasamos el valor ya
-//      congelado a la transacción. Si la transacción falla, el
-//      número queda "quemado" — aceptable y muchísimo mejor que
-//      duplicar en cada reintento.
-//   2. `importar-txt`: el mismo fix, pero reservando N contadores
-//      del lote en UNA sola operación atómica (`$inc: valor += N`).
-//      Mucho más rápido que N findOneAndUpdate secuenciales.
+//   2. `importar-txt`: reserva N contadores del lote en UNA sola
+//      operación atómica.
 //   3. `importar-txt`: ya no exige producto para compras de tipo
-//      'gasto' (antes rechazaba líneas de gasto sin código de
-//      producto, aunque el modelo no lo requiere).
+//      'gasto'.
+//
+// 🆕 FIX 2025-XX (AUTO-RETENCIÓN):
+//   4. Al crear/editar una compra con `retencion_valor > 0`, se
+//      emite AUTOMÁTICAMENTE el comprobante de retención en
+//      `ventas_v2` (tipo_documento='retencion'), con clave de
+//      acceso SRI, XML y firma electrónica.
+//   5. Si falla, la compra NO se revierte: queda marcada con
+//      `retencion_pendiente_emision: true` para reintento manual.
+//   6. Al editar/eliminar la compra, la retención se re-sincroniza
+//      (solo si NO fue enviada al SRI).
 // ============================================================
 'use strict';
 
@@ -54,6 +54,21 @@ const { conTransaccion } = require('../utils/transacciones');
 const { validar } = require('../utils/validacion');
 const log = require('../utils/logger');
 
+// ---- Auto-retención ----
+const {
+  generarClaveAcceso,
+  formatearSerie
+} = require('../utils/claveAcceso');
+const { generarXMLComprobante } = require('../utils/xmlComprobante');
+const {
+  cargarCertificado,
+  firmarXML,
+  descifrarSecreto
+} = require('../utils/firmaElectronica');
+const { TIPO_COMPROBANTE_SRI } = require('../utils/tiposDocumento');
+const { buscarRetencion } = require('../data/catalogosSRI');
+const { fechaSRI } = require('../utils/fechaEC');
+
 // ============================================================
 // CONFIGURACIÓN
 // ============================================================
@@ -65,6 +80,10 @@ const CONFIG = Object.freeze({
   colPagos: 'pagos',
   colRetenciones: 'retenciones',
   colContadores: 'contadores',
+  colVentas: 'ventas_v2',            // ← retenciones emitidas
+  colConfig: 'configuracion',        // ← RUC / ambiente empresa
+  colCertificados: 'certificados',   // ← certificado .p12
+
   tiposCompra: Object.freeze(['inventario', 'gasto']),
   estadosPago: Object.freeze(['pendiente', 'pagado', 'parcial', 'anulado']),
   maxDetallesPorDocumento: 500,
@@ -79,6 +98,9 @@ const ESTADOS_PAGO_VALIDOS = CONFIG.estadosPago;
 const MAX_DETALLES_POR_DOCUMENTO = CONFIG.maxDetallesPorDocumento;
 const IMPORT_BATCH_SIZE = CONFIG.importBatchSize;
 const IMPORT_MAX_LINEAS = CONFIG.importMaxLineas;
+
+/** Mapa impuesto declarado → código SRI ('1' RENTA | '2' IVA). */
+const CODIGO_IMPUESTO_RETENCION = Object.freeze({ RENTA: '1', IVA: '2' });
 
 // ============================================================
 // HELPERS GENERALES
@@ -111,7 +133,9 @@ function toNumber(v, fallback = 0) {
 }
 
 function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return Math.round((v + Number.EPSILON) * 100) / 100;
 }
 
 async function auditarSeguro(db, req, payload) {
@@ -141,7 +165,9 @@ const validarCompra = [
   body('numero_factura').optional({ nullable: true }).isString().trim()
     .isLength({ max: 50 }).withMessage('Número de factura demasiado largo'),
   body('observaciones').optional({ nullable: true }).isString().trim()
-    .isLength({ max: 1000 }).withMessage('Observaciones demasiado largas')
+    .isLength({ max: 1000 }).withMessage('Observaciones demasiado largas'),
+  body('impuestos_retencion').optional().isArray()
+    .withMessage('impuestos_retencion debe ser un array')
 ];
 
 function validarTotales(body) {
@@ -179,31 +205,17 @@ function validarDetalle(detalle) {
 
 // ============================================================
 // HELPERS DE CONTADORES
-// ------------------------------------------------------------
-// IMPORTANTE: los contadores se reservan FUERA de cualquier
-// transacción. Un `findOneAndUpdate` con `$inc` es atómico a nivel
-// de documento y no requiere transacción. Hacerlo DENTRO de
-// `session.withTransaction` provoca duplicados si el driver
-// reintenta el callback por `TransientTransactionError`.
 // ============================================================
-/** Reserva un único número secuencial de compra (atómico). */
 async function reservarContadorCompra(db) {
   const r = await db.collection(CONFIG.colContadores).findOneAndUpdate(
     { _id: 'compra' },
     { $inc: { valor: 1 } },
     { upsert: true, returnDocument: 'after' }
   );
-
   const doc = r && r.value !== undefined ? r.value : r;
   return toNumber(doc?.valor, 1);
 }
 
-/**
- * Reserva `cantidad` números secuenciales en UNA sola operación.
- * @param {Db} db
- * @param {number} cantidad
- * @returns {Promise<number[]>} Array de números reservados en orden ascendente.
- */
 async function reservarContadoresCompraLote(db, cantidad) {
   const n = Number(cantidad);
   if (!Number.isInteger(n) || n <= 0) return [];
@@ -217,8 +229,6 @@ async function reservarContadoresCompraLote(db, cantidad) {
   const doc = r && r.value !== undefined ? r.value : r;
   const valorFinal = toNumber(doc?.valor, 0);
 
-  // Defensa: si el driver no devolvió el valor correcto (raro),
-  // reservamos uno por uno como fallback.
   if (valorFinal < n) {
     log.warn(
       { valorFinal, cantidad: n },
@@ -233,9 +243,7 @@ async function reservarContadoresCompraLote(db, cantidad) {
 
   const valorInicial = valorFinal - n + 1;
   const out = new Array(n);
-  for (let i = 0; i < n; i++) {
-    out[i] = valorInicial + i;
-  }
+  for (let i = 0; i < n; i++) out[i] = valorInicial + i;
   return out;
 }
 
@@ -308,6 +316,406 @@ async function traerCompraPopulada(db, compraId) {
     { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
   ]).toArray();
   return r[0] || null;
+}
+
+// ============================================================
+// AUTO-RETENCIÓN — Helpers
+// ============================================================
+
+/** Carga el certificado de firma de la empresa (silencioso). */
+async function cargarCertificadoSeguro(db) {
+  try {
+    const cert = await db.collection(CONFIG.colCertificados).findOne({ _id: 'empresa' });
+    if (!cert) return null;
+    const password = cert.password_cifrado
+      ? descifrarSecreto(cert.password_cifrado)
+      : cert.password;
+    const p12Buffer = Buffer.from(cert.archivo_base64, 'base64');
+    const { privateKeyPem, certificatePem } = cargarCertificado(p12Buffer, password);
+    return { privateKeyPem, certificatePem };
+  } catch (e) {
+    log.warn({ err: e.message }, 'No se pudo cargar el certificado (auto-retención)');
+    return null;
+  }
+}
+
+/**
+ * Normaliza el array de impuestos de retención.
+ *
+ * Prioridad:
+ *   1. Si el frontend envía `impuestos_retencion[]` bien formado → se usa.
+ *   2. Si no, se construye un fallback razonable según `tipo_compra`:
+ *      - inventario → RENTA 1% (303) + IVA 30% (721) [si IVA > 0]
+ *      - gasto      → RENTA 2% (312) + IVA 70% (723) [si IVA > 0]
+ *   3. Si nada funciona, se devuelve [] y se emite advertencia.
+ */
+function normalizarImpuestosRetencion(impuestosRaw, ctx) {
+  const {
+    subtotal = 0,
+    iva = 0,
+    retencionPorcentaje = 0,
+    retencionValor = 0,
+    tipoCompra = 'inventario',
+    numeroFactura = '',
+    fechaEmision = ''
+  } = ctx || {};
+
+  // ---- Caso 1: frontend envió array válido ----
+  if (Array.isArray(impuestosRaw) && impuestosRaw.length > 0) {
+    const out = [];
+    for (const imp of impuestosRaw) {
+      if (!imp) continue;
+      const codigoRet = String(imp.codigoRetencion || imp.tipo_retencion || '').trim();
+      if (!codigoRet) continue;
+
+      const impuestoDecl = String(imp.impuesto || imp.impuesto_retencion || '')
+        .trim().toUpperCase();
+      const cat = buscarRetencion(codigoRet, impuestoDecl || undefined);
+      const impuestoFinal = impuestoDecl
+        || cat?.impuesto
+        || 'RENTA';
+
+      const codigoSRI = CODIGO_IMPUESTO_RETENCION[impuestoFinal] || '1';
+      const base = round2(Number(imp.baseImponible) || 0);
+      const pct = Number(imp.porcentajeRetener) > 0
+        ? Number(imp.porcentajeRetener)
+        : (cat?.porcentaje || 0);
+      const valorCalc = round2(base * pct / 100);
+      const valor = Number.isFinite(Number(imp.valorRetenido))
+        ? round2(Number(imp.valorRetenido))
+        : valorCalc;
+
+      out.push({
+        codigo: codigoSRI,
+        codigoRetencion: codigoRet,
+        impuesto: impuestoFinal,
+        concepto: String(imp.concepto || cat?.nombre || '').trim(),
+        baseImponible: base,
+        porcentajeRetener: round2(pct),
+        valorRetenido: valor,
+        codigoDocumento: String(imp.codigoDocumento || imp.codDocSustento || '01').trim(),
+        numeroDocumento: String(imp.numeroDocumento || imp.numDocSustento || numeroFactura).trim(),
+        fechaEmisionDocSustento: String(
+          imp.fechaEmisionDocSustento || fechaEmision || ''
+        ).trim()
+      });
+    }
+    if (out.length > 0) {
+      return {
+        impuestos: out,
+        advertencias: [],
+        origen: 'frontend'
+      };
+    }
+  }
+
+  // ---- Caso 2: fallback heurístico según tipo_compra ----
+  if (retencionValor <= 0 && !retencionPorcentaje) {
+    return { impuestos: [], advertencias: [], origen: 'vacio' };
+  }
+
+  const subtotalNum = round2(subtotal);
+  const ivaNum = round2(iva);
+  const totalRet = round2(retencionValor);
+
+  const advertencias = [
+    'La retención se generó con impuestos por defecto. ' +
+    'Verifica el comprobante y ajústalo si es necesario.'
+  ];
+
+  const impuestos = [];
+
+  if (tipoCompra === 'inventario') {
+    // RENTA 1% sobre subtotal (código 303 — Bienes muebles corporales)
+    const valorRenta = round2(subtotalNum * 0.01);
+    if (valorRenta > 0) {
+      impuestos.push({
+        codigo: CODIGO_IMPUESTO_RETENCION.RENTA,
+        codigoRetencion: '303',
+        impuesto: 'RENTA',
+        concepto: '1% Bienes muebles corporales (auto)',
+        baseImponible: subtotalNum,
+        porcentajeRetener: 1,
+        valorRetenido: valorRenta,
+        codigoDocumento: '01',
+        numeroDocumento: numeroFactura,
+        fechaEmisionDocSustento: fechaEmision
+      });
+    }
+    // IVA 30% sobre IVA (código 721)
+    if (ivaNum > 0) {
+      const valorIva = round2(ivaNum * 0.30);
+      if (valorIva > 0) {
+        impuestos.push({
+          codigo: CODIGO_IMPUESTO_RETENCION.IVA,
+          codigoRetencion: '721',
+          impuesto: 'IVA',
+          concepto: '30% IVA bienes (auto)',
+          baseImponible: ivaNum,
+          porcentajeRetener: 30,
+          valorRetenido: valorIva,
+          codigoDocumento: '01',
+          numeroDocumento: numeroFactura,
+          fechaEmisionDocSustento: fechaEmision
+        });
+      }
+    }
+  } else {
+    // gasto → RENTA 2% (código 312 — Servicios)
+    const valorRenta = round2(subtotalNum * 0.02);
+    if (valorRenta > 0) {
+      impuestos.push({
+        codigo: CODIGO_IMPUESTO_RETENCION.RENTA,
+        codigoRetencion: '312',
+        impuesto: 'RENTA',
+        concepto: '2% Servicios (auto)',
+        baseImponible: subtotalNum,
+        porcentajeRetener: 2,
+        valorRetenido: valorRenta,
+        codigoDocumento: '01',
+        numeroDocumento: numeroFactura,
+        fechaEmisionDocSustento: fechaEmision
+      });
+    }
+    // IVA 70% sobre IVA (código 723)
+    if (ivaNum > 0) {
+      const valorIva = round2(ivaNum * 0.70);
+      if (valorIva > 0) {
+        impuestos.push({
+          codigo: CODIGO_IMPUESTO_RETENCION.IVA,
+          codigoRetencion: '723',
+          impuesto: 'IVA',
+          concepto: '70% IVA servicios (auto)',
+          baseImponible: ivaNum,
+          porcentajeRetener: 70,
+          valorRetenido: valorIva,
+          codigoDocumento: '01',
+          numeroDocumento: numeroFactura,
+          fechaEmisionDocSustento: fechaEmision
+        });
+      }
+    }
+  }
+
+  // Ajuste final: si el total calculado no coincide con `retencion_valor`
+  // y solo hay 1 impuesto, se corrige directamente para mantener consistencia.
+  if (impuestos.length === 1 && totalRet > 0) {
+    const diff = Math.abs(impuestos[0].valorRetenido - totalRet);
+    if (diff > 0.01) {
+      impuestos[0].valorRetenido = totalRet;
+      // Recalcular % en función del valor enviado para no dejar inconsistencia
+      if (impuestos[0].baseImponible > 0) {
+        impuestos[0].porcentajeRetener = round2(
+          (totalRet / impuestos[0].baseImponible) * 100
+        );
+      }
+      advertencias.push(
+        `Se ajustó el valor retenido al monto enviado ($${totalRet.toFixed(2)})`
+      );
+    }
+  }
+
+  return {
+    impuestos,
+    advertencias,
+    origen: 'fallback'
+  };
+}
+
+/**
+ * Crea el comprobante de retención a partir de una compra.
+ * @returns {Promise<{_id, numero_factura, clave_acceso, estado_sri, total_retenido, advertencias}>}
+ */
+async function crearRetencionDesdeCompra(db, {
+  compra,
+  compraId,
+  config,
+  proveedor,
+  impuestosRaw,
+  retencionValor,
+  retencionPorcentaje,
+  subtotal,
+  iva,
+  tipoCompra,
+  numeroFacturaCompra,
+  fechaEmisionCompra,
+  claveAccesoCompra
+}) {
+  if (!config?.ruc || String(config.ruc).length !== 13) {
+    const err = new Error('La empresa no tiene un RUC válido (13 dígitos) configurado');
+    err.status = 400;
+    err.codigo = 'RUC_INVALIDO';
+    throw err;
+  }
+
+  const norm = normalizarImpuestosRetencion(impuestosRaw, {
+    subtotal,
+    iva,
+    retencionPorcentaje,
+    retencionValor,
+    tipoCompra,
+    numeroFactura: numeroFacturaCompra,
+    fechaEmision: fechaSRI(fechaEmisionCompra)
+  });
+
+  if (norm.impuestos.length === 0) {
+    const err = new Error('No se pudieron determinar los impuestos de la retención');
+    err.status = 400;
+    err.codigo = 'RETENCION_SIN_IMPUESTOS';
+    throw err;
+  }
+
+  const totalRetenido = round2(
+    norm.impuestos.reduce((s, x) => s + Number(x.valorRetenido || 0), 0)
+  );
+
+  // ---- 1. Reservar contador propio de retenciones ----
+  const rCont = await db.collection(CONFIG.colContadores).findOneAndUpdate(
+    { _id: 'retencion' },
+    { $inc: { valor: 1 } },
+    { upsert: true, returnDocument: 'after' }
+  );
+  const docCont = rCont && rCont.value !== undefined ? rCont.value : rCont;
+  const contadorValor = toNumber(docCont?.valor, 1);
+  const numeroRetencion = `RET-${String(contadorValor).padStart(6, '0')}`;
+
+  // ---- 2. Generar clave de acceso ----
+  const codigoSRI = TIPO_COMPROBANTE_SRI.retencion || '07';
+  const est = String(config.establecimiento || '001').padStart(3, '0').slice(-3);
+  const pe = String(config.punto_emision || '001').padStart(3, '0').slice(-3);
+  const serie = formatearSerie(est, pe);
+
+  const claveAcceso = generarClaveAcceso({
+    fechaEmision: new Date(fechaEmisionCompra),
+    tipoComprobante: codigoSRI,
+    ruc: config.ruc,
+    ambiente: config.ambiente || '1',
+    serie,
+    secuencial: contadorValor,
+    tipoEmision: config.tipo_emision || '1'
+  });
+
+  const secuencialSRI = String(contadorValor).padStart(9, '0');
+
+  // ---- 3. Generar XML ----
+  const ventaParaXml = {
+    clienteId: proveedor?._id || null,
+    numero_factura: numeroRetencion,
+    fecha_emision: new Date(fechaEmisionCompra),
+    tipo_documento: 'retencion',
+    detalles: [],
+    subtotal: 0,
+    iva: 0,
+    total: 0,
+    clave_acceso: claveAcceso,
+    serie,
+    secuencial_sri: secuencialSRI,
+    ruc_emisor: config.ruc,
+    razon_social_emisor: config.razon_social || '',
+    establecimiento: est,
+    punto_emision: pe,
+    impuestos_retencion: norm.impuestos,
+    comprobante_tipo_emision: 'Electrónica',
+    comprobante_documento: '01',
+    comprobante_numero: numeroFacturaCompra || '',
+    comprobante_fecha_emision: fechaSRI(fechaEmisionCompra),
+    comprobante_clave_acceso: claveAccesoCompra || '',
+    numero_factura_modificada: numeroFacturaCompra || '',
+    motivo: 'Retención aplicada en compra',
+    observaciones: 'Generada automáticamente desde la compra'
+  };
+
+  let xmlGenerado = '';
+  try {
+    xmlGenerado = generarXMLComprobante(ventaParaXml, proveedor, config);
+  } catch (e) {
+    log.warn(
+      { err: e.message, compraId: String(compraId) },
+      'Error generando XML de retención auto'
+    );
+  }
+
+  // ---- 4. Firmar (si hay certificado) ----
+  let xmlFirmado = '';
+  let estadoSri = 'PENDIENTE';
+  let fechaFirma = null;
+
+  if (xmlGenerado) {
+    const pems = await cargarCertificadoSeguro(db);
+    if (pems) {
+      try {
+        xmlFirmado = firmarXML(xmlGenerado, pems.privateKeyPem, pems.certificatePem);
+        estadoSri = 'FIRMADO';
+        fechaFirma = new Date();
+      } catch (e) {
+        log.warn({ err: e.message }, 'Error firmando retención auto');
+      }
+    }
+  }
+
+  // ---- 5. Persistir ----
+  const ahora = new Date();
+  const doc = {
+    // Compat: ventas usan `clienteId`; retenciones desde compras usan
+    // `proveedorId` (mismo ObjectId, distinto nombre semántico).
+    clienteId: proveedor?._id || null,
+    proveedorId: proveedor?._id || null,
+
+    numero_factura: numeroRetencion,
+    fecha_emision: new Date(fechaEmisionCompra),
+    tipo_documento: 'retencion',
+    detalles: [],
+    subtotal: 0,
+    iva: 0,
+    total: 0,
+
+    clave_acceso: claveAcceso,
+    numero_autorizacion: '',
+    estado_sri: estadoSri,
+    ambiente_sri: config.ambiente || '1',
+    serie,
+    secuencial_sri: secuencialSRI,
+    ruc_emisor: config.ruc,
+    razon_social_emisor: config.razon_social || '',
+
+    // Referencia a la compra origen
+    compra_origen_id: compraId,
+
+    // Retención
+    impuestos_retencion: norm.impuestos,
+    total_retenido: totalRetenido,
+    numero_retencion: numeroRetencion,
+
+    // Documento de sustento (la factura del proveedor)
+    comprobante_tipo_emision: 'Electrónica',
+    comprobante_documento: '01',
+    comprobante_numero: numeroFacturaCompra || '',
+    comprobante_fecha_emision: fechaSRI(fechaEmisionCompra),
+    comprobante_clave_acceso: claveAccesoCompra || '',
+
+    // XML / firma
+    xml_generado: xmlGenerado,
+    xml_firmado: xmlFirmado,
+    fecha_firma: fechaFirma,
+    intentos_envio_sri: 0,
+
+    // Metadata
+    observaciones: 'Generada automáticamente desde la compra',
+    createdAt: ahora,
+    updatedAt: ahora
+  };
+
+  const res = await db.collection(CONFIG.colVentas).insertOne(doc);
+
+  return {
+    _id: res.insertedId,
+    numero_factura: numeroRetencion,
+    clave_acceso: claveAcceso,
+    estado_sri: estadoSri,
+    total_retenido: totalRetenido,
+    advertencias: norm.advertencias,
+    origen: norm.origen
+  };
 }
 
 // ============================================================
@@ -615,13 +1023,13 @@ router.post(
         detalles, subtotal, iva, total,
         tipo_compra, estado_pago, forma_pago,
         fecha_pago, retencion_valor, retencion_porcentaje,
-        observaciones
+        observaciones, impuestos_retencion
       } = req.body;
 
       const tipoCompra = tipo_compra || 'inventario';
       const retencionValorNum = toNumber(retencion_valor);
 
-      // Validación de detalles (fuera de la transacción para fallar rápido).
+      // Validación de detalles
       if (tipoCompra === 'inventario') {
         for (const detalle of detalles) {
           if (!ObjectId.isValid(detalle?.productoId)) {
@@ -640,7 +1048,7 @@ router.post(
         }
       }
 
-      // Verificaciones previas (paralelas).
+      // Verificaciones previas
       const [proveedorExiste, productos] = await Promise.all([
         req.db.collection(CONFIG.colProveedores).findOne(
           { _id: new ObjectId(proveedorId) }, { projection: { _id: 1 } }
@@ -673,12 +1081,11 @@ router.post(
         }
       }
 
-      // 🔧 FIX: reservar el contador FUERA de la transacción.
-      //    Un reintento del driver ya no duplicará el `$inc`.
+      // Reservar contador de compra FUERA de la transacción
       const contadorValor = await reservarContadorCompra(req.db);
       const codigo = `COM-${String(contadorValor).padStart(6, '0')}`;
 
-      // Persistir dentro de una transacción (solo el stock + insert).
+      // Persistir dentro de transacción
       const resultado = await conTransaccion(req.db, async (session) => {
         const compra = {
           proveedorId: new ObjectId(proveedorId),
@@ -708,7 +1115,68 @@ router.post(
         return { compraId };
       });
 
-      const compraCreada = await traerCompraPopulada(req.db, resultado.compraId);
+      let compraCreada = await traerCompraPopulada(req.db, resultado.compraId);
+
+      // ============================================================
+      // 🆕 AUTO-CREACIÓN DE RETENCIÓN
+      // ============================================================
+      let retencionCreada = null;
+      let errorRetencion = null;
+      let advertenciasRetencion = [];
+
+      if (retencionValorNum > 0) {
+        try {
+          const config = await req.db.collection(CONFIG.colConfig)
+            .findOne({ _id: 'empresa' });
+
+          retencionCreada = await crearRetencionDesdeCompra(req.db, {
+            compra: compraCreada,
+            compraId: resultado.compraId,
+            config,
+            proveedor: compraCreada.proveedor,
+            impuestosRaw: impuestos_retencion,
+            retencionValor: retencionValorNum,
+            retencionPorcentaje: toNumber(retencion_porcentaje),
+            subtotal: toNumber(subtotal),
+            iva: toNumber(iva),
+            tipoCompra,
+            numeroFacturaCompra: compraCreada.numero_factura,
+            fechaEmisionCompra: compraCreada.fecha_emision,
+            claveAccesoCompra: compraCreada.clave_acceso || ''
+          });
+
+          // Vincular la compra con la retención
+          await req.db.collection(CONFIG.colCompras).updateOne(
+            { _id: resultado.compraId },
+            {
+              $set: {
+                retencion_id: retencionCreada._id,
+                retencion_numero: retencionCreada.numero_factura,
+                retencion_clave_acceso: retencionCreada.clave_acceso,
+                retencion_estado_sri: retencionCreada.estado_sri,
+                retencion_pendiente_emision: false,
+                updatedAt: new Date()
+              }
+            }
+          );
+
+          compraCreada.retencion_id = retencionCreada._id;
+          compraCreada.retencion_numero = retencionCreada.numero_factura;
+          compraCreada.retencion_clave_acceso = retencionCreada.clave_acceso;
+          compraCreada.retencion_estado_sri = retencionCreada.estado_sri;
+          compraCreada.retencion_pendiente_emision = false;
+
+          if (Array.isArray(retencionCreada.advertencias)) {
+            advertenciasRetencion = retencionCreada.advertencias;
+          }
+        } catch (e) {
+          errorRetencion = e.message;
+          log.warn(
+            { err: e.message, compraId: String(resultado.compraId), codigo: e.codigo },
+            'No se pudo auto-crear la retención; la compra queda con retencion_pendiente_emision=true'
+          );
+        }
+      }
 
       await auditarSeguro(req.db, req, {
         accion: 'crear',
@@ -716,16 +1184,47 @@ router.post(
         documentoId: resultado.compraId,
         documentoNumero: compraCreada?.numero_factura || '',
         datosNuevos: compraCreada,
-        detalle: `Compra creada: ${compraCreada?.numero_factura || ''} por $${round2(compraCreada?.total)}`
+        detalle:
+          `Compra creada: ${compraCreada?.numero_factura || ''} por $${round2(compraCreada?.total)}` +
+          (retencionCreada
+            ? ` — Retención ${retencionCreada.numero_factura} generada automáticamente`
+            : '')
       });
 
       if (req.io) req.io.emit('nueva-compra', compraCreada);
+      if (retencionCreada && req.io) {
+        req.io.emit('nueva-retencion', retencionCreada);
+      }
 
-      const advertencia = retencionValorNum > 0
-        ? 'Esta compra tiene retención. Debe emitir el comprobante de retención electrónico desde el módulo de Ventas (tipo_documento: retencion).'
-        : null;
+      // Mensaje de advertencia al frontend
+      let advertencia = null;
+      if (errorRetencion) {
+        advertencia =
+          `La compra se guardó, pero NO se pudo generar la retención automática: ${errorRetencion}. ` +
+          `Puedes emitirla manualmente desde Ventas → Retenciones.`;
+      } else if (retencionCreada?.estado_sri === 'PENDIENTE') {
+        advertencia =
+          `Retención ${retencionCreada.numero_factura} creada sin firma electrónica. ` +
+          `Carga un certificado válido y fírmala desde Ventas → Retenciones.`;
+      }
 
-      return res.status(201).json({ ...compraCreada, _advertencia: advertencia });
+      return res.status(201).json({
+        ...compraCreada,
+        _retencion_creada: retencionCreada
+          ? {
+              _id: retencionCreada._id,
+              numero: retencionCreada.numero_factura,
+              clave_acceso: retencionCreada.clave_acceso,
+              estado_sri: retencionCreada.estado_sri,
+              total_retenido: retencionCreada.total_retenido,
+              origen: retencionCreada.origen
+            }
+          : null,
+        _advertencia: advertencia,
+        _advertencias_retencion: advertenciasRetencion.length
+          ? advertenciasRetencion
+          : undefined
+      });
     } catch (err) {
       return next(err);
     }
@@ -760,13 +1259,13 @@ router.put(
         detalles, subtotal, iva, total,
         tipo_compra, estado_pago, forma_pago,
         fecha_pago, retencion_valor, retencion_porcentaje,
-        observaciones
+        observaciones, impuestos_retencion
       } = req.body;
 
       const tipoCompra = tipo_compra || 'inventario';
       const retencionValorNum = toNumber(retencion_valor);
 
-      // Validar detalles fuera de tx.
+      // Validar detalles fuera de tx
       if (tipoCompra === 'inventario') {
         for (const detalle of detalles) {
           if (!ObjectId.isValid(detalle?.productoId)) {
@@ -799,10 +1298,8 @@ router.put(
       }
 
       await conTransaccion(req.db, async (session) => {
-        // 1. Revertir stock anterior (si era inventario).
         await revertirStockDeCompra(req.db, compraActual, session);
 
-        // 2. Actualizar documento.
         const updateData = {
           proveedorId: new ObjectId(proveedorId),
           numero_factura,
@@ -825,13 +1322,109 @@ router.put(
           { session }
         );
 
-        // 3. Aplicar nuevo stock.
         if (tipoCompra === 'inventario') {
           await aplicarStockDeCompra(req.db, _id, detalles, fecha_emision, session);
         }
       });
 
-      const compraActualizada = await traerCompraPopulada(req.db, _id);
+      let compraActualizada = await traerCompraPopulada(req.db, _id);
+
+      // ============================================================
+      // 🆕 RE-SINCRONIZAR RETENCIÓN AL EDITAR
+      // ============================================================
+      let retencionNueva = null;
+      let errorRetencion = null;
+      let advertenciasRetencion = [];
+
+      try {
+        const retAnterior = await req.db.collection(CONFIG.colVentas).findOne({
+          compra_origen_id: _id,
+          tipo_documento: 'retencion'
+        });
+
+        const puedeRegenerar =
+          !retAnterior ||
+          !['AUTORIZADO', 'FIRMADO'].includes(retAnterior.estado_sri);
+
+        if (!puedeRegenerar && retencionValorNum > 0) {
+          errorRetencion =
+            `La retención ${retAnterior.numero_factura} ya está en estado ${retAnterior.estado_sri}. ` +
+            `Debes anularla en el SRI antes de regenerarla.`;
+        } else if (puedeRegenerar) {
+          // Borrar la anterior (si existe y no fue enviada al SRI)
+          if (retAnterior) {
+            await req.db.collection(CONFIG.colVentas).deleteOne({ _id: retAnterior._id });
+          }
+
+          if (retencionValorNum > 0) {
+            const config = await req.db.collection(CONFIG.colConfig)
+              .findOne({ _id: 'empresa' });
+
+            retencionNueva = await crearRetencionDesdeCompra(req.db, {
+              compra: compraActualizada,
+              compraId: _id,
+              config,
+              proveedor: compraActualizada.proveedor,
+              impuestosRaw: impuestos_retencion,
+              retencionValor: retencionValorNum,
+              retencionPorcentaje: toNumber(retencion_porcentaje),
+              subtotal: toNumber(subtotal),
+              iva: toNumber(iva),
+              tipoCompra,
+              numeroFacturaCompra: compraActualizada.numero_factura,
+              fechaEmisionCompra: compraActualizada.fecha_emision,
+              claveAccesoCompra: compraActualizada.clave_acceso || ''
+            });
+
+            await req.db.collection(CONFIG.colCompras).updateOne(
+              { _id },
+              {
+                $set: {
+                  retencion_id: retencionNueva._id,
+                  retencion_numero: retencionNueva.numero_factura,
+                  retencion_clave_acceso: retencionNueva.clave_acceso,
+                  retencion_estado_sri: retencionNueva.estado_sri,
+                  retencion_pendiente_emision: false,
+                  updatedAt: new Date()
+                }
+              }
+            );
+
+            compraActualizada.retencion_id = retencionNueva._id;
+            compraActualizada.retencion_numero = retencionNueva.numero_factura;
+            compraActualizada.retencion_clave_acceso = retencionNueva.clave_acceso;
+            compraActualizada.retencion_estado_sri = retencionNueva.estado_sri;
+            compraActualizada.retencion_pendiente_emision = false;
+
+            if (Array.isArray(retencionNueva.advertencias)) {
+              advertenciasRetencion = retencionNueva.advertencias;
+            }
+          } else {
+            // Ya no aplica retención → limpiar metadata
+            await req.db.collection(CONFIG.colCompras).updateOne(
+              { _id },
+              {
+                $set: {
+                  retencion_id: null,
+                  retencion_numero: null,
+                  retencion_clave_acceso: null,
+                  retencion_estado_sri: null,
+                  retencion_pendiente_emision: false,
+                  updatedAt: new Date()
+                }
+              }
+            );
+            compraActualizada.retencion_id = null;
+            compraActualizada.retencion_pendiente_emision = false;
+          }
+        }
+      } catch (e) {
+        errorRetencion = e.message;
+        log.warn(
+          { err: e.message, compraId: String(_id), codigo: e.codigo },
+          'No se pudo re-sincronizar la retención al editar la compra'
+        );
+      }
 
       await auditarSeguro(req.db, req, {
         accion: 'actualizar',
@@ -840,11 +1433,33 @@ router.put(
         documentoNumero: compraActualizada?.numero_factura || '',
         datosAnteriores: compraActual,
         datosNuevos: compraActualizada,
-        detalle: `Compra actualizada: ${compraActualizada?.numero_factura || ''}`
+        detalle:
+          `Compra actualizada: ${compraActualizada?.numero_factura || ''}` +
+          (retencionNueva ? ` — Retención regenerada: ${retencionNueva.numero_factura}` : '')
       });
 
       if (req.io) req.io.emit('compra-actualizada', compraActualizada);
-      return res.json(compraActualizada);
+      if (retencionNueva && req.io) {
+        req.io.emit('nueva-retencion', retencionNueva);
+      }
+
+      return res.json({
+        ...compraActualizada,
+        _retencion_creada: retencionNueva
+          ? {
+              _id: retencionNueva._id,
+              numero: retencionNueva.numero_factura,
+              clave_acceso: retencionNueva.clave_acceso,
+              estado_sri: retencionNueva.estado_sri,
+              total_retenido: retencionNueva.total_retenido,
+              origen: retencionNueva.origen
+            }
+          : null,
+        _advertencia: errorRetencion,
+        _advertencias_retencion: advertenciasRetencion.length
+          ? advertenciasRetencion
+          : undefined
+      });
     } catch (err) {
       return next(err);
     }
@@ -868,7 +1483,7 @@ router.delete(
         return res.status(404).json({ error: 'Compra no encontrada', codigo: 'COMPRA_NOT_FOUND' });
       }
 
-      const [pagosAsociados, retencionesAsociadas] = await Promise.all([
+      const [pagosAsociados, retencionesManuales] = await Promise.all([
         req.db.collection(CONFIG.colPagos).countDocuments({ compraId: _id, anulado: { $ne: true } }),
         req.db.collection(CONFIG.colRetenciones).countDocuments({ compraId: _id })
       ]);
@@ -880,11 +1495,28 @@ router.delete(
           pagosAsociados
         });
       }
-      if (retencionesAsociadas > 0) {
+      if (retencionesManuales > 0) {
         return res.status(409).json({
-          error: `No se puede eliminar: hay ${retencionesAsociadas} comprobante${retencionesAsociadas === 1 ? '' : 's'} de retención emitido${retencionesAsociadas === 1 ? '' : 's'} para esta compra. Anúlelos primero.`,
+          error: `No se puede eliminar: hay ${retencionesManuales} comprobante${retencionesManuales === 1 ? '' : 's'} de retención emitido${retencionesManuales === 1 ? '' : 's'} para esta compra. Anúlelos primero.`,
           codigo: 'COMPRA_CON_RETENCIONES',
-          retencionesAsociadas
+          retencionesAsociadas: retencionesManuales
+        });
+      }
+
+      // ---- Guard: retención auto-generada ----
+      const retAuto = await req.db.collection(CONFIG.colVentas).findOne({
+        compra_origen_id: _id,
+        tipo_documento: 'retencion'
+      });
+
+      if (retAuto && ['AUTORIZADO', 'FIRMADO'].includes(retAuto.estado_sri)) {
+        return res.status(409).json({
+          error:
+            `No se puede eliminar: la retención ${retAuto.numero_factura} ` +
+            `ya fue firmada/enviada al SRI. Anúlala primero en el SRI.`,
+          codigo: 'COMPRA_CON_RETENCION_EMITIDA',
+          retencionId: retAuto._id,
+          estado_sri: retAuto.estado_sri
         });
       }
 
@@ -899,13 +1531,20 @@ router.delete(
         }
       });
 
+      // Borrar la retención auto (solo si no fue enviada al SRI)
+      if (retAuto) {
+        await req.db.collection(CONFIG.colVentas).deleteOne({ _id: retAuto._id });
+      }
+
       await auditarSeguro(req.db, req, {
         accion: 'eliminar',
         coleccion: CONFIG.colCompras,
         documentoId: _id,
         documentoNumero: compra.numero_factura || '',
         datosAnteriores: compra,
-        detalle: `Compra eliminada: ${compra.numero_factura || ''} por $${round2(compra.total)}`
+        detalle:
+          `Compra eliminada: ${compra.numero_factura || ''} por $${round2(compra.total)}` +
+          (retAuto ? ` — Retención ${retAuto.numero_factura} eliminada en cascada` : '')
       });
 
       if (req.io) req.io.emit('compra-eliminada', { id: String(_id) });
@@ -918,15 +1557,6 @@ router.delete(
 
 // ============================================================
 // IMPORTAR TXT
-// ------------------------------------------------------------
-// CORRECCIONES:
-//   - Contadores reservados FUERA de la transacción, en UNA sola
-//     operación atómica por lote (`$inc: valor += N`). Los reintentos
-//     del driver ya no duplican números.
-//   - `toNumber` en lugar de `parseFloat(x) || 0`.
-//   - Validación de fechas antes de pasarlas al chequeo de períodos.
-//   - Compras de tipo `gasto` NO requieren producto.
-//   - Reporte estructurado de errores por línea.
 // ============================================================
 router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, res, next) => {
   try {
@@ -941,7 +1571,6 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
       });
     }
 
-    // Normalizar fechas para el chequeo de períodos (una sola query).
     const fechasValidas = lineas
       .map(l => l?.fechaEmision)
       .filter(Boolean);
@@ -958,24 +1587,14 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
     const errores = [];
     let importados = 0;
     let proveedoresCreados = 0;
+    let retencionesCreadas = 0;
 
     for (let offset = 0; offset < lineas.length; offset += IMPORT_BATCH_SIZE) {
       const lote = lineas.slice(offset, offset + IMPORT_BATCH_SIZE);
 
       try {
-        // 🔧 FIX: reservar los contadores del lote FUERA de la transacción,
-        //    en UNA sola operación atómica. Si el driver reintenta la
-        //    transacción por `TransientTransactionError`, ya no se duplican
-        //    los secuenciales.
-        //
-        //    Reservamos `lote.length` números aunque algunas líneas fallen
-        //    (queda "quemado" el número de esas líneas). Es el precio de
-        //    garantizar que ningún reintento duplique. El rango de
-        //    secuenciales salta un poco, pero es aceptable y consistente.
         const contadoresLote = await reservarContadoresCompraLote(req.db, lote.length);
 
-        // La transacción devuelve los contadores; se acumulan afuera para
-        // evitar doble conteo si MongoDB reintenta el callback.
         const resumenLote = await conTransaccion(req.db, async (session) => {
           const productosCache = new Map();
           const proveedoresCache = new Map();
@@ -1039,9 +1658,6 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
 
               const tipoCompra = tipo_compra || 'inventario';
 
-              // 🔧 FIX: las compras de tipo `gasto` NO requieren producto.
-              //    Antes se exigía siempre, lo que rechazaba líneas de
-              //    gastos legítimas (p. ej. servicios, arriendos).
               let producto = null;
               if (tipoCompra === 'inventario') {
                 producto = await buscarProducto(codigoProducto);
@@ -1056,7 +1672,6 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
 
               const proveedor = await buscarOCrearProveedor(ruc, razonSocial);
 
-              // Usar el contador pre-reservado para esta línea.
               const contadorValor = contadoresLote[idx];
               if (!Number.isFinite(contadorValor)) {
                 erroresLote.push(`Línea ${numLinea}: no hay contador reservado para esta línea`);
@@ -1126,7 +1741,6 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
           return { out, importadosLote, provCreados, erroresLote };
         });
 
-        // Acumular resultados del lote (fuera de la transacción).
         resultados.push(...(resumenLote.out || []));
         errores.push(...(resumenLote.erroresLote || []));
         importados += resumenLote.importadosLote || 0;
@@ -1141,7 +1755,7 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
       accion: 'importar',
       coleccion: CONFIG.colCompras,
       documentoNumero: `${importados} facturas`,
-      datosNuevos: { importados, errores: errores.length, proveedoresCreados },
+      datosNuevos: { importados, errores: errores.length, proveedoresCreados, retencionesCreadas },
       detalle: `Importación TXT: ${importados} facturas, ${errores.length} errores, ${proveedoresCreados} proveedores creados`
     });
 
@@ -1150,7 +1764,8 @@ router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, re
       importados,
       errores,
       resultados,
-      proveedoresCreados
+      proveedoresCreados,
+      retencionesCreadas
     });
   } catch (err) {
     return next(err);
@@ -1172,3 +1787,6 @@ module.exports._round2 = round2;
 module.exports._requireObjectId = requireObjectId;
 module.exports._reservarContadorCompra = reservarContadorCompra;
 module.exports._reservarContadoresCompraLote = reservarContadoresCompraLote;
+module.exports._crearRetencionDesdeCompra = crearRetencionDesdeCompra;
+module.exports._normalizarImpuestosRetencion = normalizarImpuestosRetencion;
+module.exports._cargarCertificadoSeguro = cargarCertificadoSeguro;
