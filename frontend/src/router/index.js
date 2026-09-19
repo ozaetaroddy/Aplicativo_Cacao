@@ -6,6 +6,15 @@
 //   - Título dinámico de página
 //   - Manejo de errores de chunk con retry controlado
 //   - Prevención de open-redirect
+//
+// 🆕 REFACTOR 2025-XX (UNIFICACIÓN DE RETENCIONES):
+//   Se eliminaron las rutas /retenciones/* (eran el flujo manual
+//   en la colección legacy). Ahora se redirigen a:
+//     /retenciones        → /ventas?tipo_documento=retencion
+//     /retenciones/nuevo  → /compras/nuevo
+//
+//   Esto mantiene compatibilidad con bookmarks viejos mientras
+//   fuerza el flujo correcto (retención se auto-emite desde compras).
 // ============================================================
 'use strict'
 
@@ -39,9 +48,8 @@ const ClienteForm = () => import('../components/clientes/ClienteForm.vue')
 const ProveedoresList = () => import('../components/proveedores/ProveedoresList.vue')
 const ProveedorForm = () => import('../components/proveedores/ProveedorForm.vue')
 
-// Retenciones
-const RetencionesList = () => import('../components/retenciones/RetencionesList.vue')
-const RetencionForm = () => import('../components/retenciones/RetencionForm.vue')
+// 🆕 REFACTOR: retenciones movidas al módulo de Ventas.
+//    Los imports de RetencionesList / RetencionForm se eliminaron.
 
 // Inventarios
 const KardexView = () => import('../components/kardex/KardexView.vue')
@@ -96,7 +104,6 @@ function storageRemove(key) {
  */
 function esRedirectSeguro(value) {
   if (typeof value !== 'string' || !value) return false
-  // Debe empezar con "/" y NO "//" (protocol-relative)
   if (!value.startsWith('/')) return false
   if (value.startsWith('//')) return false
   if (value.startsWith('/\\')) return false
@@ -261,25 +268,36 @@ const routes = [
     meta: { requiresAuth: true, modulo: 'categorias', accion: 'editar', title: 'Editar Categoría' }
   },
 
-  // ===== RETENCIONES =====
+  // ============================================================
+  // 🆕 RETENCIONES (compat + redirección)
+  // ------------------------------------------------------------
+  // Las retenciones emitidas viven AHORA en `ventas_v2` con
+  // `tipo_documento='retencion'` y se consultan en `/ventas`.
+  //
+  // Se mantienen las URLs antiguas para no romper bookmarks,
+  // pero todas redirigen al lugar correcto del nuevo flujo.
+  // ============================================================
   {
     path: '/retenciones',
-    name: 'RetencionesList',
-    component: RetencionesList,
-    meta: { requiresAuth: true, modulo: 'retenciones', accion: 'ver', title: 'Retenciones' }
+    redirect: (to) => ({
+      path: '/ventas',
+      query: { ...to.query, tipo_documento: 'retencion' }
+    })
   },
   {
     path: '/retenciones/nuevo',
-    name: 'RetencionNueva',
-    component: RetencionForm,
-    meta: { requiresAuth: true, modulo: 'retenciones', accion: 'crear', title: 'Nueva Retención' }
+    // La creación manual fue deprecada. Redirigimos a crear una compra,
+    // que es el único flujo donde se emiten retenciones.
+    redirect: { path: '/compras/nuevo' }
   },
   {
     path: '/retenciones/editar/:id',
-    name: 'RetencionEditar',
-    component: RetencionForm,
-    props: true,
-    meta: { requiresAuth: true, modulo: 'retenciones', accion: 'editar', title: 'Editar Retención' }
+    // No se editan retenciones directamente (se regeneran al editar
+    // la compra origen). Mostramos la retención en modo lectura.
+    redirect: (to) => ({
+      path: '/ventas',
+      query: { tipo_documento: 'retencion', highlight: to.params.id }
+    })
   },
 
   // ===== INVENTARIOS =====
@@ -460,10 +478,8 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL || '/'),
   routes,
   scrollBehavior(to, from, savedPosition) {
-    // Al volver atrás, restaurar la posición
     if (savedPosition) return savedPosition
-    // Al cambiar de ruta, ir al top SIN smooth (evita scroll janky)
-    if (to.path === from.path) return undefined // no hacer nada si solo cambia query
+    if (to.path === from.path) return undefined
     return { top: 0, left: 0 }
   }
 })
@@ -495,16 +511,12 @@ router.beforeEach(async (to) => {
     }
   }
 
-  // ---- 5. 🆕 Cargar permisos SIEMPRE que sea ruta protegida ----
-  // (Antes solo se cargaban si la ruta tenía `meta.modulo`.
-  //  Eso dejaba el Dashboard con permisos vacíos tras un
-  //  logout/login sin recargar la página.)
+  // ---- 5. Cargar permisos siempre que sea ruta protegida ----
   if (!esPublica) {
     try {
       const { cargarPermisos, puede } = usePermisos()
       await cargarPermisos()
 
-      // Verificación específica de permisos si la ruta lo pide
       if (to.meta?.modulo && to.meta?.accion) {
         if (!puede(to.meta.modulo, to.meta.accion)) {
           if (import.meta.env.DEV) {
@@ -535,7 +547,6 @@ router.beforeEach(async (to) => {
 // GUARD GLOBAL — AFTER EACH
 // ============================================================
 router.afterEach((to, from) => {
-  // Log de navegación solo en dev
   if (import.meta.env.DEV) {
     const cambioRuta = to.path !== from.path
     if (cambioRuta) {
@@ -547,14 +558,12 @@ router.afterEach((to, from) => {
 // ============================================================
 // MANEJO DE ERRORES DE NAVEGACIÓN
 // ============================================================
-// Guard para no recargar en bucle
 let ultimoReloadChunk = 0
-const RELOAD_COOLDOWN_MS = 10_000 // 10 segundos entre reloads
+const RELOAD_COOLDOWN_MS = 10_000
 
 router.onError((error) => {
   const msg = String(error?.message || '')
 
-  // Detectar errores típicos de chunk perdido tras un nuevo deploy
   const esChunkError =
     msg.includes('Failed to fetch dynamically imported module') ||
     msg.includes('Importing a module script failed') ||
@@ -576,7 +585,6 @@ router.onError((error) => {
     return
   }
 
-  // Otros errores
   console.error('❌ Error de router:', error)
 })
 

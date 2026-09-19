@@ -29,54 +29,41 @@
 // ============================================================
 // 🔧 FIXES APLICADOS
 // ------------------------------------------------------------
-//   [IPv6] Render no tiene salida IPv6. Node ≥14 prefiere IPv6 por
-//          default y Gmail (smtp.gmail.com) expone registros AAAA.
-//          Resultado: `connect ENETUNREACH 2607:f8b0:...` al enviar
-//          emails → 502 al cliente. Forzamos `ipv4first` ANTES de
-//          cualquier require con red.
+//   [IPv6] Render no tiene salida IPv6. Forzamos `ipv4first`
+//          ANTES de cualquier require con red.
 //
-//   [Shutdown timer] El setTimeout de "shutdown excedió 10s" estaba
-//          a nivel de módulo: se disparaba 10 s después del arranque,
-//          cuando `cerrando` siempre era `false` → código muerto.
-//          Ahora vive dentro de `shutdown()` y se limpia con
-//          `clearTimeout` cuando termina bien.
+//   [Shutdown timer] El setTimeout de "shutdown excedió 10s"
+//          ahora vive dentro de `shutdown()` y se limpia.
 //
-//   [Bootstrap] El arranque (Mongo + listen) se ejecutaba
-//          incondicionalmente al `require('./server')`. Cualquier
-//          test con supertest arrancaba Mongo y podía tumbar CI.
-//          Ahora todo está dentro de `if (require.main === module)`.
+//   [Bootstrap] El arranque se ejecuta solo si `require.main === module`.
 //
-//   [Handshake leak] `intentosHandshake` (rate limit WS) nunca se
-//          purgaba. Ahora hay un setInterval con `.unref()` que
-//          elimina entradas expiradas cada minuto.
+//   [Handshake leak] `intentosHandshake` se purga cada minuto.
 //
-//   [Monitores] Render y similares hacen `HEAD /` para healthcheck.
-//          Sin handler, devolvían 404 → ruido en logs. Añadido.
+//   [Monitores] HEAD / devuelve 200.
 //
-//   [Warnings] Simplificada la condición redundante
-//          `!X || X !== 'true'` → `X !== 'true'`.
+//   [Warnings] Simplificada la condición redundante.
+//
+// ============================================================
+// 🆕 REFACTOR 2025-XX (UNIFICACIÓN DE RETENCIONES)
+// ------------------------------------------------------------
+//   Las retenciones emitidas a proveedores ahora viven en
+//   `ventas_v2` con `tipo_documento='retencion'` y se gestionan
+//   vía `/api/ventas?tipo_documento=retencion`.
+//
+//   Se eliminó el router legacy `/api/retenciones` porque:
+//     - Escribía en una colección distinta (`retenciones`).
+//     - NO generaba clave de acceso, XML ni firma electrónica.
+//     - Duplicaba lógica con `routes/ventas.js`.
+//
+//   Rutas afectadas:
+//     ❌ DELETE /api/retenciones
+//     ✅ GET    /api/ventas?tipo_documento=retencion
+//     ✅ POST   /api/compras (auto-emite la retención)
 // ============================================================
 'use strict';
 
 // ------------------------------------------------------------
 // 🔧 FIX IPv6 — DEBE IR PRIMERO.
-// ------------------------------------------------------------
-// `dns.setDefaultResultOrder('ipv4first')` cambia el orden en que
-// `dns.lookup()` devuelve las direcciones. Node ≥14 usa 'verbatim'
-// por default (respeta el orden del resolver, que suele preferir
-// IPv6). En PaaS sin IPv6 saliente (Render, Heroku, Railway, etc.)
-// eso rompe TODA conexión saliente a hosts dual-stack:
-//   - smtp.gmail.com     → ENETUNREACH
-//   - cel.sri.gob.ec     → ENETUNREACH (si tiene AAAA)
-//   - api.externa.com    → ENETUNREACH
-//
-// Además, `require('dotenv')` y otros módulos pueden hacer DNS en
-// su init, así que este bloque va ANTES de cualquier require.
-// ------------------------------------------------------------
-// 🔧 FIX IPv6 (parte 2): Node 20+ activa autoSelectFamily (Happy
-//    Eyeballs) por default, lo que HACE QUE LA OPCIÓN `family: 4`
-//    SEA IGNORADA. Hay que desactivarlo explícitamente para que
-//    `family: 4` (en nodemailer) y `ipv4first` surtan efecto.
 // ------------------------------------------------------------
 const dns = require('node:dns');
 const net = require('node:net');
@@ -123,7 +110,6 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const MONGODB_URI = process.env.MONGODB_URI;
 const DB_NAME = process.env.DB_NAME;
 
-// Placeholders que indican config incompleta.
 const PLACEHOLDERS = [
   'cambia-esto', 'otra-clave-larga', 'tu-app-password', 'tu-correo@',
   'minimo-32-chars', 'aleatoria-para-cifrar'
@@ -163,7 +149,6 @@ function validarEnv() {
 // ============================================================
 const app = express();
 
-// ---- Seguridad básica ----
 app.disable('x-powered-by');
 
 const TRUST_PROXY = process.env.TRUST_PROXY_HOPS !== undefined
@@ -172,9 +157,6 @@ const TRUST_PROXY = process.env.TRUST_PROXY_HOPS !== undefined
 app.set('trust proxy', Number.isFinite(TRUST_PROXY) ? TRUST_PROXY : 0);
 app.set('query parser', 'simple');
 
-// ---- Helmet ----
-// CSP deshabilitada porque la sirve el frontend (Vercel/Netlify).
-// crossOriginResourcePolicy abierto para permitir carga de recursos.
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: false
@@ -216,7 +198,7 @@ app.use((req, res, next) => {
 
   res.on('finish', () => {
     const status = res.statusCode;
-    if (status < 400) return; // Solo loggear errores.
+    if (status < 400) return;
     const payload = {
       reqId: rid,
       metodo: req.method,
@@ -272,8 +254,7 @@ async function inicializarMongo() {
 }
 
 /**
- * Trabajo post-arranque que NO debe bloquear el `listen`:
- * crear índices, arrancar scheduler. Best-effort.
+ * Trabajo post-arranque que NO debe bloquear el `listen`.
  */
 async function trabajoPostArranque() {
   // 1. Índices.
@@ -329,7 +310,7 @@ const io = socketIo(server, {
   transports: ['websocket', 'polling'],
   pingTimeout: 25000,
   pingInterval: 20000,
-  maxHttpBufferSize: 1e6 // 1 MB — evita payloads abusivos por WebSocket.
+  maxHttpBufferSize: 1e6
 });
 
 /** Parsea cookies de forma defensiva. NUNCA lanza. */
@@ -347,19 +328,17 @@ function parseCookies(header) {
     try {
       out[k] = decodeURIComponent(rawV);
     } catch {
-      out[k] = rawV; // Cookie con encoding inválido: guardamos raw.
+      out[k] = rawV;
     }
   }
   return out;
 }
 
 // ---- Rate limit simple por IP para handshake Socket.IO ----
-const intentosHandshake = new Map(); // ip → { count, resetAt }
+const intentosHandshake = new Map();
 const HANDSHAKE_LIMIT = 30;
 const HANDSHAKE_WINDOW_MS = 60_000;
 
-// 🔧 FIX: limpieza periódica de entradas expiradas.
-//    Sin esto, el Map crecía indefinidamente con cada IP nueva.
 const _limpiezaHandshake = setInterval(() => {
   const ahora = Date.now();
   for (const [ip, entry] of intentosHandshake) {
@@ -369,7 +348,6 @@ const _limpiezaHandshake = setInterval(() => {
 if (_limpiezaHandshake.unref) _limpiezaHandshake.unref();
 
 io.use(async (socket, next) => {
-  // ---- Rate limit de handshake ----
   const ip = socket.handshake.address || 'desconocido';
   const ahora = Date.now();
   const entry = intentosHandshake.get(ip);
@@ -459,9 +437,7 @@ app.use((req, res, next) => {
 const authRoutes = require('./routes/auth');
 app.use('/api/auth', authRoutes);
 
-// ---- Liveness raíz (para monitores / Render healthcheck) ----
-// Render hace `HEAD /` periódicamente. Sin handler, cae al 404 y
-// ensucia los logs. Devolvemos 200 con el identificador mínimo.
+// ---- Liveness raíz ----
 app.get('/', (req, res) => {
   res.json({ ok: true, service: 'cacao-backend', version: VERSION });
 });
@@ -469,7 +445,7 @@ app.head('/', (req, res) => {
   res.status(200).end();
 });
 
-// ---- Liveness (siempre 200 si el proceso responde) ----
+// ---- Liveness ----
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
@@ -480,7 +456,7 @@ app.get('/api/health', (req, res) => {
 });
 app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
 
-// ---- Readiness (depende de la DB) ----
+// ---- Readiness ----
 app.get('/api/health/detailed', async (req, res) => {
   const health = {
     status: 'OK',
@@ -536,7 +512,30 @@ app.use('/api/categorias', require('./routes/categorias'));
 app.use('/api/ventas', require('./routes/ventas'));
 app.use('/api/compras', require('./routes/compras'));
 app.use('/api/pagos', require('./routes/pagos'));
-app.use('/api/retenciones', require('./routes/retenciones'));
+
+// 🆕 REFACTOR 2025-XX: se eliminó `/api/retenciones`.
+//    Las retenciones emitidas ahora viven en `ventas_v2` y se
+//    gestionan vía `/api/ventas?tipo_documento=retencion`.
+//    Se auto-emiten desde `POST /api/compras`.
+//
+//    Si algún cliente legacy hace llamadas a `/api/retenciones`,
+//    responde un 410 Gone con instrucciones de migración.
+app.use('/api/retenciones', (req, res) => {
+  res.status(410).json({
+    error:
+      'El endpoint /api/retenciones fue eliminado. Las retenciones ' +
+      'ahora se emiten automáticamente desde /api/compras y se ' +
+      'consultan vía /api/ventas?tipo_documento=retencion.',
+    codigo: 'ENDPOINT_DEPRECADO',
+    migracion: {
+      listar: 'GET /api/ventas?tipo_documento=retencion',
+      detalle: 'GET /api/ventas/:id',
+      crear: 'POST /api/compras (con retención)',
+      eliminar: 'Se elimina en cascada al eliminar la compra origen'
+    }
+  });
+});
+
 app.use('/api/kardex', require('./routes/kardex'));
 app.use('/api/contadores', require('./routes/contadores'));
 app.use('/api/secuencias', require('./routes/secuencias'));
@@ -574,7 +573,7 @@ app.get('/api/auth/permisos', (req, res) => {
   res.json({ rol, permisos: getPermisosDeRol(rol) || {} });
 });
 
-// ---- 404 dentro de /api (deja pasar /api/docs*) ----
+// ---- 404 dentro de /api ----
 app.use('/api', (req, res) => {
   res.status(404).json({
     error: 'Ruta no encontrada',
@@ -587,20 +586,18 @@ app.use('/api', (req, res) => {
 app.use(errorHandler);
 
 // ============================================================
-// BOOTSTRAP (solo se ejecuta si es el módulo principal)
+// BOOTSTRAP
 // ============================================================
 let serverInstancia = null;
 let cerrando = false;
 
 async function bootstrap() {
-  // ---- 1. Validar env ----
   const check = validarEnv();
   if (!check.ok) {
     for (const e of check.errores) log.error(`❌ FATAL: ${e}`);
     process.exit(1);
   }
 
-  // ---- 2. Mongo (crítico: si falla, no arranca) ----
   try {
     await inicializarMongo();
   } catch (err) {
@@ -608,7 +605,6 @@ async function bootstrap() {
     process.exit(1);
   }
 
-  // ---- 3. Listen ----
   serverInstancia = server.listen(PORT, () => {
     log.info({
       port: PORT,
@@ -619,27 +615,21 @@ async function bootstrap() {
       trustProxy: TRUST_PROXY
     }, '🚀 Servidor backend listo');
 
-    // ---- 4. Trabajo post-arranque (background, best-effort) ----
     trabajoPostArranque().catch(err => {
       log.error({ err: err.message }, 'Error en trabajo post-arranque');
     });
 
-    // ---- 5. Warnings útiles ----
     if (!process.env.SMTP_FROM) {
       log.warn('⚠️  SMTP_FROM no definido. Se usará SMTP_USER como remitente.');
     }
     if (!process.env.CORS_ORIGINS && IS_PROD) {
       log.warn('⚠️  CORS_ORIGINS no definido en producción — CORS cerrado por defecto.');
     }
-    // 🔧 FIX: condición simplificada. Antes era
-    //    `!X || X !== 'true'` (redundante: si X no existe, `X !== 'true'`
-    //    ya es true). El warning se dispara exactamente cuando NO está
-    //    configurado en 'true' — que es lo que queremos.
     if (IS_PROD && process.env.COOKIE_CROSS_SITE !== 'true') {
       log.warn(
         '⚠️  COOKIE_CROSS_SITE no está en "true". Si el frontend y el backend ' +
-        'están en dominios distintos (ej: vercel.app ↔ onrender.com), las cookies ' +
-        'NO viajarán y la sesión se caerá cada 15 min.'
+        'están en dominios distintos, las cookies NO viajarán y la sesión se ' +
+        'caerá cada 15 min.'
       );
     }
   });
@@ -674,20 +664,14 @@ async function shutdown(signal) {
 
   log.info({ signal }, `Señal ${signal} recibida. Cerrando servidor...`);
 
-  // 🔧 FIX: timer duro para forzar salida si algo se cuelga.
-  //    Antes vivía a NIVEL DE MÓDULO y se disparaba 10 s después del
-  //    arranque (cuando `cerrando` era siempre false). Ahora vive acá
-  //    y solo se activa durante el shutdown real. Se limpia al final.
   const timeoutDuro = setTimeout(() => {
     log.error('⚠️  Shutdown excedió 10 s, forzando salida');
     process.exit(1);
   }, 10_000);
   if (timeoutDuro.unref) timeoutDuro.unref();
 
-  // ---- 1. Scheduler ----
   try { detenerScheduler(); } catch { /* noop */ }
 
-  // ---- 2. WebSocket server ----
   try {
     await conTimeout(
       new Promise(resolve => io.close(resolve)),
@@ -698,7 +682,6 @@ async function shutdown(signal) {
     log.warn({ err: e.message }, 'No se pudo cerrar Socket.IO limpiamente');
   }
 
-  // ---- 3. HTTP server ----
   try {
     if (serverInstancia) {
       await conTimeout(
@@ -711,7 +694,6 @@ async function shutdown(signal) {
     log.warn({ err: e.message }, 'No se pudo cerrar el servidor HTTP limpiamente');
   }
 
-  // ---- 4. Mongo ----
   try {
     if (mongoClient) {
       await conTimeout(mongoClient.close(), 3000, 'mongo.close timeout');
@@ -728,16 +710,8 @@ async function shutdown(signal) {
 
 // ============================================================
 // ARRANQUE + HANDLERS DE PROCESO
-// ------------------------------------------------------------
-// 🔧 FIX: todo este bloque se ejecuta SOLO cuando se corre
-//    `node server.js`. Si alguien hace `require('./server')` desde
-//    un test (p. ej. con supertest), no arranca Mongo ni el listener.
 // ============================================================
 if (require.main === module) {
-  /**
-   * Racha de rechazos: si llegan más de N en T ms, consideramos
-   * el proceso en estado inconsistente y cerramos.
-   */
   const RACHA_MAX = 20;
   const RACHA_VENTANA_MS = 60_000;
   let rachaRechazos = [];
@@ -763,7 +737,6 @@ if (require.main === module) {
 
   process.on('uncaughtException', (err) => {
     log.error({ err: err.stack || err.message }, '❌ uncaughtException');
-    // Estado del proceso indefinido → cerrar siempre.
     shutdown('uncaughtException');
   });
 
@@ -777,7 +750,7 @@ if (require.main === module) {
 }
 
 // ============================================================
-// EXPORTS (siempre disponibles, para tests y para reuso)
+// EXPORTS
 // ============================================================
 module.exports = app;
 module.exports._io = io;

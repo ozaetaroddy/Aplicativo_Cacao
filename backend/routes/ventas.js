@@ -106,6 +106,7 @@ function envNum(nombre, fallback) {
 const CONFIG = Object.freeze({
   colVentas: 'ventas_v2',
   colClientes: 'clientes',
+  colProveedores: 'proveedores',   // 🆕 para retenciones emitidas a proveedores
   colProductos: 'productos',
   colKardex: 'kardex',
   colPagos: 'pagos',
@@ -740,8 +741,21 @@ function buildPipelineListado(match) {
         pipeline: [{ $project: { nombre: 1, ruc: 1, telefono: 1, email: 1 } }]
       }
     },
-    { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
-  ];
+    { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
+    // 🆕 Lookup proveedores: las retenciones emitidas a un proveedor
+    //    tienen `proveedorId` pero NO `clienteId`. Sin este lookup,
+    //    la lista mostraba "N/A" como contraparte.
+    {
+      $lookup: {
+        from: CONFIG.colProveedores,
+        localField: 'proveedorId',
+        foreignField: '_id',
+        as: 'proveedor',
+        pipeline: [{ $project: { nombre: 1, ruc: 1, telefono: 1, email: 1 } }]
+      }
+    },
+    { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
+  ]
 }
 
 // ============================================================
@@ -1342,7 +1356,7 @@ router.get('/:id', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
     const _id = requireObjectId(req.params.id);
 
-    const [venta] = await req.db.collection(CONFIG.colVentas).aggregate([
+        const [venta] = await req.db.collection(CONFIG.colVentas).aggregate([
       { $match: { _id } },
       { $project: { ...CONFIG.proyeccionLista } },
       {
@@ -1353,7 +1367,17 @@ router.get('/:id', requierePermiso('ventas', 'ver'), async (req, res, next) => {
           as: 'cliente'
         }
       },
-      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } }
+      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
+      // 🆕 lookup proveedor para retenciones auto-emitidas
+      {
+        $lookup: {
+          from: CONFIG.colProveedores,
+          localField: 'proveedorId',
+          foreignField: '_id',
+          as: 'proveedor'
+        }
+      },
+      { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
     ]).toArray();
 
     if (!venta) {
@@ -1598,7 +1622,33 @@ router.post(
         factura_original_id
       } = req.body;
 
-      const tipoDoc = tipo_documento || 'factura';
+            const tipoDoc = tipo_documento || 'factura';
+
+      // ============================================================
+      // 🆕 REFACTOR 2025-XX: la creación MANUAL de retenciones está
+      //    DEPRECADA. Las retenciones se emiten AUTOMÁTICAMENTE
+      //    desde `POST /api/compras`.
+      //
+      //    Motivo:
+      //      1. Garantiza que toda retención tenga `compra_origen_id`
+      //         (trazabilidad fiscal).
+      //      2. Evita duplicados: el usuario no puede crear dos
+      //         retenciones para la misma compra.
+      //      3. Simplifica el flujo: siempre se retiene "al comprar".
+      //
+      //    Devolvemos 410 Gone con instrucciones de qué hacer.
+      // ============================================================
+      if (tipoDoc === 'retencion') {
+        return res.status(410).json({
+          error:
+            'Las retenciones ahora se emiten automáticamente al crear una compra. ' +
+            'Registra la compra correspondiente y la retención se generará sola, ' +
+            'con clave de acceso SRI, XML y firma electrónica.',
+          codigo: 'RETENCION_MANUAL_DEPRECADA',
+          redirigir_a: '/compras/nuevo',
+          doc: 'POST /api/compras (con campo retencion_valor > 0)'
+        });
+      }
 
       if (!SETS.TIPOS_DOCUMENTO_VALIDOS.has(tipoDoc)) {
         return res.status(400).json({
@@ -2019,11 +2069,27 @@ router.put(
           codigo: 'YA_AUTORIZADO'
         });
       }
-      if ((ventaActual.intentos_envio_sri || 0) > 0) {
+            if ((ventaActual.intentos_envio_sri || 0) > 0) {
         return res.status(409).json({
           error: 'No se puede editar: el documento ya fue enviado al SRI. Genere una nota de crédito o anúlelo con el SRI.',
           codigo: 'YA_ENVIADO_SRI',
           intentos: ventaActual.intentos_envio_sri
+        });
+      }
+
+      // ============================================================
+      // 🆕 REFACTOR 2025-XX: las retenciones emitidas NO se editan
+      //    directamente. Se regeneran al editar la compra origen.
+      // ============================================================
+      if (ventaActual.tipo_documento === 'retencion') {
+        return res.status(409).json({
+          error:
+            'Las retenciones se regeneran automáticamente al editar la compra ' +
+            'origen. Edita la compra para modificar la retención.',
+          codigo: 'RETENCION_NO_EDITABLE',
+          compra_origen_id: ventaActual.compra_origen_id
+            ? String(ventaActual.compra_origen_id)
+            : null
         });
       }
 
@@ -2351,11 +2417,27 @@ router.delete(
           estado_sri: venta.estado_sri
         });
       }
-      if ((venta.intentos_envio_sri || 0) > 0) {
+            if ((venta.intentos_envio_sri || 0) > 0) {
         return res.status(409).json({
           error: 'No se puede eliminar: el documento ya fue enviado al SRI. Genere una nota de crédito.',
           codigo: 'YA_ENVIADO_SRI',
           intentos: venta.intentos_envio_sri
+        });
+      }
+
+      // ============================================================
+      // 🆕 REFACTOR 2025-XX: las retenciones se eliminan en cascada
+      //    al eliminar la compra origen. No se borran directo desde acá.
+      // ============================================================
+      if (venta.tipo_documento === 'retencion') {
+        return res.status(409).json({
+          error:
+            'Las retenciones se eliminan automáticamente al eliminar la compra ' +
+            'origen (siempre que no hayan sido enviadas al SRI).',
+          codigo: 'RETENCION_NO_ELIMINABLE',
+          compra_origen_id: venta.compra_origen_id
+            ? String(venta.compra_origen_id)
+            : null
         });
       }
 

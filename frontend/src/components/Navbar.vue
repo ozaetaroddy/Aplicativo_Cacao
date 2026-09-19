@@ -72,6 +72,7 @@
                 </li>
 
                 <!-- 🆕 RETENCIONES EMITIDAS (filtro dentro de Ventas) -->
+                                <!-- 🆕 RETENCIONES EMITIDAS (filtro dentro de Ventas) -->
                 <li v-if="puedeVerVentas">
                   <router-link
                     class="dropdown-link"
@@ -80,6 +81,7 @@
                   >
                     <i class="fas fa-percent" aria-hidden="true"></i>
                     <span>Retenciones emitidas</span>
+                    <span class="shortcut">07</span>
                   </router-link>
                 </li>
 
@@ -128,7 +130,7 @@
                       <span class="shortcut">06</span>
                     </router-link>
                   </li>
-                  <li v-if="puedeCrearVentas">
+                                    <li v-if="puedeCrearVentas">
                     <router-link
                       class="dropdown-link"
                       to="/ventas/nuevo?tipo=nota_credito"
@@ -139,17 +141,10 @@
                       <span class="shortcut">04</span>
                     </router-link>
                   </li>
-                  <li v-if="puedeCrearVentas">
-                    <router-link
-                      class="dropdown-link"
-                      to="/ventas/nuevo?tipo=retencion"
-                      @click="cerrarTodo"
-                    >
-                      <i class="fas fa-percent" aria-hidden="true"></i>
-                      <span>Retención</span>
-                      <span class="shortcut">07</span>
-                    </router-link>
-                  </li>
+                  <!-- 🆕 REFACTOR 2025-XX: "Retención" se eliminó de aquí.
+                       Las retenciones se emiten AUTOMÁTICAMENTE al crear
+                       una compra. Se consultan vía "Retenciones emitidas"
+                       (arriba, en la sección Bandejas). -->
                 </template>
 
                 <li class="dropdown-divider" aria-hidden="true"></li>
@@ -637,11 +632,13 @@
                   Guía de Remisión
                 </router-link>
               </li>
-              <li v-if="puedeCrearVentas">
+                            <li v-if="puedeCrearVentas">
                 <router-link class="mobile-subitem" to="/ventas/nuevo?tipo=nota_credito" @click="cerrarTodo">
                   Nota de Crédito
                 </router-link>
               </li>
+              <!-- 🆕 REFACTOR 2025-XX: "Retención" se eliminó.
+                   Se emite automáticamente desde una compra. -->
               <li>
                 <router-link class="mobile-subitem" to="/consultar-documentos" @click="cerrarTodo">
                   Consultar Documentos

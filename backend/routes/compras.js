@@ -598,15 +598,18 @@ async function crearRetencionDesdeCompra(db, {
   const secuencialSRI = String(contadorValor).padStart(9, '0');
 
   // ---- 3. Generar XML ----
-  const ventaParaXml = {
+    const ventaParaXml = {
     clienteId: proveedor?._id || null,
     numero_factura: numeroRetencion,
     fecha_emision: new Date(fechaEmisionCompra),
     tipo_documento: 'retencion',
     detalles: [],
-    subtotal: 0,
+    // 🆕 FIX 2025-XX: el "total" de una retención = suma de los
+    //    valores retenidos. Antes se guardaba 0, y el listado
+    //    mostraba $0.00 pareciendo un documento vacío.
+    subtotal: totalRetenido,
     iva: 0,
-    total: 0,
+    total: totalRetenido,
     clave_acceso: claveAcceso,
     serie,
     secuencial_sri: secuencialSRI,
@@ -655,9 +658,10 @@ async function crearRetencionDesdeCompra(db, {
 
   // ---- 5. Persistir ----
   const ahora = new Date();
-  const doc = {
+    const doc = {
     // Compat: ventas usan `clienteId`; retenciones desde compras usan
     // `proveedorId` (mismo ObjectId, distinto nombre semántico).
+    // El `$lookup` de `ventas.js` resuelve la contraparte real.
     clienteId: proveedor?._id || null,
     proveedorId: proveedor?._id || null,
 
@@ -665,9 +669,18 @@ async function crearRetencionDesdeCompra(db, {
     fecha_emision: new Date(fechaEmisionCompra),
     tipo_documento: 'retencion',
     detalles: [],
-    subtotal: 0,
+
+    // 🆕 FIX 2025-XX: el "total" de una retención = suma de los
+    //    valores retenidos. Antes se guardaba 0 → el listado
+    //    mostraba $0.00 y parecía que la retención estaba vacía.
+    subtotal: totalRetenido,
     iva: 0,
-    total: 0,
+    total: totalRetenido,
+
+    // 🆕 FIX 2025-XX: las retenciones son documentos informativos,
+    //    NO deuda del proveedor. Marcamos como `pagado` para no
+    //    confundir al usuario con un badge "Pendiente".
+    estado_pago: 'pagado',
 
     clave_acceso: claveAcceso,
     numero_autorizacion: '',
@@ -1396,9 +1409,20 @@ router.put(
             compraActualizada.retencion_estado_sri = retencionNueva.estado_sri;
             compraActualizada.retencion_pendiente_emision = false;
 
-            if (Array.isArray(retencionNueva.advertencias)) {
+                        if (Array.isArray(retencionNueva.advertencias)) {
               advertenciasRetencion = retencionNueva.advertencias;
             }
+
+            // 🆕 Log de diagnóstico útil para debugging
+            log.info(
+              {
+                compraId: String(_id),
+                retencionNueva: retencionNueva.numero_factura,
+                totalRetenido: retencionNueva.total_retenido,
+                estadoSri: retencionNueva.estado_sri
+              },
+              'Retención re-sincronizada tras editar compra'
+            );
           } else {
             // Ya no aplica retención → limpiar metadata
             await req.db.collection(CONFIG.colCompras).updateOne(

@@ -105,7 +105,7 @@
                   <label class="form-label" for="vf-tipo">
                     <span class="required">*</span> Tipo de documento
                   </label>
-                  <select
+                                    <select
                     id="vf-tipo"
                     class="form-select"
                     v-model="venta.tipo_documento"
@@ -116,7 +116,9 @@
                       <option value="factura">01 - Factura</option>
                       <option value="nota_credito">04 - Nota de Crédito</option>
                       <option value="guia_remision">06 - Guía de Remisión</option>
-                      <option value="retencion">07 - Comprobante de Retención</option>
+                      <!-- 🆕 REFACTOR 2025-XX: "07 - Comprobante de Retención"
+                           fue eliminado. Las retenciones se emiten automáticamente
+                           desde una compra (Compras → Nueva Compra). -->
                       <option value="liquidacion">03 - Liquidación de Compra</option>
                     </optgroup>
                     <optgroup label="Documentos Especiales">
@@ -1803,7 +1805,19 @@ const inferirTipoIdent = (valor) => {
 // ===== ROUTE =====
 const id = computed(() => (route.params.id ? String(route.params.id) : null))
 const esEdicion = computed(() => Boolean(id.value))
-const tipoInicial = computed(() => route.query.tipo || 'factura')
+
+/**
+ * 🆕 REFACTOR 2025-XX: la creación MANUAL de retenciones está
+ *    deshabilitada. Las retenciones se emiten automáticamente
+ *    desde una compra (`Compras → Nueva Compra`).
+ *
+ *    Si alguien llega con `?tipo=retencion` (bookmark viejo, link
+ *    compartido, etc.), lo redirigimos a factura para no romper.
+ */
+const tipoInicial = computed(() => {
+  const t = String(route.query.tipo || 'factura')
+  return t === 'retencion' ? 'factura' : t
+})
 
 // ===== STATE =====
 const clientes = ref([])              // Lista actual mostrada (clientes o proveedores)
@@ -2891,18 +2905,30 @@ const cargarVenta = async (ventaId) => {
 
 // ===== GUARDAR =====
 const guardar = async () => {
-  if (cargando.value) return
-
   if (periodoCerrado.value) {
     toast.error(`No se puede guardar: ${periodoCerrado.value.nombre} está cerrado`)
     return
   }
 
+  // 🆕 REFACTOR 2025-XX: defensa extra. Aunque el selector ya no ofrece
+  //    "retencion", si alguien modifica el estado vía DevTools, lo bloqueamos.
+  if (venta.value.tipo_documento === 'retencion') {
+    toast.error(
+      'Las retenciones se emiten automáticamente desde una compra. ' +
+      'Ve a Compras → Nueva Compra.'
+    )
+    errorGeneral.value =
+      'No se puede crear una retención manualmente. Usa Compras → Nueva Compra.'
+    return
+  }
+
   if (!formularioValido.value) {
-    errorGeneral.value = 'Corrige los errores antes de guardar'
+    errorGeneral.value =
+      'Completa el proveedor, agrega al menos un producto y verifica los impuestos de retención'
     toast.warning('Verifica los datos')
     return
   }
+  if (cargando.value) return
 
   if (puedeGenerarClave.value && !configEmpresaOk.value) {
     const ok = await pedirConfirmacion({

@@ -3,8 +3,16 @@
     <!-- ===== HEADER ===== -->
     <div class="page-header">
       <div>
-        <h1 class="page-title">
-          <span class="title-icon"><i class="fas fa-hand-holding-usd" aria-hidden="true"></i></span>
+                <h1 class="page-title">
+          <span
+            class="title-icon"
+            :class="{ 'title-icon-retencion': filtroTipoDoc === 'retencion' }"
+          >
+            <i
+              :class="filtroTipoDoc === 'retencion' ? 'fas fa-percent' : 'fas fa-hand-holding-usd'"
+              aria-hidden="true"
+            ></i>
+          </span>
           {{ tituloPagina }}
         </h1>
         <p class="page-subtitle">{{ subtituloPagina }}</p>
@@ -215,14 +223,18 @@
                   </div>
                 </td>
                 <td><span class="badge-doc">{{ v.numero_factura || '—' }}</span></td>
-                <td>
+                                <td>
                   <div class="cliente-cell">
-                    <div class="cliente-avatar" aria-hidden="true">
-                      {{ getInitials(v.cliente?.nombre) }}
+                    <div
+                      class="cliente-avatar"
+                      :class="{ 'avatar-retencion': v.tipo_documento === 'retencion' }"
+                      aria-hidden="true"
+                    >
+                      {{ contraparteInicial(v) }}
                     </div>
                     <div class="cliente-info">
-                      <div class="cliente-nombre">{{ v.cliente?.nombre || 'N/A' }}</div>
-                      <div class="cliente-ruc">{{ v.cliente?.ruc || '—' }}</div>
+                      <div class="cliente-nombre">{{ contraparteNombre(v) }}</div>
+                      <div class="cliente-ruc">{{ contraparteRuc(v) }}</div>
                     </div>
                   </div>
                 </td>
@@ -354,21 +366,38 @@
                               <span>Enviar por email</span>
                             </a>
                           </li>
-                          <li v-if="v.estado_sri !== 'AUTORIZADO'">
+                                                    <!-- 🆕 REFACTOR 2025-XX: las retenciones NO se editan
+                               ni eliminan directamente. Se regeneran al editar
+                               la compra origen. -->
+                          <li
+                            v-if="v.tipo_documento !== 'retencion' && v.estado_sri !== 'AUTORIZADO'"
+                          >
                             <a href="#" @click.prevent="editar(v)">
                               <i class="fas fa-edit" aria-hidden="true"></i>
                               <span>Editar</span>
                             </a>
                           </li>
                           <li
-                            v-if="v.estado_sri !== 'AUTORIZADO'"
+                            v-if="v.tipo_documento !== 'retencion' && v.estado_sri !== 'AUTORIZADO'"
                             class="divider"
                             aria-hidden="true"
                           ></li>
-                          <li v-if="v.estado_sri !== 'AUTORIZADO'">
+                          <li
+                            v-if="v.tipo_documento !== 'retencion' && v.estado_sri !== 'AUTORIZADO'"
+                          >
                             <a href="#" @click.prevent="confirmarEliminar(v)" class="danger">
                               <i class="fas fa-trash" aria-hidden="true"></i>
                               <span>Eliminar</span>
+                            </a>
+                          </li>
+
+                          <!-- 🆕 Ver compra origen (para retenciones auto-emitidas) -->
+                          <li
+                            v-if="v.tipo_documento === 'retencion' && v.compra_origen_id"
+                          >
+                            <a href="#" @click.prevent="verCompraOrigen(v)">
+                              <i class="fas fa-shopping-cart" aria-hidden="true"></i>
+                              <span>Ver compra origen</span>
                             </a>
                           </li>
                         </ul>
@@ -603,6 +632,20 @@ let abortController = null
 // ===== HELPERS =====
 const estaProcesando = (id) => Boolean(procesando[String(id)])
 
+// 🆕 REFACTOR 2025-XX: resolución de contraparte según tipo de documento.
+//    - Ventas normales (factura, NC, guía, etc.) → cliente
+//    - Retenciones emitidas desde compras → proveedor
+const contraparteNombre = (v) =>
+  v?.cliente?.nombre || v?.proveedor?.nombre || 'N/A'
+
+const contraparteRuc = (v) =>
+  v?.cliente?.ruc || v?.proveedor?.ruc || '—'
+
+const contraparteInicial = (v) => {
+  const n = v?.cliente?.nombre || v?.proveedor?.nombre
+  return getInitials(n)
+}
+
 const formatFecha = (f) => {
   if (!f) return ''
   try {
@@ -689,7 +732,7 @@ const tituloPagina = computed(() =>
 
 const subtituloPagina = computed(() =>
   filtroTipoDoc.value === 'retencion'
-    ? 'Comprobantes de retención emitidos a proveedores'
+    ? 'Comprobantes de retención emitidos automáticamente al registrar compras'
     : 'Gestiona y consulta todos tus comprobantes de venta'
 )
 
@@ -1034,6 +1077,17 @@ const irDocumento = (row) =>
   router.push(`/consultar-documentos?tipo=venta&id=${row._id}`)
 const irEnvioSri = () => router.push('/envio-sri')
 
+// 🆕 REFACTOR 2025-XX: navega a la compra origen de una retención
+//    auto-emitida. Solo disponible si tiene `compra_origen_id`.
+const verCompraOrigen = (v) => {
+  cerrarMenu()
+  if (!v?.compra_origen_id) {
+    toast.warning('Esta retención no tiene compra origen registrada')
+    return
+  }
+  router.push(`/compras/editar/${v.compra_origen_id}`)
+}
+
 const editar = (row) => {
   cerrarMenu()
   if (row.estado_sri === 'AUTORIZADO') {
@@ -1128,6 +1182,12 @@ onBeforeUnmount(() => {
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
 .page-title { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; color: var(--text-primary); letter-spacing: -0.03em; display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
 .title-icon { width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; box-shadow: 0 8px 20px rgba(52, 152, 219, 0.3); }
+
+/* 🆕 Color morado cuando se ve el filtro "Retenciones emitidas" */
+.title-icon-retencion {
+  background: linear-gradient(135deg, #8e44ad, #6c3483) !important;
+  box-shadow: 0 8px 20px rgba(142, 68, 173, 0.3) !important;
+}
 .page-subtitle { color: var(--text-muted); font-size: 0.9rem; margin: 0; padding-left: 62px; }
 .page-header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .btn-primary-action, .btn-secondary-action { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: var(--radius-md); font-weight: 600; font-size: 0.88rem; transition: all var(--transition); cursor: pointer; text-decoration: none; border: none; font-family: inherit; }
@@ -1200,6 +1260,13 @@ onBeforeUnmount(() => {
 .badge-doc { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; padding: 4px 10px; background: var(--bg-table-stripe); border: 1px solid var(--border-color); border-radius: 4px; }
 .cliente-cell { display: flex; align-items: center; gap: 10px; }
 .cliente-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.72rem; flex-shrink: 0; }
+
+/* 🆕 REFACTOR 2025-XX: color morado para retenciones, distinguible
+   visualmente del azul de ventas normales. */
+.avatar-retencion {
+  background: linear-gradient(135deg, #8e44ad, #6c3483) !important;
+  box-shadow: 0 2px 8px rgba(142, 68, 173, 0.25);
+}
 .cliente-nombre { font-weight: 600; font-size: 0.85rem; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cliente-ruc { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
 .badge-tipo { padding: 4px 10px; border-radius: var(--radius-full); background: rgba(108, 117, 125, 0.12); color: #6c757d; font-size: 0.7rem; font-weight: 700; text-transform: capitalize; }
