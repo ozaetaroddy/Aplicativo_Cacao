@@ -304,23 +304,28 @@
             </div>
           </section>
 
-          <!-- SECCIÓN: Cliente / Destinatario -->
+          <!-- SECCIÓN: Cliente / Proveedor / Destinatario -->
           <section class="form-section card-with-dropdown">
             <header class="section-header">
               <div class="section-number">{{ esNotaCredito ? 3 : 2 }}</div>
               <div class="section-header-content">
                 <h2 class="section-title">
-                  {{ esGuia ? 'Destinatario' : 'Cliente' }}
+                  {{ etiquetaContraparte }}
                 </h2>
                 <p class="section-desc">
                   {{
                     esGuia
                       ? 'Selecciona el destinatario; se autocompletarán los datos de la guía'
-                      : 'Selecciona o crea un cliente'
+                      : esRetencion
+                        ? 'Selecciona el proveedor al que vas a retener'
+                        : 'Selecciona o crea un cliente'
                   }}
                 </p>
               </div>
-              <router-link to="/clientes/nuevo" class="btn-new-inline">
+              <router-link
+                :to="esRetencion ? '/proveedores/nuevo' : '/clientes/nuevo'"
+                class="btn-new-inline"
+              >
                 <i class="fas fa-plus" aria-hidden="true"></i>
                 <span>Nuevo</span>
               </router-link>
@@ -333,14 +338,12 @@
                     ref="inputCliente"
                     type="text"
                     class="search-input"
-                    :placeholder="esGuia
-                      ? 'Escribe nombre, RUC o cédula del destinatario…'
-                      : 'Escribe nombre, RUC o cédula…'"
+                    :placeholder="placeholderContraparte"
                     v-model="busquedaCliente"
                     @focus="mostrarListaClientes = true"
                     @input="filtrarClientes"
                     @blur="cerrarListaClientes"
-                    aria-label="Buscar cliente"
+                    aria-label="Buscar contraparte"
                     autocomplete="off"
                     :disabled="cargando"
                   />
@@ -349,8 +352,8 @@
                     class="search-clear"
                     type="button"
                     @click="limpiarCliente"
-                    title="Cambiar cliente"
-                    aria-label="Cambiar cliente"
+                    title="Cambiar contraparte"
+                    aria-label="Cambiar contraparte"
                   >
                     <i class="fas fa-times" aria-hidden="true"></i>
                   </button>
@@ -416,8 +419,8 @@
                     type="button"
                     class="cliente-change"
                     @click="limpiarCliente"
-                    title="Cambiar cliente"
-                    aria-label="Cambiar cliente"
+                    title="Cambiar contraparte"
+                    aria-label="Cambiar contraparte"
                   >
                     <i class="fas fa-exchange-alt" aria-hidden="true"></i>
                   </button>
@@ -426,22 +429,196 @@
             </div>
           </section>
 
-          <!-- ============ 🆕 SECCIÓN: Retención (solo si tipo_documento === 'retencion') ============ -->
-          <section v-if="esRetencion" class="form-section">
+          <!-- ============ SECCIÓN: Retención ============ -->
+          <section v-if="esRetencion" class="form-section card-with-dropdown">
             <header class="section-header">
               <div class="section-number">
                 <i class="fas fa-percent" aria-hidden="true"></i>
               </div>
               <div class="section-header-content">
                 <h2 class="section-title">Información de Retención</h2>
-                <p class="section-desc">Documento de sustento e impuestos retenidos</p>
+                <p class="section-desc">
+                  Documento de sustento e impuestos retenidos
+                </p>
               </div>
             </header>
             <div class="section-body">
-              <!-- Documento de sustento -->
+              <!-- 🆕 Autocompletar desde una compra del proveedor -->
               <div class="subsection">
                 <h3 class="subsection-title">
-                  <i class="fas fa-file-alt" aria-hidden="true"></i> Documento de Sustento
+                  <i class="fas fa-bolt" aria-hidden="true"></i>
+                  Autocompletar desde una compra del proveedor
+                  <span class="badge-hint">Opcional</span>
+                </h3>
+
+                <!-- Sin proveedor seleccionado -->
+                <div
+                  v-if="!clienteActual"
+                  class="autofill-empty autofill-empty--info"
+                >
+                  <i class="fas fa-arrow-up" aria-hidden="true"></i>
+                  <div>
+                    <strong>Selecciona primero un proveedor</strong>
+                    <div class="small">
+                      Al elegirlo, cargaremos aquí sus compras para que puedas
+                      autocompletar el documento de sustento en un clic.
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Cargando compras -->
+                <div
+                  v-else-if="cargandoComprasProveedor"
+                  class="autofill-empty autofill-empty--loading"
+                >
+                  <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                  <div>
+                    <strong>Cargando compras del proveedor…</strong>
+                  </div>
+                </div>
+
+                <!-- Sin compras -->
+                <div
+                  v-else-if="comprasProveedor.length === 0 && !compraSeleccionadaRetencion"
+                  class="autofill-empty autofill-empty--warn"
+                >
+                  <i class="fas fa-info-circle" aria-hidden="true"></i>
+                  <div>
+                    <strong>Sin compras registradas para este proveedor</strong>
+                    <div class="small">
+                      Puedes llenar el documento de sustento manualmente abajo, o
+                      registrar la compra primero en
+                      <router-link to="/compras/nuevo" class="autofill-link">
+                        Nueva Compra
+                      </router-link>.
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Lista de compras -->
+                <template v-else-if="!compraSeleccionadaRetencion">
+                  <div class="position-relative">
+                    <div class="search-input-group">
+                      <i class="fas fa-file-invoice-dollar search-icon" aria-hidden="true"></i>
+                      <input
+                        type="text"
+                        class="search-input"
+                        placeholder="Buscar por N° de factura, clave de acceso o total…"
+                        v-model="busquedaCompraRetencion"
+                        @focus="mostrarListaCompras = true"
+                        @blur="cerrarListaCompras"
+                        autocomplete="off"
+                        :disabled="cargando"
+                        aria-label="Buscar compra del proveedor"
+                      />
+                    </div>
+
+                    <transition name="dropdown">
+                      <div
+                        v-if="mostrarListaCompras && comprasFiltradas.length > 0"
+                        class="search-dropdown"
+                      >
+                        <div
+                          v-for="c in comprasFiltradas.slice(0, 10)"
+                          :key="String(c._id)"
+                          class="dropdown-row"
+                          @mousedown.prevent="seleccionarCompraParaRetencion(c)"
+                        >
+                          <div class="row-avatar row-avatar-product">
+                            <i class="fas fa-shopping-cart" aria-hidden="true"></i>
+                          </div>
+                          <div class="row-content">
+                            <div class="row-title">
+                              {{ c.numero_factura || 'Sin N° de factura' }}
+                            </div>
+                            <div class="row-meta">
+                              <span>
+                                <i class="fas fa-calendar" aria-hidden="true"></i>
+                                {{ formatFechaCorta(c.fecha_emision) }}
+                              </span>
+                              <span v-if="c.clave_acceso" class="row-clave">
+                                <i class="fas fa-key" aria-hidden="true"></i>
+                                …{{ String(c.clave_acceso).slice(-8) }}
+                              </span>
+                            </div>
+                          </div>
+                          <div class="row-price">
+                            <div class="price-value">${{ formatMonto(c.subtotal) }}</div>
+                            <div class="price-label">base</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        v-else-if="mostrarListaCompras && busquedaCompraRetencion.length > 0"
+                        class="search-dropdown search-empty"
+                      >
+                        <i class="fas fa-search" aria-hidden="true"></i>
+                        <span>Sin coincidencias</span>
+                      </div>
+                    </transition>
+                  </div>
+
+                  <div class="autofill-hint">
+                    <i class="fas fa-info-circle" aria-hidden="true"></i>
+                    Se autocompletarán el tipo, N°, clave de acceso, fecha y base
+                    de los impuestos con los datos de la compra.
+                  </div>
+                </template>
+
+                <!-- Compra seleccionada -->
+                <transition name="fade">
+                  <div
+                    v-if="compraSeleccionadaRetencion"
+                    class="factura-original-card"
+                    style="margin-top: 4px;"
+                  >
+                    <div class="factura-original-icon">
+                      <i class="fas fa-check" aria-hidden="true"></i>
+                    </div>
+                    <div class="factura-original-info">
+                      <div class="factura-original-title">
+                        {{ compraSeleccionadaRetencion.numero_factura || 'Sin N°' }}
+                      </div>
+                      <div class="factura-original-meta">
+                        <span>
+                          <i class="fas fa-calendar" aria-hidden="true"></i>
+                          {{ formatFechaCorta(compraSeleccionadaRetencion.fecha_emision) }}
+                        </span>
+                        <span>
+                          <i class="fas fa-dollar-sign" aria-hidden="true"></i>
+                          Subtotal: ${{ formatMonto(compraSeleccionadaRetencion.subtotal) }}
+                        </span>
+                        <span v-if="compraSeleccionadaRetencion.clave_acceso">
+                          <i class="fas fa-key" aria-hidden="true"></i>
+                          …{{ String(compraSeleccionadaRetencion.clave_acceso).slice(-8) }}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="cliente-change"
+                      @click="limpiarCompraRetencion"
+                      title="Cambiar compra"
+                      aria-label="Cambiar compra"
+                    >
+                      <i class="fas fa-exchange-alt" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </transition>
+              </div>
+
+              <!-- Documento de sustento -->
+              <div class="subsection" style="margin-top: 24px;">
+                <h3 class="subsection-title">
+                  <i class="fas fa-file-alt" aria-hidden="true"></i>
+                  Documento de Sustento
+                  <span
+                    v-if="compraSeleccionadaRetencion"
+                    class="badge-hint badge-hint--ok"
+                  >
+                    <i class="fas fa-magic" aria-hidden="true"></i>
+                    Autocompletado
+                  </span>
                 </h3>
                 <div class="form-row cols-3">
                   <div class="form-field">
@@ -501,22 +678,30 @@
                       type="date"
                       class="form-control"
                       v-model="venta.comprobante_fecha_emision"
+                      @change="propagarSustentoAImpuestos"
                     />
                   </div>
                 </div>
               </div>
 
-              <!-- 🆕 Impuestos de retención con catálogo SRI -->
+              <!-- Impuestos retenidos -->
               <div class="subsection" style="margin-top: 24px;">
                 <h3 class="subsection-title">
-                  <i class="fas fa-calculator" aria-hidden="true"></i> Impuestos Retenidos
+                  <i class="fas fa-calculator" aria-hidden="true"></i>
+                  Impuestos Retenidos
                 </h3>
 
-                <div v-if="venta.impuestos_retencion.length === 0" class="empty-items" style="padding: 24px;">
+                <div
+                  v-if="venta.impuestos_retencion.length === 0"
+                  class="empty-items"
+                  style="padding: 24px;"
+                >
                   <div class="empty-icon" style="width: 48px; height: 48px; font-size: 1.2rem;">
                     <i class="fas fa-percent" aria-hidden="true"></i>
                   </div>
-                  <div class="empty-title" style="font-size: 0.85rem;">No hay impuestos retenidos</div>
+                  <div class="empty-title" style="font-size: 0.85rem;">
+                    No hay impuestos retenidos
+                  </div>
                   <div class="empty-text" style="font-size: 0.78rem;">
                     Agrega al menos un impuesto del catálogo SRI para continuar
                   </div>
@@ -530,7 +715,6 @@
                     style="flex-wrap: wrap; align-items: flex-start;"
                   >
                     <div class="form-row cols-4" style="width: 100%; margin-bottom: 0;">
-                      <!-- 🆕 Código: SELECT del catálogo SRI -->
                       <div class="form-field" style="grid-column: span 2;">
                         <label :for="`ret-codigo-${idx}`" class="form-label">
                           <span class="required">*</span> Código Retención (SRI)
@@ -602,7 +786,10 @@
                       </div>
                     </div>
 
-                    <div class="form-row cols-4" style="width: 100%; margin-top: 12px; margin-bottom: 0;">
+                    <div
+                      class="form-row cols-4"
+                      style="width: 100%; margin-top: 12px; margin-bottom: 0;"
+                    >
                       <div class="form-field">
                         <label :for="`ret-valor-${idx}`" class="form-label">
                           Valor Retenido ($)
@@ -674,9 +861,12 @@
                   </div>
                 </div>
 
-                <!-- 🆕 Total retenido -->
+                <!-- Total retenido -->
                 <div v-if="venta.impuestos_retencion.length > 0" class="ret-total">
-                  <span><i class="fas fa-calculator" aria-hidden="true"></i> Total retenido:</span>
+                  <span>
+                    <i class="fas fa-calculator" aria-hidden="true"></i>
+                    Total retenido:
+                  </span>
                   <strong>${{ formatMonto(totalRetenido) }}</strong>
                 </div>
 
@@ -1276,7 +1466,6 @@
                   <span class="total-value">${{ formatMonto(total) }}</span>
                 </div>
 
-                <!-- 🆕 Total retenido en el sidebar -->
                 <div v-if="esRetencion && totalRetenido > 0" class="nc-saldo-info">
                   <div class="nc-saldo-row">
                     <span>Retenido:</span>
@@ -1317,7 +1506,7 @@
                   "
                   aria-hidden="true"
                 ></i>
-                <span>{{ esGuia ? 'Destinatario seleccionado' : 'Cliente seleccionado' }}</span>
+                <span>{{ etiquetaStatusContraparte }}</span>
               </div>
 
               <div v-if="esNotaCredito" class="status-item" :class="{ complete: !!facturaOriginal }">
@@ -1503,7 +1692,9 @@ function hoyECISO() {
     const month = get('month')
     const day = get('day')
     if (year && month && day) return `${year}-${month}-${day}`
-  } catch { /* noop */ }
+  } catch {
+    /* noop */
+  }
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate()
@@ -1519,9 +1710,13 @@ const formatFechaCorta = (f) => {
   if (!f) return ''
   try {
     return new Date(f).toLocaleDateString('es-EC', {
-      day: '2-digit', month: 'short', year: 'numeric'
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
     })
-  } catch { return '' }
+  } catch {
+    return ''
+  }
 }
 
 const inferirTipoIdent = (valor) => {
@@ -1543,6 +1738,7 @@ const tipoInicial = computed(() => route.query.tipo || 'factura')
 // ===== STATE =====
 const clientes = ref([])
 const productos = ref([])
+const proveedores = ref([])
 const cargando = ref(false)
 const cargandoInicial = ref(false)
 const cargandoCatalogos = ref(false)
@@ -1561,9 +1757,17 @@ const mostrarListaProductos = ref(false)
 const mostrarListaFacturasNC = ref(false)
 const mostrarAyuda = ref(false)
 
+// NC
 const facturasNC = ref([])
 const buscandoFacturaNC = ref(false)
 const facturaOriginal = ref(null)
+
+// 🆕 RETENCIÓN — compras del proveedor
+const comprasProveedor = ref([])
+const busquedaCompraRetencion = ref('')
+const mostrarListaCompras = ref(false)
+const compraSeleccionadaRetencion = ref(null)
+const cargandoComprasProveedor = ref(false)
 
 let fuseClientes = null
 let fuseProductos = null
@@ -1628,7 +1832,6 @@ const venta = ref({
   estado_pago: 'pendiente',
   fecha_pago: '',
   observaciones: '',
-  // 🆕 Retención
   impuestos_retencion: []
 })
 
@@ -1637,6 +1840,7 @@ const errores = ref({ cliente: '', detalles: [] })
 // ===== GUARDS =====
 let unmounted = false
 let periodoAbort = null
+let comprasAbort = null
 
 // ===== CONFIG =====
 const configEmpresaOk = computed(
@@ -1654,7 +1858,7 @@ const esGuia = computed(() => venta.value.tipo_documento === 'guia_remision')
 const esNotaCredito = computed(() => venta.value.tipo_documento === 'nota_credito')
 const esRetencion = computed(() => venta.value.tipo_documento === 'retencion')
 
-// 🆕 Catálogos de retenciones (desde useCatalogosSRI)
+// Catálogos de retenciones
 const RETENCIONES_RENTA = computed(() => {
   const arr = catalogos.value?.TIPO_RETENCION || []
   return arr.filter((t) => t.impuesto === 'RENTA')
@@ -1665,7 +1869,7 @@ const RETENCIONES_IVA = computed(() => {
   return arr.filter((t) => t.impuesto === 'IVA')
 })
 
-// 🆕 Total retenido (suma de valorRetenido de cada impuesto)
+// Total retenido
 const totalRetenido = computed(() => {
   if (!Array.isArray(venta.value.impuestos_retencion)) return 0
   return roundTo2(
@@ -1674,6 +1878,19 @@ const totalRetenido = computed(() => {
       0
     )
   )
+})
+
+// Compras filtradas para retención
+const comprasFiltradas = computed(() => {
+  const q = String(busquedaCompraRetencion.value || '').trim().toLowerCase()
+  const lista = comprasProveedor.value
+  if (!q) return lista
+  return lista.filter((c) => {
+    const num = String(c.numero_factura || '').toLowerCase()
+    const clave = String(c.clave_acceso || '')
+    const total = formatMonto(c.subtotal)
+    return num.includes(q) || clave.includes(q) || total.includes(q)
+  })
 })
 
 const numeroPlaceholder = computed(() => {
@@ -1703,6 +1920,25 @@ const tituloDocumento = computed(() => {
   return esEdicion.value ? `Editar ${base}` : base
 })
 
+// 🆕 Etiqueta dinámica de la contraparte
+const etiquetaContraparte = computed(() => {
+  if (esGuia.value) return 'Destinatario'
+  if (esRetencion.value) return 'Proveedor (Sujeto Retenido)'
+  return 'Cliente'
+})
+
+const placeholderContraparte = computed(() => {
+  if (esGuia.value) return 'Escribe nombre, RUC o cédula del destinatario…'
+  if (esRetencion.value) return 'Escribe nombre o RUC del proveedor…'
+  return 'Escribe nombre, RUC o cédula…'
+})
+
+const etiquetaStatusContraparte = computed(() => {
+  if (esGuia.value) return 'Destinatario seleccionado'
+  if (esRetencion.value) return 'Proveedor seleccionado'
+  return 'Cliente seleccionado'
+})
+
 const clienteActual = computed(() => {
   if (!venta.value.clienteId) return null
   if (!Array.isArray(clientes.value)) return null
@@ -1726,7 +1962,9 @@ const clientesFiltrados = computed(() => {
         .slice(0, FUSE_LIMIT)
     }
     return fuseClientes.search(q).map((r) => r.item).slice(0, FUSE_LIMIT)
-  } catch { return [] }
+  } catch {
+    return []
+  }
 })
 
 const productosFiltrados = computed(() => {
@@ -1746,7 +1984,9 @@ const productosFiltrados = computed(() => {
         .slice(0, FUSE_LIMIT)
     }
     return fuseProductos.search(q).map((r) => r.item).slice(0, FUSE_LIMIT)
-  } catch { return [] }
+  } catch {
+    return []
+  }
 })
 
 const subtotal = computed(() => {
@@ -1773,7 +2013,6 @@ const iva = computed(() => {
 
 const total = computed(() => roundTo2(subtotal.value + iva.value))
 
-// 🆕 ¿Hay al menos un impuesto válido de retención?
 const tieneImpuestosRetencion = computed(() => {
   if (!Array.isArray(venta.value.impuestos_retencion)) return false
   return venta.value.impuestos_retencion.some(
@@ -1874,7 +2113,9 @@ const cancelarConfirm = () => {
 }
 
 // ===== CLIENTES =====
-const filtrarClientes = () => { mostrarListaClientes.value = true }
+const filtrarClientes = () => {
+  mostrarListaClientes.value = true
+}
 const cerrarListaClientes = () => {
   setTimeout(() => {
     if (unmounted) return
@@ -1893,6 +2134,8 @@ const seleccionarCliente = (c) => {
 const limpiarCliente = () => {
   venta.value.clienteId = ''
   busquedaCliente.value = ''
+  // Al cambiar de proveedor, invalidar la compra seleccionada
+  if (esRetencion.value) limpiarCompraRetencion()
   nextTick(() => inputCliente.value?.focus())
 }
 
@@ -1913,7 +2156,9 @@ const aplicarDestinatarioDesdeCliente = (c) => {
 }
 
 // ===== PRODUCTOS =====
-const filtrarProductos = () => { mostrarListaProductos.value = true }
+const filtrarProductos = () => {
+  mostrarListaProductos.value = true
+}
 const cerrarListaProductos = () => {
   setTimeout(() => {
     if (unmounted) return
@@ -1925,7 +2170,9 @@ const limpiarBusquedaProducto = () => {
   busquedaProducto.value = ''
   mostrarListaProductos.value = false
 }
-const focusBusquedaProducto = () => { inputProducto.value?.focus() }
+const focusBusquedaProducto = () => {
+  inputProducto.value?.focus()
+}
 
 const agregarPrimerProducto = () => {
   if (productosFiltrados.value.length > 0) agregarProducto(productosFiltrados.value[0])
@@ -2010,7 +2257,7 @@ const buscarFacturasNC = async () => {
     })
     if (unmounted) return
     facturasNC.value = Array.isArray(res) ? res : []
-  } catch (e) {
+  } catch {
     if (unmounted) return
     facturasNC.value = []
   } finally {
@@ -2061,50 +2308,180 @@ const limpiarFacturaNC = () => {
 }
 
 // ============================================================
-// 🆕 RETENCIÓN — Handlers con catálogo SRI + auto-cálculo
+// 🆕 RETENCIÓN — Autocompletado desde compra
 // ============================================================
 
-/** Busca en el catálogo local de retenciones (por código + impuesto). */
+const cerrarListaCompras = () => {
+  setTimeout(() => {
+    if (unmounted) return
+    mostrarListaCompras.value = false
+  }, 200)
+}
+
+/**
+ * Carga las compras del proveedor seleccionado.
+ * Solo se ejecuta cuando el tipo de documento es `retencion`.
+ */
+const cargarComprasDelProveedor = async (proveedorId) => {
+  if (!proveedorId) {
+    comprasProveedor.value = []
+    return
+  }
+
+  if (comprasAbort) {
+    try {
+      comprasAbort.abort()
+    } catch {
+      /* noop */
+    }
+  }
+  comprasAbort = new AbortController()
+
+  cargandoComprasProveedor.value = true
+  try {
+    const params = new URLSearchParams()
+    params.set('proveedorId', String(proveedorId))
+    params.set('limit', '200')
+    params.set('sortBy', 'fecha_emision')
+    params.set('sortDir', 'desc')
+
+    const res = await api.request(`/compras?${params.toString()}`, {
+      method: 'GET',
+      skipLoader: true,
+      signal: comprasAbort.signal
+    })
+    if (unmounted) return
+
+    const data = Array.isArray(res) ? res : (res?.data || [])
+    comprasProveedor.value = data
+  } catch (e) {
+    const esAbort = e?.name === 'AbortError' || /aborted/i.test(e?.message || '')
+    if (unmounted || esAbort) return
+    comprasProveedor.value = []
+  } finally {
+    if (!unmounted) cargandoComprasProveedor.value = false
+  }
+}
+
+/**
+ * Aplica los datos de la compra al documento de sustento
+ * y los propaga a cada impuesto ya agregado.
+ */
+const seleccionarCompraParaRetencion = (compra) => {
+  if (!compra) return
+
+  compraSeleccionadaRetencion.value = compra
+  mostrarListaCompras.value = false
+  busquedaCompraRetencion.value = ''
+
+  // Fecha en ISO corto (YYYY-MM-DD)
+  const fechaISO = compra.fecha_emision
+    ? new Date(compra.fecha_emision).toISOString().split('T')[0]
+    : ''
+
+  // 1. Documento de sustento
+  venta.value.comprobante_tipo_emision = 'Electrónica'
+  venta.value.comprobante_documento = String(compra.tipo_comprobante || '01')
+  venta.value.comprobante_numero = compra.numero_factura || ''
+  venta.value.comprobante_clave_acceso = compra.clave_acceso || ''
+  venta.value.comprobante_numero_autorizacion = compra.numero_autorizacion || ''
+  venta.value.comprobante_fecha_emision = fechaISO
+
+  // 2. Propagar a TODOS los impuestos existentes
+  propagarSustentoAImpuestos()
+
+  // 3. Si hay impuestos sin base, asignar el subtotal de la compra
+  const subtotalCompra = Number(compra.subtotal) || 0
+  for (const imp of venta.value.impuestos_retencion) {
+    if (!Number(imp.baseImponible) && subtotalCompra > 0) {
+      imp.baseImponible = roundTo2(subtotalCompra)
+      recalcularValorRetencion(venta.value.impuestos_retencion.indexOf(imp))
+    }
+  }
+
+  toast.success(`Compra ${compra.numero_factura || ''} cargada`)
+}
+
+/**
+ * Propaga los datos actuales del documento de sustento a cada
+ * impuesto que aún no tiene esos campos completos.
+ * No sobrescribe lo que el usuario ya escribió.
+ */
+const propagarSustentoAImpuestos = () => {
+  const sustento = {
+    codigoDocumento: String(venta.value.comprobante_documento || '01'),
+    numeroDocumento: String(venta.value.comprobante_numero || ''),
+    fechaEmisionDocSustento: String(venta.value.comprobante_fecha_emision || '')
+  }
+
+  for (const imp of venta.value.impuestos_retencion) {
+    if (!imp.codigoDocumento) imp.codigoDocumento = sustento.codigoDocumento
+    if (!imp.numeroDocumento) imp.numeroDocumento = sustento.numeroDocumento
+    if (!imp.fechaEmisionDocSustento) {
+      imp.fechaEmisionDocSustento = sustento.fechaEmisionDocSustento
+    }
+  }
+}
+
+/**
+ * Limpia la compra seleccionada y su autocompletado.
+ * NO limpia los campos que el usuario ya haya modificado manualmente
+ * (solo limpia si estaban autocompletados por nosotros — heurística simple:
+ *  los limpiamos todos para evitar estados raros).
+ */
+const limpiarCompraRetencion = () => {
+  compraSeleccionadaRetencion.value = null
+  busquedaCompraRetencion.value = ''
+  // No limpiamos el documento de sustento por si el usuario lo editó a mano
+  // tras seleccionar la compra.
+}
+
+// ============================================================
+// RETENCIÓN — Handlers del catálogo
+// ============================================================
+
 const buscarRetencionLocal = (codigo, impuesto) => {
   if (!codigo || !impuesto) return null
   const arr = catalogos.value?.TIPO_RETENCION || []
   return arr.find((t) => t.codigo === codigo && t.impuesto === impuesto) || null
 }
 
-/** Agrega un impuesto de retención vacío. */
 const agregarImpuestoRetencion = () => {
+  // Pre-cargar datos del sustento + base sugerida
+  const sustento = {
+    codigoDocumento: String(venta.value.comprobante_documento || '01'),
+    numeroDocumento: String(venta.value.comprobante_numero || ''),
+    fechaEmisionDocSustento: String(venta.value.comprobante_fecha_emision || '')
+  }
+
+  const baseSugerida =
+    compraSeleccionadaRetencion.value &&
+    Number(compraSeleccionadaRetencion.value.subtotal) > 0
+      ? roundTo2(compraSeleccionadaRetencion.value.subtotal)
+      : 0
+
   venta.value.impuestos_retencion.push({
-    // código tipo impuesto ('1' RENTA | '2' IVA) — se llena al elegir
     codigo: '',
-    // código específico del SRI (ej. '312', '725')
     codigoRetencion: '',
-    // impuesto declarado ('RENTA' | 'IVA')
     impuesto: '',
-    // descripción desde el catálogo
     concepto: '',
-    baseImponible: 0,
+    baseImponible: baseSugerida,
     porcentajeRetener: 0,
     valorRetenido: 0,
-    codigoDocumento: '',
-    numeroDocumento: '',
-    fechaEmisionDocSustento: ''
+    codigoDocumento: sustento.codigoDocumento,
+    numeroDocumento: sustento.numeroDocumento,
+    fechaEmisionDocSustento: sustento.fechaEmisionDocSustento
   })
 }
 
-/** Elimina un impuesto de retención. */
 const eliminarImpuestoRetencion = (index) => {
   venta.value.impuestos_retencion.splice(index, 1)
 }
 
-/**
- * Handler del select de código de retención.
- * Parsea el valor "IMPUESTO:CODIGO" y actualiza el objeto.
- */
 const onCambiarCodigoRetencion = (idx, value) => {
   const imp = venta.value.impuestos_retencion[idx]
   if (!imp) return
 
-  // Reset
   if (!value) {
     imp.codigoRetencion = ''
     imp.impuesto = ''
@@ -2131,12 +2508,10 @@ const onCambiarCodigoRetencion = (idx, value) => {
   recalcularValorRetencion(idx)
 }
 
-/** Handler cuando cambia base o % → recalcula el valor retenido. */
 const onCambiarBaseRetencion = (idx) => {
   recalcularValorRetencion(idx)
 }
 
-/** Recalcula `valorRetenido = base × %`. */
 const recalcularValorRetencion = (idx) => {
   const imp = venta.value.impuestos_retencion[idx]
   if (!imp) return
@@ -2180,9 +2555,13 @@ const cambiarTipo = () => {
     comprobante_numero: '',
     comprobante_fecha_emision: '',
     numero_factura: '',
-    // 🆕 Reset retención
     impuestos_retencion: []
   })
+
+  // Limpiar compra seleccionada al cambiar tipo
+  compraSeleccionadaRetencion.value = null
+  comprasProveedor.value = []
+  busquedaCompraRetencion.value = ''
 
   if (!esNotaCredito.value) {
     facturaOriginal.value = null
@@ -2200,12 +2579,21 @@ const cambiarTipo = () => {
   } else {
     seccionesExpandidas.value.guia = false
   }
+
+  // Cargar compras si es retención y ya hay proveedor
+  if (esRetencion.value && venta.value.clienteId) {
+    cargarComprasDelProveedor(venta.value.clienteId)
+  }
 }
 
 // ===== PERÍODO =====
 const verificarPeriodo = async () => {
   if (periodoAbort) {
-    try { periodoAbort.abort() } catch { /* noop */ }
+    try {
+      periodoAbort.abort()
+    } catch {
+      /* noop */
+    }
   }
   periodoAbort = new AbortController()
 
@@ -2272,13 +2660,30 @@ const cargarConfigEmpresa = async () => {
 
 const cargarClientesYProductos = async () => {
   try {
-    const [clis, prods] = await Promise.all([
+    const [clis, prods, provs] = await Promise.all([
       api.request('/clientes', { method: 'GET', skipLoader: true }).catch(() => []),
-      api.request('/productos', { method: 'GET', skipLoader: true }).catch(() => [])
+      api.request('/productos', { method: 'GET', skipLoader: true }).catch(() => []),
+      api.request('/proveedores', { method: 'GET', skipLoader: true }).catch(() => [])
     ])
 
     clientes.value = Array.isArray(clis) ? clis : clis?.data || []
     productos.value = Array.isArray(prods) ? prods : prods?.data || []
+    proveedores.value = Array.isArray(provs) ? provs : provs?.data || []
+
+    // Para retenciones, la contraparte es el PROVEEDOR
+    // Unificamos la lista: clientes + proveedores, sin duplicar por _id
+    if (esRetencion.value) {
+      const map = new Map()
+      for (const c of proveedores.value) map.set(String(c._id), c)
+      // Si algún proveedor no está en clientes, lo agregamos
+      for (const c of clientes.value) {
+        const key = String(c._id)
+        if (!map.has(key)) map.set(key, c)
+      }
+      // Reemplazamos clientes por la lista unificada (proveedores primero)
+      const unificados = Array.from(map.values())
+      clientes.value = unificados
+    }
 
     if (clientes.value.length > 0) {
       fuseClientes = new Fuse(clientes.value, {
@@ -2346,7 +2751,14 @@ const cargarVenta = async (ventaId) => {
             saldoAcreditable: Number(factura.total) || 0
           }
         }
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
+    }
+
+    // Si es retención y hay proveedor, cargar compras
+    if (data.tipo_documento === 'retencion' && data.clienteId) {
+      cargarComprasDelProveedor(data.clienteId)
     }
   } catch (e) {
     if (unmounted) return
@@ -2394,12 +2806,13 @@ const guardar = async () => {
       clienteId: venta.value.clienteId || undefined,
       numero_factura: esNotaCredito.value
         ? undefined
-        : (venta.value.numero_factura || undefined),
+        : venta.value.numero_factura || undefined,
       fecha_emision: venta.value.fecha_emision,
       tipo_documento: venta.value.tipo_documento,
-      factura_original_id: esNotaCredito.value && facturaOriginal.value
-        ? facturaOriginal.value._id
-        : undefined,
+      factura_original_id:
+        esNotaCredito.value && facturaOriginal.value
+          ? facturaOriginal.value._id
+          : undefined,
       motivo: esNotaCredito.value
         ? String(venta.value.motivo || '').trim()
         : undefined,
@@ -2412,7 +2825,6 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
-      // 🆕 Retención normalizada (solo cuando aplica)
       impuestos_retencion: esRetencion.value
         ? venta.value.impuestos_retencion
             .filter((imp) => imp.codigoRetencion)
@@ -2432,21 +2844,38 @@ const guardar = async () => {
       ...(() => {
         const extras = {}
         const campos = [
-          'numero_guia', 'transportista', 'placa',
-          'numero_exportacion', 'pais_destino',
-          'numero_retencion', 'establecimiento',
-          'nombre_comercial', 'punto_emision',
-          'transportista_identificacion', 'transportista_tipo',
-          'transportista_razon_social', 'transportista_correo',
-          'direccion_partida', 'inicio_transporte', 'fin_transporte',
+          'numero_guia',
+          'transportista',
+          'placa',
+          'numero_exportacion',
+          'pais_destino',
+          'numero_retencion',
+          'establecimiento',
+          'nombre_comercial',
+          'punto_emision',
+          'transportista_identificacion',
+          'transportista_tipo',
+          'transportista_razon_social',
+          'transportista_correo',
+          'direccion_partida',
+          'inicio_transporte',
+          'fin_transporte',
           'placa_transporte',
-          'destinatario_identificacion', 'destinatario_tipo',
-          'destinatario_razon_social', 'destinatario_direccion',
-          'ruta', 'documento_aduana',
-          'comprobante_tipo_emision', 'comprobante_documento',
-          'comprobante_clave_acceso', 'comprobante_numero_autorizacion',
-          'comprobante_numero', 'comprobante_fecha_emision',
-          'forma_pago', 'estado_pago', 'observaciones'
+          'destinatario_identificacion',
+          'destinatario_tipo',
+          'destinatario_razon_social',
+          'destinatario_direccion',
+          'ruta',
+          'documento_aduana',
+          'comprobante_tipo_emision',
+          'comprobante_documento',
+          'comprobante_clave_acceso',
+          'comprobante_numero_autorizacion',
+          'comprobante_numero',
+          'comprobante_fecha_emision',
+          'forma_pago',
+          'estado_pago',
+          'observaciones'
         ]
         for (const k of campos) {
           const v = venta.value[k]
@@ -2482,8 +2911,10 @@ const guardar = async () => {
           toast.warning(res._advertencia, { timeout: 10000 })
         }
 
-        // 🆕 Advertencias de retención del backend
-        if (Array.isArray(res?._advertencias_retencion) && res._advertencias_retencion.length) {
+        if (
+          Array.isArray(res?._advertencias_retencion) &&
+          res._advertencias_retencion.length
+        ) {
           for (const adv of res._advertencias_retencion) {
             toast.warning(adv, { timeout: 8000 })
           }
@@ -2573,10 +3004,7 @@ onMounted(async () => {
   cargandoInicial.value = true
   try {
     cargandoCatalogos.value = true
-    await Promise.all([
-      cargarCatalogos().catch(() => {}),
-      cargarConfigEmpresa()
-    ])
+    await Promise.all([cargarCatalogos().catch(() => {}), cargarConfigEmpresa()])
     cargandoCatalogos.value = false
     await cargarClientesYProductos()
 
@@ -2609,8 +3037,20 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', beforeUnloadHandler)
 
   if (periodoAbort) {
-    try { periodoAbort.abort() } catch { /* noop */ }
+    try {
+      periodoAbort.abort()
+    } catch {
+      /* noop */
+    }
     periodoAbort = null
+  }
+  if (comprasAbort) {
+    try {
+      comprasAbort.abort()
+    } catch {
+      /* noop */
+    }
+    comprasAbort = null
   }
 
   if (timerBusquedaNC) {
@@ -2618,7 +3058,11 @@ onBeforeUnmount(() => {
     timerBusquedaNC = null
   }
 
-  try { modalConfirm?.hide() } catch { /* noop */ }
+  try {
+    modalConfirm?.hide()
+  } catch {
+    /* noop */
+  }
 
   if (confirmState.resolve) {
     confirmState.resolve(false)
@@ -2636,6 +3080,34 @@ watch(
     if (!esGuia.value) return
     const c = clienteActual.value
     if (c) aplicarDestinatarioDesdeCliente(c)
+  }
+)
+
+// 🆕 Cuando cambia el proveedor y es retención, cargar sus compras
+watch(
+  () => [venta.value.clienteId, venta.value.tipo_documento],
+  ([newId, tipo]) => {
+    if (tipo !== 'retencion') return
+    // Limpiar compra anterior
+    compraSeleccionadaRetencion.value = null
+    if (!newId) {
+      comprasProveedor.value = []
+      return
+    }
+    cargarComprasDelProveedor(newId)
+  }
+)
+
+// 🆕 Cuando cambia el comprobante (tipo, número, fecha), propagar
+watch(
+  () => [
+    venta.value.comprobante_documento,
+    venta.value.comprobante_numero,
+    venta.value.comprobante_fecha_emision
+  ],
+  () => {
+    if (!esRetencion.value) return
+    propagarSustentoAImpuestos()
   }
 )
 </script>
@@ -2702,6 +3174,101 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .subsection-title { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border-light); }
 .subsection-title i { color: var(--primary-color); }
 
+/* 🆕 Badge de "Autocompletado" / "Opcional" */
+.badge-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--bg-table-stripe);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  text-transform: none;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  margin-left: 6px;
+}
+.badge-hint--ok {
+  background: rgba(39, 174, 96, 0.12);
+  color: #1e8449;
+  border-color: rgba(39, 174, 96, 0.3);
+}
+.badge-hint i { font-size: 0.7rem; }
+
+/* 🆕 Autofill empty states */
+.autofill-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px dashed;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.autofill-empty > i {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.autofill-empty strong {
+  display: block;
+  font-size: 0.88rem;
+  margin-bottom: 2px;
+}
+.autofill-empty .small {
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.autofill-empty--info {
+  background: rgba(52, 152, 219, 0.06);
+  border-color: rgba(52, 152, 219, 0.35);
+  color: #2980b9;
+}
+.autofill-empty--info strong { color: #1c5980; }
+.autofill-empty--loading {
+  background: rgba(52, 152, 219, 0.06);
+  border-color: rgba(52, 152, 219, 0.35);
+  color: #2980b9;
+  align-items: center;
+}
+.autofill-empty--loading strong { color: #1c5980; margin-bottom: 0; }
+.autofill-empty--warn {
+  background: rgba(243, 156, 18, 0.08);
+  border-color: rgba(243, 156, 18, 0.35);
+  color: #b9770e;
+}
+.autofill-empty--warn strong { color: #8a5b0e; }
+.autofill-link {
+  color: #d68910;
+  font-weight: 700;
+  text-decoration: underline;
+}
+.autofill-link:hover { color: #8a5b0e; }
+
+.autofill-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.autofill-hint i { color: var(--info); flex-shrink: 0; margin-top: 2px; }
+
+.row-clave {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* FORM */
 .form-row { display: grid; gap: 16px; margin-bottom: 16px; }
 .form-row:last-child { margin-bottom: 0; }
 .form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
@@ -2792,28 +3359,10 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .item-remove { width: 36px; height: 36px; border-radius: var(--radius-sm); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-muted); cursor: pointer; transition: all var(--transition-fast); font-size: 0.85rem; }
 .item-remove:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
 
-/* 🆕 Total retenido */
-.ret-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 16px;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(142, 68, 173, 0.08), rgba(142, 68, 173, 0.03));
-  border: 1px solid rgba(142, 68, 173, 0.25);
-  border-left: 4px solid #8e44ad;
-  border-radius: var(--radius-md);
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
+.ret-total { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding: 12px 16px; background: linear-gradient(135deg, rgba(142, 68, 173, 0.08), rgba(142, 68, 173, 0.03)); border: 1px solid rgba(142, 68, 173, 0.25); border-left: 4px solid #8e44ad; border-radius: var(--radius-md); font-size: 0.85rem; color: var(--text-secondary); }
 .ret-total span { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .ret-total span i { color: #8e44ad; }
-.ret-total strong {
-  font-size: 1.15rem;
-  color: #8e44ad;
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-}
+.ret-total strong { font-size: 1.15rem; color: #8e44ad; font-variant-numeric: tabular-nums; font-weight: 800; }
 
 .form-sidebar { position: relative; }
 .sidebar-sticky { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 16px; }
