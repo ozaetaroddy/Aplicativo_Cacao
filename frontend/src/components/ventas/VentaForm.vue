@@ -40,6 +40,7 @@
       </div>
     </div>
 
+    <!-- Atajos -->
     <transition name="fade">
       <div v-if="mostrarAyuda" class="shortcuts-panel">
         <div class="shortcuts-title">
@@ -55,8 +56,10 @@
       </div>
     </transition>
 
+    <!-- Alerta periodo cerrado -->
     <AlertaPeriodoCerrado :periodo-cerrado="periodoCerrado" />
 
+    <!-- Alerta configuración -->
     <div v-if="puedeGenerarClave && !configEmpresaOk" class="alert-box alert-danger">
       <div class="alert-icon"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i></div>
       <div class="alert-body">
@@ -130,13 +133,11 @@
                     type="text"
                     class="form-control"
                     v-model="venta.numero_factura"
-                    placeholder="Automático"
+                    :placeholder="numeroPlaceholder"
                     maxlength="50"
-                    :disabled="cargando"
+                    :disabled="cargando || esNotaCredito"
                   />
-                  <small class="form-hint">
-                    Si lo dejas vacío, el sistema asigna el número automáticamente.
-                  </small>
+                  <small class="form-hint">{{ numeroHint }}</small>
                 </div>
                 <div class="form-field">
                   <label class="form-label" for="vf-fecha">
@@ -155,11 +156,158 @@
             </div>
           </section>
 
-          <!-- SECCIÓN: Cliente / Destinatario -->
-          <!-- 🔧 FIX: ya no se oculta para guía_remision. El label cambia. -->
-          <section class="form-section card-with-dropdown">
+          <!-- SECCIÓN: Factura que modifica (solo NC) -->
+          <section v-if="esNotaCredito" class="form-section card-with-dropdown">
             <header class="section-header">
               <div class="section-number">2</div>
+              <div class="section-header-content">
+                <h2 class="section-title">
+                  Factura que modifica
+                  <span v-if="facturaOriginal" class="count-badge badge-ok">
+                    <i class="fas fa-check" aria-hidden="true"></i>
+                  </span>
+                </h2>
+                <p class="section-desc">Busca la factura autorizada que se va a acreditar</p>
+              </div>
+            </header>
+            <div class="section-body">
+              <!-- Buscador -->
+              <div v-if="!facturaOriginal" class="position-relative">
+                <div class="search-input-group">
+                  <i class="fas fa-search search-icon" aria-hidden="true"></i>
+                  <input
+                    ref="inputFacturaNC"
+                    type="text"
+                    class="search-input"
+                    placeholder="Escribe el Nº de factura (FAC-xxxxx) o la clave de acceso…"
+                    v-model="busquedaFacturaNC"
+                    @focus="mostrarListaFacturasNC = true"
+                    @input="onBuscarFacturasNC"
+                    @blur="cerrarListaFacturasNC"
+                    autocomplete="off"
+                    :disabled="cargando"
+                    aria-label="Buscar factura a acreditar"
+                  />
+                  <span v-if="buscandoFacturaNC" class="search-clear">
+                    <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                  </span>
+                </div>
+
+                <transition name="dropdown">
+                  <div
+                    v-if="mostrarListaFacturasNC && facturasNC.length > 0"
+                    class="search-dropdown"
+                  >
+                    <div
+                      v-for="f in facturasNC"
+                      :key="String(f._id)"
+                      class="dropdown-row"
+                      @mousedown.prevent="seleccionarFacturaNC(f)"
+                    >
+                      <div class="row-avatar row-avatar-product">
+                        <i class="fas fa-file-invoice" aria-hidden="true"></i>
+                      </div>
+                      <div class="row-content">
+                        <div class="row-title">{{ f.numero_factura }}</div>
+                        <div class="row-meta">
+                          <span>
+                            <i class="fas fa-calendar" aria-hidden="true"></i>
+                            {{ formatFechaCorta(f.fecha_emision) }}
+                          </span>
+                          <span v-if="f.cliente?.nombre">
+                            <i class="fas fa-user" aria-hidden="true"></i>
+                            {{ f.cliente.nombre }}
+                          </span>
+                        </div>
+                      </div>
+                      <div class="row-price">
+                        <div class="price-value">${{ formatMonto(f.saldoAcreditable) }}</div>
+                        <div class="price-label">acreditable</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    v-else-if="mostrarListaFacturasNC && !buscandoFacturaNC && busquedaFacturaNC.length > 1"
+                    class="search-dropdown search-empty"
+                  >
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <span>Sin facturas autorizadas con saldo</span>
+                  </div>
+                </transition>
+              </div>
+
+              <!-- Factura seleccionada -->
+              <div v-else class="factura-original-card">
+                <div class="factura-original-icon">
+                  <i class="fas fa-file-invoice" aria-hidden="true"></i>
+                </div>
+                <div class="factura-original-info">
+                  <div class="factura-original-title">{{ facturaOriginal.numero_factura }}</div>
+                  <div class="factura-original-meta">
+                    <span>
+                      <i class="fas fa-calendar" aria-hidden="true"></i>
+                      {{ formatFechaCorta(facturaOriginal.fecha_emision) }}
+                    </span>
+                    <span>
+                      <i class="fas fa-check-circle text-success" aria-hidden="true"></i>
+                      AUTORIZADA
+                    </span>
+                    <span v-if="facturaOriginal.cliente?.nombre">
+                      <i class="fas fa-user" aria-hidden="true"></i>
+                      {{ facturaOriginal.cliente.nombre }}
+                    </span>
+                  </div>
+                  <div class="factura-original-saldo">
+                    <span>
+                      <strong>Total:</strong> ${{ formatMonto(facturaOriginal.total) }}
+                    </span>
+                    <span v-if="Number(facturaOriginal.totalNC) > 0">
+                      <strong>Acreditado:</strong> ${{ formatMonto(facturaOriginal.totalNC) }}
+                    </span>
+                    <span class="saldo-hint">
+                      <strong>Saldo acreditable:</strong>
+                      ${{ formatMonto(facturaOriginal.saldoAcreditable) }}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="cliente-change"
+                  @click="limpiarFacturaNC"
+                  title="Cambiar factura"
+                  aria-label="Cambiar factura"
+                >
+                  <i class="fas fa-exchange-alt" aria-hidden="true"></i>
+                </button>
+              </div>
+
+              <!-- Motivo (obligatorio para NC) -->
+              <div class="form-row" style="margin-top: 20px;">
+                <div class="form-field">
+                  <label class="form-label" for="nc-motivo">
+                    <span class="required">*</span> Motivo de la Nota de Crédito
+                  </label>
+                  <textarea
+                    id="nc-motivo"
+                    class="form-control"
+                    v-model="venta.motivo"
+                    rows="2"
+                    maxlength="300"
+                    placeholder="Ej: Devolución de mercadería, descuento posterior, anulación por error, etc."
+                    :disabled="cargando"
+                  ></textarea>
+                  <small class="form-hint">
+                    El SRI exige un motivo. Aparecerá en el XML como <code>&lt;motivo&gt;</code>.
+                  </small>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- SECCIÓN: Cliente / Destinatario -->
+          <section class="form-section card-with-dropdown">
+            <header class="section-header">
+              <div class="section-number">{{ esNotaCredito ? 3 : 2 }}</div>
               <div class="section-header-content">
                 <h2 class="section-title">
                   {{ esGuia ? 'Destinatario' : 'Cliente' }}
@@ -281,7 +429,7 @@
           <!-- SECCIÓN: Productos -->
           <section class="form-section card-with-dropdown">
             <header class="section-header">
-              <div class="section-number">3</div>
+              <div class="section-number">{{ esNotaCredito ? 4 : 3 }}</div>
               <div class="section-header-content">
                 <h2 class="section-title">
                   Productos
@@ -289,7 +437,11 @@
                     {{ venta.detalles.length }}
                   </span>
                 </h2>
-                <p class="section-desc">Agrega los productos o servicios</p>
+                <p class="section-desc">
+                  {{ esNotaCredito
+                    ? 'Ajusta las cantidades que se van a acreditar'
+                    : 'Agrega los productos o servicios' }}
+                </p>
               </div>
               <button
                 type="button"
@@ -856,6 +1008,20 @@
                   <span class="total-label">TOTAL</span>
                   <span class="total-value">${{ formatMonto(total) }}</span>
                 </div>
+
+                <div v-if="esNotaCredito && facturaOriginal" class="nc-saldo-info">
+                  <div class="nc-saldo-row">
+                    <span>Saldo disponible:</span>
+                    <strong>${{ formatMonto(facturaOriginal.saldoAcreditable) }}</strong>
+                  </div>
+                  <div
+                    class="nc-saldo-row"
+                    :class="{ 'nc-saldo-over': Number(total) > Number(facturaOriginal.saldoAcreditable) + 0.01 }"
+                  >
+                    <span>Usando:</span>
+                    <strong>${{ formatMonto(total) }}</strong>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -874,6 +1040,23 @@
                 ></i>
                 <span>{{ esGuia ? 'Destinatario seleccionado' : 'Cliente seleccionado' }}</span>
               </div>
+
+              <div v-if="esNotaCredito" class="status-item" :class="{ complete: !!facturaOriginal }">
+                <i
+                  :class="facturaOriginal ? 'fas fa-check-circle' : 'far fa-circle'"
+                  aria-hidden="true"
+                ></i>
+                <span>Factura original referenciada</span>
+              </div>
+
+              <div v-if="esNotaCredito" class="status-item" :class="{ complete: !!venta.motivo }">
+                <i
+                  :class="venta.motivo ? 'fas fa-check-circle' : 'far fa-circle'"
+                  aria-hidden="true"
+                ></i>
+                <span>Motivo especificado</span>
+              </div>
+
               <div class="status-item" :class="{ complete: venta.detalles.length > 0 }">
                 <i
                   :class="venta.detalles.length > 0 ? 'fas fa-check-circle' : 'far fa-circle'"
@@ -881,6 +1064,7 @@
                 ></i>
                 <span>Productos agregados</span>
               </div>
+
               <div class="status-item" :class="{ complete: venta.fecha_emision }">
                 <i
                   :class="venta.fecha_emision ? 'fas fa-check-circle' : 'far fa-circle'"
@@ -1016,6 +1200,7 @@ const TIPOS_CON_CLAVE = Object.freeze([
   'exportacion',
   'reembolso'
 ])
+const SEARCH_NC_DEBOUNCE = 350
 
 // ===== HELPERS DE FECHA =====
 function hoyECISO() {
@@ -1031,9 +1216,7 @@ function hoyECISO() {
     const month = get('month')
     const day = get('day')
     if (year && month && day) return `${year}-${month}-${day}`
-  } catch {
-    /* cae al fallback */
-  }
+  } catch { /* noop */ }
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate()
@@ -1045,6 +1228,15 @@ const formatMonto = (n) => {
   return Number.isFinite(v) ? v.toFixed(2) : '0.00'
 }
 
+const formatFechaCorta = (f) => {
+  if (!f) return ''
+  try {
+    return new Date(f).toLocaleDateString('es-EC', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    })
+  } catch { return '' }
+}
+
 const escapeHtml = (s) =>
   String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -1053,10 +1245,6 @@ const escapeHtml = (s) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 
-/**
- * 🔧 Infiere el tipo de identificación SRI a partir del valor.
- * @returns {string} '04' RUC | '05' Cédula | '06' Pasaporte | '07' CF | ''
- */
 const inferirTipoIdent = (valor) => {
   if (!valor) return ''
   const s = String(valor).trim()
@@ -1084,14 +1272,22 @@ const configEmpresa = ref(null)
 
 const inputCliente = ref(null)
 const inputProducto = ref(null)
+const inputFacturaNC = ref(null)
 const busquedaCliente = ref('')
 const busquedaProducto = ref('')
+const busquedaFacturaNC = ref('')
 const mostrarListaClientes = ref(false)
 const mostrarListaProductos = ref(false)
+const mostrarListaFacturasNC = ref(false)
 const mostrarAyuda = ref(false)
+
+const facturasNC = ref([])
+const buscandoFacturaNC = ref(false)
+const facturaOriginal = ref(null)
 
 let fuseClientes = null
 let fuseProductos = null
+let timerBusquedaNC = null
 
 const seccionesExpandidas = ref({ guia: false, pago: true })
 
@@ -1173,6 +1369,19 @@ const seriePreview = computed(() => {
 
 // ===== COMPUTED =====
 const esGuia = computed(() => venta.value.tipo_documento === 'guia_remision')
+const esNotaCredito = computed(() => venta.value.tipo_documento === 'nota_credito')
+
+const numeroPlaceholder = computed(() => {
+  if (esNotaCredito.value) return 'Se asigna NCR-XXXXXX automáticamente'
+  return 'Automático'
+})
+
+const numeroHint = computed(() => {
+  if (esNotaCredito.value) {
+    return 'El número de la NC se asigna automáticamente. La factura referenciada va abajo.'
+  }
+  return 'Si lo dejas vacío, el sistema asigna el número automáticamente.'
+})
 
 const tituloDocumento = computed(() => {
   const titulos = {
@@ -1192,9 +1401,7 @@ const tituloDocumento = computed(() => {
 const clienteActual = computed(() => {
   if (!venta.value.clienteId) return null
   if (!Array.isArray(clientes.value)) return null
-  return (
-    clientes.value.find((c) => String(c._id) === String(venta.value.clienteId)) || null
-  )
+  return clientes.value.find((c) => String(c._id) === String(venta.value.clienteId)) || null
 })
 
 const clientesFiltrados = computed(() => {
@@ -1214,9 +1421,7 @@ const clientesFiltrados = computed(() => {
         .slice(0, FUSE_LIMIT)
     }
     return fuseClientes.search(q).map((r) => r.item).slice(0, FUSE_LIMIT)
-  } catch {
-    return []
-  }
+  } catch { return [] }
 })
 
 const productosFiltrados = computed(() => {
@@ -1236,9 +1441,7 @@ const productosFiltrados = computed(() => {
         .slice(0, FUSE_LIMIT)
     }
     return fuseProductos.search(q).map((r) => r.item).slice(0, FUSE_LIMIT)
-  } catch {
-    return []
-  }
+  } catch { return [] }
 })
 
 const subtotal = computed(() => {
@@ -1268,8 +1471,18 @@ const total = computed(() => roundTo2(subtotal.value + iva.value))
 const formularioValido = computed(() => {
   if (!esGuia.value && !venta.value.clienteId) return false
   if (esGuia.value && !venta.value.destinatario_razon_social) return false
+
+  if (esNotaCredito.value) {
+    if (!facturaOriginal.value) return false
+    if (!String(venta.value.motivo || '').trim()) return false
+    // Verificar que el total no exceda el saldo
+    const saldo = Number(facturaOriginal.value.saldoAcreditable) || 0
+    if (total.value > saldo + 0.01) return false
+  }
+
   if (!Array.isArray(venta.value.detalles) || venta.value.detalles.length === 0) return false
   if (!venta.value.fecha_emision) return false
+
   return venta.value.detalles.every(
     (d) =>
       d.productoId &&
@@ -1341,10 +1554,8 @@ const cancelarConfirm = () => {
   if (r) r(false)
 }
 
-// ===== BÚSQUEDA CLIENTES =====
-const filtrarClientes = () => {
-  mostrarListaClientes.value = true
-}
+// ===== CLIENTES =====
+const filtrarClientes = () => { mostrarListaClientes.value = true }
 const cerrarListaClientes = () => {
   setTimeout(() => {
     if (unmounted) return
@@ -1357,7 +1568,6 @@ const seleccionarCliente = (c) => {
   busquedaCliente.value = ''
   mostrarListaClientes.value = false
   errores.value.cliente = ''
-  // 🔧 Si es guía, autocompletar destinatario desde el cliente
   if (esGuia.value) aplicarDestinatarioDesdeCliente(c)
 }
 
@@ -1367,10 +1577,6 @@ const limpiarCliente = () => {
   nextTick(() => inputCliente.value?.focus())
 }
 
-/**
- * 🔧 Copia los campos del cliente seleccionado a los del destinatario.
- *    Solo pisa los campos vacíos (para no perder ediciones manuales).
- */
 const aplicarDestinatarioDesdeCliente = (c) => {
   if (!c) return
   if (!venta.value.destinatario_identificacion && c.ruc) {
@@ -1387,10 +1593,8 @@ const aplicarDestinatarioDesdeCliente = (c) => {
   }
 }
 
-// ===== BÚSQUEDA PRODUCTOS =====
-const filtrarProductos = () => {
-  mostrarListaProductos.value = true
-}
+// ===== PRODUCTOS =====
+const filtrarProductos = () => { mostrarListaProductos.value = true }
 const cerrarListaProductos = () => {
   setTimeout(() => {
     if (unmounted) return
@@ -1402,9 +1606,7 @@ const limpiarBusquedaProducto = () => {
   busquedaProducto.value = ''
   mostrarListaProductos.value = false
 }
-const focusBusquedaProducto = () => {
-  inputProducto.value?.focus()
-}
+const focusBusquedaProducto = () => { inputProducto.value?.focus() }
 
 const agregarPrimerProducto = () => {
   if (productosFiltrados.value.length > 0) agregarProducto(productosFiltrados.value[0])
@@ -1453,7 +1655,8 @@ const validarCantidad = (index) => {
     STOCK_BLOCK &&
     item.stockDisponible !== undefined &&
     item.stockDisponible > 0 &&
-    Number(item.cantidad) > item.stockDisponible
+    Number(item.cantidad) > item.stockDisponible &&
+    !esNotaCredito.value
   ) {
     item.cantidad = item.stockDisponible
     toast.warning(`Cantidad ajustada al stock disponible (${item.stockDisponible})`)
@@ -1465,9 +1668,82 @@ const eliminarDetalle = (index) => {
   errores.value.detalles.splice(index, 1)
 }
 
+// ===== NOTA DE CRÉDITO: búsqueda de factura origen =====
+const onBuscarFacturasNC = () => {
+  if (timerBusquedaNC) clearTimeout(timerBusquedaNC)
+  timerBusquedaNC = setTimeout(() => buscarFacturasNC(), SEARCH_NC_DEBOUNCE)
+}
+
+const buscarFacturasNC = async () => {
+  const q = busquedaFacturaNC.value.trim()
+  if (q.length < 2) {
+    facturasNC.value = []
+    return
+  }
+  buscandoFacturaNC.value = true
+  try {
+    const params = new URLSearchParams()
+    params.set('q', q)
+    if (venta.value.clienteId) params.set('clienteId', venta.value.clienteId)
+    const res = await api.request(`/ventas/buscar-acreditable?${params.toString()}`, {
+      method: 'GET',
+      skipLoader: true
+    })
+    if (unmounted) return
+    facturasNC.value = Array.isArray(res) ? res : []
+  } catch (e) {
+    if (unmounted) return
+    facturasNC.value = []
+  } finally {
+    if (!unmounted) buscandoFacturaNC.value = false
+  }
+}
+
+const cerrarListaFacturasNC = () => {
+  setTimeout(() => {
+    if (unmounted) return
+    mostrarListaFacturasNC.value = false
+  }, 200)
+}
+
+const seleccionarFacturaNC = (f) => {
+  facturaOriginal.value = f
+  mostrarListaFacturasNC.value = false
+  busquedaFacturaNC.value = ''
+
+  // Autocompletar cliente
+  if (f.clienteId && !venta.value.clienteId) {
+    venta.value.clienteId = f.clienteId
+  }
+
+  // Autocompletar detalles desde la factura original
+  if (Array.isArray(f.detalles) && f.detalles.length > 0) {
+    venta.value.detalles = f.detalles.map((d) => {
+      const prod = productos.value.find((p) => String(p._id) === String(d.productoId))
+      return {
+        productoId: d.productoId,
+        codigo: d.codigo || prod?.codigo || '',
+        nombre: d.nombre || prod?.nombre || 'Producto',
+        cantidad: Number(d.cantidad) || 1,
+        precio_unitario: Number(d.precio_unitario ?? d.costo_unitario ?? 0),
+        aplica_iva: d.aplica_iva !== false,
+        tarifa_iva: Number(d.tarifa_iva ?? IVA_DEFAULT),
+        stockDisponible: Number(prod?.stock || 0)
+      }
+    })
+  }
+
+  toast.success(`Factura ${f.numero_factura} seleccionada`)
+}
+
+const limpiarFacturaNC = () => {
+  facturaOriginal.value = null
+  facturasNC.value = []
+  busquedaFacturaNC.value = ''
+  nextTick(() => inputFacturaNC.value?.focus())
+}
+
 // ===== TIPO DE DOCUMENTO =====
-// 🔧 Ya no generamos código local. El backend asigna el secuencial oficial
-//    (`FAC-000001`, etc). El usuario ve "Automático" en el input.
 const cambiarTipo = () => {
   Object.assign(venta.value, {
     numero_guia: '',
@@ -1500,11 +1776,21 @@ const cambiarTipo = () => {
     comprobante_clave_acceso: '',
     comprobante_numero_autorizacion: '',
     comprobante_numero: '',
-    comprobante_fecha_emision: ''
+    comprobante_fecha_emision: '',
+    numero_factura: ''
   })
 
-  // 🔧 Auto-expandir la sección Guía y autocompletar destinatario si
-  //    hay un cliente seleccionado.
+  // Reset estado NC cuando se cambia a otro tipo
+  if (!esNotaCredito.value) {
+    facturaOriginal.value = null
+    facturasNC.value = []
+    busquedaFacturaNC.value = ''
+    if (timerBusquedaNC) {
+      clearTimeout(timerBusquedaNC)
+      timerBusquedaNC = null
+    }
+  }
+
   if (venta.value.tipo_documento === 'guia_remision') {
     seccionesExpandidas.value.guia = true
     if (clienteActual.value) aplicarDestinatarioDesdeCliente(clienteActual.value)
@@ -1548,7 +1834,9 @@ const handleKeydown = (e) => {
   const tag = (e.target?.tagName || '').toLowerCase()
   const esInput = tag === 'input' || tag === 'textarea' || tag === 'select'
   const esBuscadorInterno =
-    e.target === inputProducto.value || e.target === inputCliente.value
+    e.target === inputProducto.value ||
+    e.target === inputCliente.value ||
+    e.target === inputFacturaNC.value
 
   if (e.key === 'F2') {
     e.preventDefault()
@@ -1638,9 +1926,25 @@ const cargarVenta = async (ventaId) => {
     venta.value = { ...venta.value, ...data }
     snapshotInicial = JSON.parse(JSON.stringify(venta.value))
 
-    // 🔧 Si es guía, expandir la sección para que el usuario la vea
     if (data.tipo_documento === 'guia_remision') {
       seccionesExpandidas.value.guia = true
+    }
+
+    // Si es NC y tiene factura_original_id, cargarla
+    if (data.tipo_documento === 'nota_credito' && data.factura_original_id) {
+      try {
+        const factura = await api.request(`/ventas/${data.factura_original_id}`, {
+          method: 'GET',
+          skipLoader: true
+        })
+        if (factura && !unmounted) {
+          facturaOriginal.value = {
+            ...factura,
+            totalNC: 0,
+            saldoAcreditable: Number(factura.total) || 0
+          }
+        }
+      } catch { /* noop */ }
     }
   } catch (e) {
     if (unmounted) return
@@ -1668,8 +1972,7 @@ const guardar = async () => {
     const ok = await pedirConfirmacion({
       titulo: 'Configuración incompleta',
       mensaje: 'La empresa no tiene un RUC válido configurado.',
-      detalle:
-        'El documento se guardará pero NO se generará la clave de acceso ni el XML.',
+      detalle: 'El documento se guardará pero NO se generará la clave de acceso ni el XML.',
       textoConfirmar: 'Continuar de todos modos',
       textoCancelar: 'Ir a configurar',
       variante: 'warning',
@@ -1687,9 +1990,17 @@ const guardar = async () => {
   try {
     const payload = {
       clienteId: venta.value.clienteId || undefined,
-      numero_factura: venta.value.numero_factura || undefined,
+      numero_factura: esNotaCredito.value
+        ? undefined
+        : (venta.value.numero_factura || undefined),
       fecha_emision: venta.value.fecha_emision,
       tipo_documento: venta.value.tipo_documento,
+      factura_original_id: esNotaCredito.value && facturaOriginal.value
+        ? facturaOriginal.value._id
+        : undefined,
+      motivo: esNotaCredito.value
+        ? String(venta.value.motivo || '').trim()
+        : undefined,
       detalles: venta.value.detalles.map((d) => ({
         productoId: d.productoId,
         cantidad: roundTo2(d.cantidad),
@@ -1702,39 +2013,21 @@ const guardar = async () => {
       ...(() => {
         const extras = {}
         const campos = [
-          'numero_guia',
-          'transportista',
-          'placa',
-          'numero_exportacion',
-          'pais_destino',
-          'numero_retencion',
-          'establecimiento',
-          'nombre_comercial',
-          'punto_emision',
-          'transportista_identificacion',
-          'transportista_tipo',
-          'transportista_razon_social',
-          'transportista_correo',
-          'direccion_partida',
-          'inicio_transporte',
-          'fin_transporte',
+          'numero_guia', 'transportista', 'placa',
+          'numero_exportacion', 'pais_destino',
+          'numero_retencion', 'establecimiento',
+          'nombre_comercial', 'punto_emision',
+          'transportista_identificacion', 'transportista_tipo',
+          'transportista_razon_social', 'transportista_correo',
+          'direccion_partida', 'inicio_transporte', 'fin_transporte',
           'placa_transporte',
-          'destinatario_identificacion',
-          'destinatario_tipo',
-          'destinatario_razon_social',
-          'destinatario_direccion',
-          'ruta',
-          'motivo',
-          'documento_aduana',
-          'comprobante_tipo_emision',
-          'comprobante_documento',
-          'comprobante_clave_acceso',
-          'comprobante_numero_autorizacion',
-          'comprobante_numero',
-          'comprobante_fecha_emision',
-          'forma_pago',
-          'estado_pago',
-          'observaciones'
+          'destinatario_identificacion', 'destinatario_tipo',
+          'destinatario_razon_social', 'destinatario_direccion',
+          'ruta', 'documento_aduana',
+          'comprobante_tipo_emision', 'comprobante_documento',
+          'comprobante_clave_acceso', 'comprobante_numero_autorizacion',
+          'comprobante_numero', 'comprobante_fecha_emision',
+          'forma_pago', 'estado_pago', 'observaciones'
         ]
         for (const k of campos) {
           const v = venta.value[k]
@@ -1773,7 +2066,6 @@ const guardar = async () => {
     }
 
     snapshotInicial = JSON.parse(JSON.stringify(venta.value))
-
     if (!unmounted) router.push('/ventas')
   } catch (e) {
     if (unmounted) return
@@ -1783,13 +2075,17 @@ const guardar = async () => {
 
     let msgMostrar = msg
     if (codigo === 'STOCK_INSUFICIENTE') {
-      msgMostrar =
-        msg ||
-        'Stock insuficiente: otro usuario consumió el stock mientras ingresabas el documento. Recargá e intentá de nuevo.'
+      msgMostrar = msg || 'Stock insuficiente: otro usuario consumió el stock.'
     } else if (codigo === 'NUMERO_DUPLICADO') {
       msgMostrar = msg || 'Ya existe un comprobante con ese número.'
     } else if (codigo === 'PERIODO_CERRADO') {
       msgMostrar = msg || 'El período está cerrado. No se puede guardar.'
+    } else if (codigo === 'NC_EXCEDE_SALDO') {
+      msgMostrar = msg || 'El monto de la NC supera el saldo acreditable.'
+    } else if (codigo === 'NC_FACTURA_NO_AUTORIZADA') {
+      msgMostrar = msg || 'La factura debe estar AUTORIZADA por el SRI.'
+    } else if (codigo === 'NC_FACTURA_SIN_SALDO') {
+      msgMostrar = msg || 'Esta factura ya está totalmente acreditada.'
     }
 
     errorGeneral.value = 'Error al guardar: ' + msgMostrar
@@ -1817,7 +2113,7 @@ const cancelar = async () => {
   router.push('/ventas')
 }
 
-// ===== GUARDS DE NAVEGACIÓN =====
+// ===== GUARDS =====
 const beforeUnloadHandler = (e) => {
   if (hayCambios.value && !cargando.value) {
     e.preventDefault()
@@ -1854,7 +2150,6 @@ onMounted(async () => {
     if (esEdicion.value) {
       await cargarVenta(id.value)
     } else {
-      // 🔧 No asignamos código local; el backend lo hará al guardar.
       snapshotInicial = JSON.parse(JSON.stringify(venta.value))
     }
 
@@ -1884,6 +2179,11 @@ onBeforeUnmount(() => {
     periodoAbort = null
   }
 
+  if (timerBusquedaNC) {
+    clearTimeout(timerBusquedaNC)
+    timerBusquedaNC = null
+  }
+
   try { modalConfirm?.hide() } catch { /* noop */ }
 
   if (confirmState.resolve) {
@@ -1895,8 +2195,6 @@ onBeforeUnmount(() => {
 // ===== WATCH =====
 watch(() => venta.value.fecha_emision, verificarPeriodo, { immediate: false })
 
-// 🔧 Si el usuario selecciona un cliente DESPUÉS de cambiar a guía,
-//    autocompletar destinatario.
 watch(
   () => venta.value.clienteId,
   (newId) => {
@@ -1910,7 +2208,7 @@ watch(
 
 <style scoped>
 /* ============================================================
-   Los estilos son idénticos al original. No se modificó nada.
+   VENTA FORM — Estilos completos
    ============================================================ */
 .venta-form { max-width: 1400px; margin: 0 auto; padding: 0 0 40px; }
 .form-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; }
@@ -1957,6 +2255,7 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .section-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
 .section-desc { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
 .count-badge { background: var(--primary-color); color: #fff; padding: 2px 10px; border-radius: var(--radius-full); font-size: 0.7rem; font-weight: 700; }
+.count-badge.badge-ok { background: var(--success); }
 .btn-new-inline { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-secondary); font-weight: 600; font-size: 0.78rem; text-decoration: none; cursor: pointer; transition: all var(--transition-fast); flex-shrink: 0; font-family: inherit; }
 .btn-new-inline:hover { border-color: var(--primary-color); color: var(--primary-color); }
 .btn-new-inline.btn-new-primary { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
@@ -1978,11 +2277,12 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .form-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .form-label { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); letter-spacing: 0.1px; }
 .form-label .required { color: var(--danger); margin-right: 2px; }
+.form-hint { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
 
 .form-control, .form-select { width: 100%; padding: 10px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color); background: var(--bg-input); color: var(--text-primary); font-size: 0.88rem; font-family: inherit; transition: all var(--transition-fast); outline: none; }
 .form-control:focus, .form-select:focus { border-color: var(--primary-color); box-shadow: 0 0 0 4px var(--shadow-focus); background: var(--bg-card); }
 .form-control::placeholder { color: var(--text-muted); }
-.form-control:disabled, .form-select:disabled { opacity: 0.6; cursor: not-allowed; }
+.form-control:disabled, .form-select:disabled { opacity: 0.6; cursor: not-allowed; background: var(--bg-table-stripe); }
 
 .search-input-group { position: relative; display: flex; align-items: center; }
 .search-icon { position: absolute; left: 16px; color: var(--text-muted); font-size: 0.9rem; pointer-events: none; }
@@ -2010,6 +2310,14 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .price-value { font-weight: 800; color: var(--primary-color); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 .price-label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; }
 .row-check { color: var(--primary-color); font-size: 1rem; flex-shrink: 0; }
+
+.factura-original-card { display: flex; align-items: center; gap: 14px; padding: 16px; margin-top: 4px; background: linear-gradient(135deg, rgba(39, 174, 96, 0.05), rgba(39, 174, 96, 0.02)); border: 1px solid rgba(39, 174, 96, 0.25); border-radius: var(--radius-md); border-left: 4px solid var(--success); }
+.factura-original-icon { width: 48px; height: 48px; border-radius: 10px; background: linear-gradient(135deg, var(--success), #1e8449); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
+.factura-original-info { flex: 1; min-width: 0; }
+.factura-original-title { font-weight: 700; color: var(--text-primary); font-size: 1rem; margin-bottom: 4px; }
+.factura-original-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 6px; }
+.factura-original-saldo { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.78rem; color: var(--text-secondary); padding-top: 6px; border-top: 1px dashed var(--border-light); }
+.factura-original-saldo .saldo-hint { color: var(--success); font-weight: 700; }
 
 .cliente-card { display: flex; align-items: center; gap: 14px; padding: 16px; margin-top: 16px; background: linear-gradient(135deg, rgba(52, 152, 219, 0.05), rgba(52, 152, 219, 0.02)); border: 1px solid rgba(52, 152, 219, 0.2); border-radius: var(--radius-md); border-left: 4px solid var(--primary-color); }
 .cliente-avatar-large { width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; flex-shrink: 0; box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3); }
@@ -2063,11 +2371,17 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .summary-total { display: flex; justify-content: space-between; align-items: center; padding: 12px 0 4px; border-top: 2px solid var(--primary-color); }
 .total-label { font-size: 0.85rem; font-weight: 800; color: var(--text-primary); letter-spacing: 0.5px; }
 .total-value { font-size: 1.65rem; font-weight: 800; color: var(--primary-color); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+
+.nc-saldo-info { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-light); display: flex; flex-direction: column; gap: 6px; }
+.nc-saldo-row { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-secondary); }
+.nc-saldo-row.nc-saldo-over { color: var(--danger); font-weight: 700; }
+
 .status-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .status-item { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--text-muted); transition: color var(--transition-fast); }
 .status-item i { font-size: 0.95rem; color: var(--border-strong); transition: color var(--transition-fast); }
 .status-item.complete { color: var(--text-primary); font-weight: 500; }
 .status-item.complete i { color: var(--success); }
+
 .actions-card { display: flex; flex-direction: column; gap: 10px; }
 .btn-save { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 20px; background: linear-gradient(135deg, var(--success), #1e8449); color: #fff; border: none; border-radius: var(--radius-md); font-weight: 700; font-size: 0.92rem; cursor: pointer; transition: all var(--transition); box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3); font-family: inherit; position: relative; }
 .btn-save:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(39, 174, 96, 0.4); }
@@ -2082,6 +2396,7 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .error-banner { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--danger-bg); border: 1px solid rgba(231, 76, 60, 0.3); border-left: 4px solid var(--danger); border-radius: var(--radius-md); color: var(--danger); font-weight: 500; font-size: 0.88rem; margin-top: 20px; }
 .error-banner i { font-size: 1.1rem; }
 .modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
+
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .dropdown-enter-active, .dropdown-leave-active { transition: all 0.2s ease-out; }
@@ -2089,7 +2404,6 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .collapse-enter-active, .collapse-leave-active { transition: all 0.3s ease-out; overflow: hidden; }
 .collapse-enter-from, .collapse-leave-to { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; }
 .collapse-enter-to, .collapse-leave-from { max-height: 2000px; opacity: 1; }
-.form-hint { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
 
 @media (max-width: 1200px) { .form-grid { grid-template-columns: 1fr 300px; } }
 @media (max-width: 992px) {

@@ -6,6 +6,7 @@
 //   GET    /                            → listado
 //   POST   /validar-clave               → valida estructura de clave SRI
 //   GET    /buscar-clave/:clave         → buscar por clave de acceso
+//   GET    /buscar-acreditable          → facturas autorizadas con saldo > 0 (NC)
 //   POST   /migrar-claves               → migración masiva (admin)
 //   GET    /:id/xml                     → descarga XML
 //   GET    /:id/xml-preview             → previsualiza XML + estado
@@ -27,16 +28,24 @@
 //     puede editar/eliminar: se requiere nota de crédito.
 //   - Errores delegados al `errorHandler` central.
 //
-// 🔧 FIX 2025-XX: `asegurarClaveYXml` ahora:
-//    1. Usa un filtro atómico (`$or` sobre clave vacía) para evitar
-//       que dos GETs concurrentes generen claves DIFERENTES con la
-//       misma venta. El que pierde la carrera refetchea y usa la
-//       clave ganadora — importante para el QR.
-//    2. Recibe `{ persistir }` para que un endpoint de solo lectura
-//       pueda generar sin escribir (default true por compatibilidad).
-//    3. Devuelve `xmlFirmado` para que los GET usen el XML firmado
-//       que ya está en el doc (si existe) sin depender del objeto
-//       original que quedó obsoleto tras el update.
+// 🔧 FIX 2025-XX:
+//   1. Notas de crédito requieren factura original referenciada.
+//      Nuevo endpoint `GET /buscar-acreditable` para que el frontend
+//      liste facturas AUTORIZADAS con saldo acreditable > 0.
+//   2. Al crear NC se valida:
+//        - factura existe y es tipo `factura`
+//        - factura.estado_sri === 'AUTORIZADO'
+//        - suma de NCs previas + nueva NC <= total factura
+//      Códigos de error: NC_FACTURA_NO_ENCONTRADA, NC_SOLO_FACTURA,
+//      NC_FACTURA_NO_AUTORIZADA, NC_FACTURA_SIN_SALDO, NC_EXCEDE_SALDO,
+//      NC_MOTIVO_REQUERIDO.
+//   3. `numero_factura` de la NC siempre es el código del contador
+//      (`NCR-XXXXXX`), nunca el del payload → evita colisión con
+//      la factura original.
+//   4. `numero_factura_modificada` se guarda con formato SRI
+//      `EEE-PPP-SSSSSSSSS` (vía `formatearNumeroSRI`).
+//   5. `asegurarClaveYXml` usa guard atómico para evitar claves
+//      distintas entre GETs concurrentes.
 // ============================================================
 'use strict';
 
@@ -74,8 +83,7 @@ const {
   DOCS_CON_CLAVE,
   TIPO_COMPROBANTE_SRI,
   PREFIJOS_CONTADOR,
-  TIPOS_DOCUMENTO_VALIDOS,
-  SETS
+  TIPOS_DOCUMENTO_VALIDOS
 } = require('../utils/tiposDocumento');
 const log = require('../utils/logger');
 
@@ -177,7 +185,7 @@ function extraerValor(result) {
 // HELPERS DE NEGOCIO
 // ============================================================
 function afectaStock(tipoDoc) {
-  return !SETS.TIPOS_SIN_MOVIMIENTO_STOCK.has(tipoDoc);
+  return !TIPOS_SIN_MOVIMIENTO_STOCK.has(tipoDoc);
 }
 
 function signoStock(tipoDoc) {
@@ -207,6 +215,19 @@ function resolverSecuencial(venta) {
 
 function formatearSecuencial(n) {
   return String(parseEnteroSeguro(n, 1)).padStart(9, '0');
+}
+
+/**
+ * Formatea el número de un comprobante al formato SRI:
+ *   EEE-PPP-SSSSSSSSS  →  "001-001-000000138"
+ * Requerido por `<numDocModificado>` en Notas de Crédito.
+ */
+function formatearNumeroSRI(comprobante) {
+  if (!comprobante) return '';
+  const est = String(comprobante.establecimiento || '001').padStart(3, '0').slice(-3);
+  const pe = String(comprobante.punto_emision || '001').padStart(3, '0').slice(-3);
+  const sec = String(comprobante.secuencial_sri || '000000001').padStart(9, '0').slice(-9);
+  return `${est}-${pe}-${sec}`;
 }
 
 function configRucValido(config) {
@@ -422,6 +443,90 @@ async function verificarNumeroUnico(db, { tipoDoc, numeroFactura, rucEmisor, exc
   return { ok: true };
 }
 
+/**
+ * Valida la factura original que una NC quiere acreditar.
+ * Devuelve { factura, motivo, error? } o lanza.
+ */
+async function resolverFacturaOriginalNC(db, { facturaOriginalId, comprobanteClaveAcceso, numeroFacturaModificada, motivo }) {
+  let factura = null;
+
+  if (facturaOriginalId && ObjectId.isValid(facturaOriginalId)) {
+    factura = await db.collection(CONFIG.colVentas).findOne({
+      _id: new ObjectId(facturaOriginalId)
+    });
+  } else if (comprobanteClaveAcceso) {
+    factura = await db.collection(CONFIG.colVentas).findOne({
+      clave_acceso: comprobanteClaveAcceso,
+      tipo_documento: 'factura'
+    });
+  } else if (numeroFacturaModificada) {
+    factura = await db.collection(CONFIG.colVentas).findOne({
+      numero_factura: numeroFacturaModificada,
+      tipo_documento: 'factura'
+    });
+  }
+
+  if (!factura) {
+    return {
+      error: {
+        status: 404,
+        codigo: 'NC_FACTURA_NO_ENCONTRADA',
+        error: 'No se encontró la factura original que se quiere acreditar'
+      }
+    };
+  }
+
+  if (factura.tipo_documento !== 'factura') {
+    return {
+      error: {
+        status: 400,
+        codigo: 'NC_SOLO_FACTURA',
+        error: `Solo se pueden acreditar facturas (recibido: "${factura.tipo_documento}")`
+      }
+    };
+  }
+
+  if (factura.estado_sri !== 'AUTORIZADO') {
+    return {
+      error: {
+        status: 409,
+        codigo: 'NC_FACTURA_NO_AUTORIZADA',
+        error: `La factura debe estar AUTORIZADA por el SRI. Estado actual: ${factura.estado_sri || 'desconocido'}`,
+        estadoFactura: factura.estado_sri
+      }
+    };
+  }
+
+  if (!motivo || !String(motivo).trim()) {
+    return {
+      error: {
+        status: 400,
+        codigo: 'NC_MOTIVO_REQUERIDO',
+        error: 'El motivo es obligatorio en una nota de crédito'
+      }
+    };
+  }
+
+  return { factura, motivo: String(motivo).trim() };
+}
+
+/**
+ * Calcula el saldo acreditable de una factura (total - NCs activas).
+ */
+async function calcularSaldoAcreditable(db, facturaId) {
+  const [r] = await db.collection(CONFIG.colVentas).aggregate([
+    {
+      $match: {
+        tipo_documento: 'nota_credito',
+        factura_original_id: facturaId,
+        estado_sri: { $ne: 'RECHAZADA' }
+      }
+    },
+    { $group: { _id: null, total: { $sum: '$total' } } }
+  ]).toArray();
+  return round2(toNumber(r?.total));
+}
+
 // ============================================================
 // VALIDADORES (express-validator)
 // ============================================================
@@ -459,7 +564,11 @@ const validarVenta = [
         }
       }
       return true;
-    })
+    }),
+
+  body('factura_original_id')
+    .optional({ nullable: true, checkFalsy: true })
+    .isMongoId().withMessage('ID de factura original inválido')
 ];
 
 // ============================================================
@@ -618,6 +727,105 @@ router.get('/buscar-clave/:clave', requierePermiso('ventas', 'ver'), async (req,
 
     headersNoStore(res);
     return res.json({ ...venta, cliente });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ============================================================
+// GET /buscar-acreditable  → facturas autorizadas con saldo > 0
+// ------------------------------------------------------------
+// Se usa al crear una Nota de Crédito para elegir la factura
+// que se va a acreditar.
+// Query: ?q=<texto>&clienteId=<id>
+// ============================================================
+router.get('/buscar-acreditable', requierePermiso('ventas', 'ver'), async (req, res, next) => {
+  try {
+    const q = (soloString(req.query.q) || '').trim();
+    const clienteId = soloString(req.query.clienteId);
+
+    const match = {
+      tipo_documento: 'factura',
+      estado_sri: 'AUTORIZADO'
+    };
+
+    if (q) {
+      const regex = new RegExp(escapeRegex(q), 'i');
+      match.$or = [
+        { numero_factura: regex },
+        { clave_acceso: regex }
+      ];
+    }
+
+    if (clienteId && ObjectId.isValid(clienteId)) {
+      match.clienteId = new ObjectId(clienteId);
+    }
+
+    const facturas = await req.db.collection(CONFIG.colVentas).aggregate([
+      { $match: match },
+      { $sort: { fecha_emision: -1 } },
+      { $limit: 30 },
+      {
+        $lookup: {
+          from: CONFIG.colVentas,
+          let: { facturaId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$factura_original_id', '$$facturaId'] },
+                tipo_documento: 'nota_credito',
+                estado_sri: { $ne: 'RECHAZADA' }
+              }
+            },
+            { $group: { _id: null, totalNC: { $sum: '$total' } } }
+          ],
+          as: 'ncs'
+        }
+      },
+      {
+        $addFields: {
+          totalNC: { $ifNull: [{ $arrayElemAt: ['$ncs.totalNC', 0] }, 0] }
+        }
+      },
+      {
+        $addFields: {
+          saldoAcreditable: { $subtract: ['$total', '$totalNC'] }
+        }
+      },
+      { $match: { saldoAcreditable: { $gt: 0.01 } } },
+      {
+        $lookup: {
+          from: CONFIG.colClientes,
+          localField: 'clienteId',
+          foreignField: '_id',
+          as: 'cliente',
+          pipeline: [{ $project: { nombre: 1, ruc: 1, telefono: 1, email: 1, direccion: 1 } }]
+        }
+      },
+      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 1,
+          numero_factura: 1,
+          clave_acceso: 1,
+          fecha_emision: 1,
+          total: 1,
+          totalNC: 1,
+          saldoAcreditable: 1,
+          establecimiento: 1,
+          punto_emision: 1,
+          secuencial_sri: 1,
+          detalles: 1,
+          clienteId: 1,
+          cliente: 1,
+          razon_social_emisor: 1,
+          ruc_emisor: 1
+        }
+      }
+    ]).toArray();
+
+    headersNoStore(res);
+    return res.json(facturas);
   } catch (err) {
     return next(err);
   }
@@ -806,7 +1014,6 @@ router.get('/:id/xml', requierePermiso('ventas', 'ver'), async (req, res, next) 
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${claveAcceso}.xml"`);
     res.setHeader('Cache-Control', 'no-store');
-    // Preferimos el XML firmado si ya existe (autoritativo), si no el recién generado.
     return res.send(xmlFirmado || xml);
   } catch (err) {
     return next(err);
@@ -1172,7 +1379,8 @@ router.post(
         comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
         comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
         numero_factura_modificada,
-        forma_pago, estado_pago, fecha_pago, observaciones
+        forma_pago, estado_pago, fecha_pago, observaciones,
+        factura_original_id
       } = req.body;
 
       const tipoDoc = tipo_documento || 'factura';
@@ -1187,14 +1395,53 @@ router.post(
 
       const config = await req.db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
 
+      // ===== NOTA DE CRÉDITO: resolver factura original + validar =====
+      let facturaOriginal = null;
+      let motivoNC = '';
+
       if (tipoDoc === 'nota_credito') {
-        if (!comprobante_clave_acceso && !numero_factura_modificada) {
+        const resuelto = await resolverFacturaOriginalNC(req.db, {
+          facturaOriginalId: factura_original_id,
+          comprobanteClaveAcceso: comprobante_clave_acceso,
+          numeroFacturaModificada: numero_factura_modificada,
+          motivo
+        });
+
+        if (resuelto.error) {
+          return res.status(resuelto.error.status).json({
+            error: resuelto.error.error,
+            codigo: resuelto.error.codigo,
+            ...(resuelto.error.estadoFactura ? { estadoFactura: resuelto.error.estadoFactura } : {})
+          });
+        }
+
+        facturaOriginal = resuelto.factura;
+        motivoNC = resuelto.motivo;
+
+        // Calcular saldo acreditable
+        const totalNCsPrevio = await calcularSaldoAcreditable(req.db, facturaOriginal._id);
+        const saldoAcreditable = round2(toNumber(facturaOriginal.total) - totalNCsPrevio);
+        const totalNuevaNC = round2(toNumber(total));
+
+        if (saldoAcreditable <= 0.01) {
+          return res.status(409).json({
+            error: `Esta factura ya está totalmente acreditada. Total: $${facturaOriginal.total}, NCs previas: $${totalNCsPrevio}.`,
+            codigo: 'NC_FACTURA_SIN_SALDO',
+            saldoAcreditable: 0
+          });
+        }
+
+        if (totalNuevaNC > saldoAcreditable + 0.01) {
           return res.status(400).json({
-            error: 'Las notas de crédito requieren el número o clave de acceso del documento que modifican',
-            codigo: 'NC_REQUIERE_REFERENCIA'
+            error: `El monto de la NC ($${totalNuevaNC}) supera el saldo acreditable ($${saldoAcreditable}). Total factura: $${facturaOriginal.total}, NCs previas: $${totalNCsPrevio}.`,
+            codigo: 'NC_EXCEDE_SALDO',
+            saldoAcreditable,
+            totalFactura: facturaOriginal.total,
+            totalNCsPrevio
           });
         }
       }
+
       if (tipoDoc === 'retencion') {
         if (!Array.isArray(impuestos_retencion) && !tipo_retencion) {
           return res.status(400).json({
@@ -1231,17 +1478,20 @@ router.post(
         }
       }
 
-      const uniqCheck = await verificarNumeroUnico(req.db, {
-        tipoDoc,
-        numeroFactura: numero_factura,
-        rucEmisor: config?.ruc || ''
-      });
-      if (!uniqCheck.ok) {
-        return res.status(409).json({
-          error: uniqCheck.error,
-          codigo: uniqCheck.codigo,
-          documentoExistenteId: uniqCheck.documentoExistenteId
+      // Solo verificar unicidad de número si NO es NC (la NC siempre usa el código del contador)
+      if (tipoDoc !== 'nota_credito') {
+        const uniqCheck = await verificarNumeroUnico(req.db, {
+          tipoDoc,
+          numeroFactura: numero_factura,
+          rucEmisor: config?.ruc || ''
         });
+        if (!uniqCheck.ok) {
+          return res.status(409).json({
+            error: uniqCheck.error,
+            codigo: uniqCheck.codigo,
+            documentoExistenteId: uniqCheck.documentoExistenteId
+          });
+        }
       }
 
       let cliente = null;
@@ -1307,10 +1557,20 @@ router.post(
         let estadoSri = generaClave ? 'PENDIENTE' : 'NO_APLICA';
         let fechaFirma = null;
 
+        // Determinar número de factura final (NC siempre usa el código del contador)
+        const numeroFacturaFinal = tipoDoc === 'nota_credito'
+          ? codigo
+          : (numero_factura || codigo);
+
+        // Determinar número de factura modificada (con formato SRI)
+        const numeroFacturaModificadaFinal = tipoDoc === 'nota_credito' && facturaOriginal
+          ? formatearNumeroSRI(facturaOriginal)
+          : (numero_factura_modificada || '');
+
         if (claveAcceso && config) {
           const ventaParaXml = {
             clienteId: clienteIdObj,
-            numero_factura: numero_factura || codigo,
+            numero_factura: numeroFacturaFinal,
             fecha_emision: new Date(fecha_emision),
             tipo_documento: tipoDoc,
             detalles, subtotal, iva, total,
@@ -1324,7 +1584,8 @@ router.post(
             tipo_retencion, tipo_impuesto, impuestos_retencion,
             numero_retencion, porcentaje_retencion,
             comprobante_documento, comprobante_numero, comprobante_fecha_emision,
-            numero_factura_modificada
+            numero_factura_modificada: numeroFacturaModificadaFinal,
+            motivo: motivoNC || motivo || ''
           };
           try {
             xmlGenerado = generarXMLComprobante(ventaParaXml, cliente, config);
@@ -1349,7 +1610,7 @@ router.post(
         const ahora = new Date();
         const venta = {
           clienteId: clienteIdObj,
-          numero_factura: numero_factura || codigo,
+          numero_factura: numeroFacturaFinal,
           fecha_emision: new Date(fecha_emision),
           tipo_documento: tipoDoc,
           detalles, subtotal, iva, total,
@@ -1361,6 +1622,12 @@ router.post(
           secuencial_sri: formatearSecuencial(numeroSecuencial),
           ruc_emisor: config?.ruc || '',
           razon_social_emisor: config?.razon_social || '',
+
+          // 🔧 Campos específicos de Nota de Crédito
+          factura_original_id: facturaOriginal?._id || null,
+          numero_factura_modificada: numeroFacturaModificadaFinal,
+          motivo: motivoNC || motivo || '',
+
           numero_guia: numero_guia || '',
           transportista: transportista || '',
           placa: placa || '',
@@ -1387,7 +1654,6 @@ router.post(
           destinatario_razon_social: destinatario_razon_social || '',
           destinatario_direccion: destinatario_direccion || '',
           ruta: ruta || '',
-          motivo: motivo || '',
           documento_aduana: documento_aduana || '',
           comprobante_tipo_emision: comprobante_tipo_emision || '',
           comprobante_documento: comprobante_documento || '',
@@ -1395,7 +1661,6 @@ router.post(
           comprobante_numero_autorizacion: comprobante_numero_autorizacion || '',
           comprobante_numero: comprobante_numero || '',
           comprobante_fecha_emision: comprobante_fecha_emision || '',
-          numero_factura_modificada: numero_factura_modificada || '',
           forma_pago: forma_pago || '',
           estado_pago: estado_pago || 'pendiente',
           monto_pagado: 0,
@@ -1533,11 +1798,62 @@ router.put(
         comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
         comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
         numero_factura_modificada,
-        forma_pago, estado_pago, fecha_pago, observaciones
+        forma_pago, estado_pago, fecha_pago, observaciones,
+        factura_original_id
       } = req.body;
 
       const config = await req.db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
       const tipoDoc = tipo_documento || 'factura';
+
+      // ===== NOTA DE CRÉDITO en PUT =====
+      let facturaOriginal = null;
+      let motivoNC = '';
+
+      if (tipoDoc === 'nota_credito') {
+        const resuelto = await resolverFacturaOriginalNC(req.db, {
+          facturaOriginalId: factura_original_id || ventaActual.factura_original_id,
+          comprobanteClaveAcceso: comprobante_clave_acceso,
+          numeroFacturaModificada: numero_factura_modificada || ventaActual.numero_factura_modificada,
+          motivo: motivo || ventaActual.motivo
+        });
+
+        if (resuelto.error) {
+          return res.status(resuelto.error.status).json({
+            error: resuelto.error.error,
+            codigo: resuelto.error.codigo
+          });
+        }
+
+        facturaOriginal = resuelto.factura;
+        motivoNC = resuelto.motivo;
+
+        // Recalcular saldo excluyendo esta NC
+        const totalNCsPrevio = await req.db.collection(CONFIG.colVentas).aggregate([
+          {
+            $match: {
+              tipo_documento: 'nota_credito',
+              factura_original_id: facturaOriginal._id,
+              estado_sri: { $ne: 'RECHAZADA' },
+              _id: { $ne: _id }
+            }
+          },
+          { $group: { _id: null, total: { $sum: '$total' } } }
+        ]).toArray();
+
+        const acreditado = round2(toNumber(totalNCsPrevio[0]?.total));
+        const saldoAcreditable = round2(toNumber(facturaOriginal.total) - acreditado);
+        const totalNuevaNC = round2(toNumber(total));
+
+        if (totalNuevaNC > saldoAcreditable + 0.01) {
+          return res.status(400).json({
+            error: `El monto de la NC ($${totalNuevaNC}) supera el saldo acreditable ($${saldoAcreditable}).`,
+            codigo: 'NC_EXCEDE_SALDO',
+            saldoAcreditable,
+            totalFactura: facturaOriginal.total,
+            totalNCsPrevio: acreditado
+          });
+        }
+      }
 
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
         for (const detalle of detalles) {
@@ -1551,7 +1867,8 @@ router.put(
         }
       }
 
-      if (numero_factura !== ventaActual.numero_factura || tipoDoc !== ventaActual.tipo_documento) {
+      // Unicidad: solo si NO es NC
+      if (tipoDoc !== 'nota_credito' && (numero_factura !== ventaActual.numero_factura || tipoDoc !== ventaActual.tipo_documento)) {
         const uniqCheck = await verificarNumeroUnico(req.db, {
           tipoDoc,
           numeroFactura: numero_factura,
@@ -1606,13 +1923,28 @@ router.put(
         }
       }
 
+      // Número de factura final
+      const numeroFacturaFinal = tipoDoc === 'nota_credito'
+        ? (ventaActual.numero_factura || '')
+        : numero_factura;
+
+      const numeroFacturaModificadaFinal = tipoDoc === 'nota_credito' && facturaOriginal
+        ? formatearNumeroSRI(facturaOriginal)
+        : (numero_factura_modificada || '');
+
       const updateData = {
         clienteId: clienteId && ObjectId.isValid(clienteId) ? new ObjectId(clienteId) : null,
-        numero_factura,
+        numero_factura: numeroFacturaFinal,
         fecha_emision: new Date(fecha_emision),
         tipo_documento: tipoDoc,
         detalles, subtotal, iva, total,
         clave_acceso: nuevaClave,
+
+        // NC
+        factura_original_id: facturaOriginal?._id || null,
+        numero_factura_modificada: numeroFacturaModificadaFinal,
+        motivo: motivoNC || motivo || '',
+
         numero_guia, transportista, placa,
         numero_exportacion, pais_destino,
         numero_retencion, porcentaje_retencion,
@@ -1627,10 +1959,9 @@ router.put(
         direccion_partida, inicio_transporte, fin_transporte, placa_transporte,
         destinatario_identificacion, destinatario_tipo,
         destinatario_razon_social, destinatario_direccion,
-        ruta, motivo, documento_aduana,
+        ruta, documento_aduana,
         comprobante_tipo_emision, comprobante_documento, comprobante_clave_acceso,
         comprobante_numero_autorizacion, comprobante_numero, comprobante_fecha_emision,
-        numero_factura_modificada: numero_factura_modificada || '',
         forma_pago: forma_pago || '',
         estado_pago: estado_pago || 'pendiente',
         fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
@@ -1774,6 +2105,24 @@ router.delete(
         });
       }
 
+      // Si es NC, evitar borrar si tiene <-> hmm no hay relación inversa que proteger
+      // Si es factura, permitir (aunque tenga NCs, el usuario decide).
+      // Aquí podrías añadir un guard: bloquear si hay NCs activas.
+      if (venta.tipo_documento === 'factura') {
+        const ncsAsociadas = await req.db.collection(CONFIG.colVentas).countDocuments({
+          tipo_documento: 'nota_credito',
+          factura_original_id: _id,
+          estado_sri: { $ne: 'RECHAZADA' }
+        });
+        if (ncsAsociadas > 0) {
+          return res.status(409).json({
+            error: `No se puede eliminar: hay ${ncsAsociadas} nota(s) de crédito asociada(s). Eliminá primero las NC.`,
+            codigo: 'FACTURA_CON_NCS',
+            ncsAsociadas
+          });
+        }
+      }
+
       await conTransaccion(req.db, async (session) => {
         await moverStockVenta({
           db: req.db,
@@ -1820,31 +2169,7 @@ router.delete(
 // ============================================================
 /**
  * Asegura que una venta tenga clave + XML generados.
- *
- * 🔧 FIX 2025-XX:
- *   1. Persistencia ATÓMICA con `$or` sobre clave vacía. Si dos
- *      requests concurrentes intentan generar la clave de la MISMA
- *      venta, SOLO UNA gana. La otra refetchea y usa la clave
- *      ganadora — importante porque la clave incluye un código
- *      numérico aleatorio: sin esto, el QR y el XML podían diferir
- *      entre llamadas.
- *   2. Opción `{ persistir }` para que el caller decida si escribir.
- *      Default `true` (compatible con el comportamiento anterior).
- *   3. Devuelve `xmlFirmado` para que los GET puedan usar el XML
- *      firmado del doc sin depender del objeto original (que puede
- *      quedar obsoleto si perdimos la carrera y refetcheamos).
- *
- * @param {Db} db
- * @param {object} venta      Documento (NO se muta).
- * @param {object} [opts]
- * @param {boolean} [opts.persistir=true]
- * @returns {Promise<{
- *   claveAcceso: string|null,
- *   xml: string|null,
- *   xmlFirmado: string|null,
- *   motivo: string|null,
- *   persistida: boolean
- * }>}
+ * Usa guard atómico en el update para evitar race entre GETs.
  */
 async function asegurarClaveYXml(db, venta, opts = {}) {
   const { persistir = true } = opts;
@@ -1872,7 +2197,6 @@ async function asegurarClaveYXml(db, venta, opts = {}) {
     };
   }
 
-  // ---- Fast path: ya tiene todo ----
   if (venta.clave_acceso && venta.xml_generado) {
     return {
       claveAcceso: venta.clave_acceso,
@@ -1883,7 +2207,6 @@ async function asegurarClaveYXml(db, venta, opts = {}) {
     };
   }
 
-  // ---- Generar clave si falta ----
   let claveAcceso = venta.clave_acceso;
   let serieFormateada = venta.serie;
   let numeroSecuencial = venta.secuencial_sri;
@@ -1915,7 +2238,6 @@ async function asegurarClaveYXml(db, venta, opts = {}) {
     }
   }
 
-  // ---- Generar XML si falta ----
   let xml = venta.xml_generado;
   if (!xml) {
     try {
@@ -1940,7 +2262,6 @@ async function asegurarClaveYXml(db, venta, opts = {}) {
     }
   }
 
-  // ---- Persistir con guard atómico ----
   const necesitabaPersistir = !venta.clave_acceso || !venta.xml_generado;
   let persistida = false;
   let xmlFirmado = venta.xml_firmado || null;
@@ -1970,8 +2291,6 @@ async function asegurarClaveYXml(db, venta, opts = {}) {
 
       persistida = r.modifiedCount > 0;
 
-      // 🚨 Si perdimos la carrera, otra request ya escribió SU clave.
-      // Refetcheamos para devolver lo que quedó en BD (consistencia).
       if (!persistida) {
         const fresco = await db.collection(CONFIG.colVentas).findOne(
           { _id: venta._id },
@@ -1988,14 +2307,11 @@ async function asegurarClaveYXml(db, venta, opts = {}) {
         if (fresco?.xml_firmado) xmlFirmado = fresco.xml_firmado;
       }
     } catch (e) {
-      // E11000 en clave_acceso (colisión con otra venta): raro pero posible.
       if (e.code === 11000) {
         log.warn(
           { ventaId: String(venta._id) },
           'Colisión de clave_acceso al persistir en asegurarClaveYXml'
         );
-        // Refetcheamos: la otra venta ya tiene esa clave, la nuestra
-        // seguramente no se persistió. Devolvemos lo generado sin guardar.
       } else {
         log.warn(
           { err: e.message, ventaId: String(venta._id) },
@@ -2029,6 +2345,7 @@ module.exports._verificarNumeroUnico = verificarNumeroUnico;
 module.exports._resolverSerieEmision = resolverSerieEmision;
 module.exports._resolverSecuencial = resolverSecuencial;
 module.exports._formatearSecuencial = formatearSecuencial;
+module.exports._formatearNumeroSRI = formatearNumeroSRI;
 module.exports._afectaStock = afectaStock;
 module.exports._signoStock = signoStock;
 module.exports._moverStockVenta = moverStockVenta;
@@ -2038,3 +2355,5 @@ module.exports._actualizarStockAtomico = actualizarStockAtomico;
 module.exports._extraerValor = extraerValor;
 module.exports._asegurarClaveYXml = asegurarClaveYXml;
 module.exports._configRucValido = configRucValido;
+module.exports._resolverFacturaOriginalNC = resolverFacturaOriginalNC;
+module.exports._calcularSaldoAcreditable = calcularSaldoAcreditable;
