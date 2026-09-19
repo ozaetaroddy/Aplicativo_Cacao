@@ -27,7 +27,11 @@
         </div>
       </div>
       <div class="header-actions">
-        <span v-if="borradorGuardado" class="draft-badge" title="Se guardó un borrador local">
+        <span
+          v-if="borradorGuardado"
+          class="draft-badge"
+          title="Se guardó un borrador local"
+        >
           <i class="fas fa-save"></i>
           <span>Borrador guardado</span>
         </span>
@@ -68,7 +72,7 @@
 
       <AlertaPeriodoCerrado :periodo-cerrado="periodoCerrado" />
 
-      <!-- Aviso de borrador recuperado -->
+      <!-- Aviso borrador recuperado -->
       <transition name="fade">
         <div v-if="borradorRecuperado" class="alert-card alert-draft">
           <div class="alert-icon"><i class="fas fa-history"></i></div>
@@ -84,7 +88,7 @@
         </div>
       </transition>
 
-      <!-- Aviso de retención automática -->
+      <!-- Aviso retención automática -->
       <transition name="fade">
         <div v-if="tieneRetencion && !id" class="alert-card alert-info-banner">
           <div class="alert-icon"><i class="fas fa-magic"></i></div>
@@ -92,8 +96,8 @@
             <strong>Retención automática activa</strong>
             <div class="small">
               Al guardar, el sistema generará automáticamente el
-              <strong>comprobante de retención electrónico</strong> con clave de acceso SRI
-              y firma digital (si hay certificado cargado).
+              <strong>comprobante de retención electrónico</strong> con
+              clave de acceso SRI y firma digital (si hay certificado cargado).
             </div>
           </div>
         </div>
@@ -106,8 +110,9 @@
           <div class="alert-body">
             <strong>Posible factura duplicada</strong>
             <div class="small">
-              Ya existe una compra con el N° <strong>{{ compra.numero_factura }}</strong>
-              del mismo proveedor ({{ facturaDuplicada.numero_factura }}).
+              Ya existe una compra con el N°
+              <strong>{{ compra.numero_factura }}</strong>
+              del mismo proveedor.
               <button class="link-btn" type="button" @click="abrirDuplicado">
                 Ver compra existente
               </button>
@@ -165,7 +170,6 @@
                       placeholder="Ej: 001-001-000000123"
                       maxlength="50"
                       :disabled="cargando"
-                      @blur="verificarDuplicado"
                     />
                     <small v-if="facturaDuplicada" class="form-hint form-hint-danger">
                       <i class="fas fa-exclamation-triangle"></i>
@@ -396,7 +400,7 @@
                 <div v-else class="items-list">
                   <div
                     v-for="(item, index) in compra.detalles"
-                    :key="`${item.productoId}-${index}`"
+                    :key="`det-${item.productoId}-${index}`"
                     class="item-card"
                   >
                     <div class="item-main">
@@ -459,6 +463,7 @@
                             min="0"
                             step="0.01"
                             :disabled="cargando"
+                            @change="onDetalleChange"
                           />
                         </div>
                       </div>
@@ -709,7 +714,10 @@
                                   </option>
                                 </optgroup>
                               </select>
-                              <small v-if="imp.concepto" class="form-hint form-hint-purple">
+                              <small
+                                v-if="imp.concepto"
+                                class="form-hint form-hint-purple"
+                              >
                                 <i class="fas fa-info-circle"></i>
                                 {{ imp.impuesto }} · {{ imp.concepto }}
                               </small>
@@ -1027,14 +1035,15 @@
                 </div>
               </div>
 
-              <!-- Clave de acceso (info) -->
+              <!-- Info clave de acceso -->
               <div class="info-card info-card-blue">
                 <i class="fas fa-key"></i>
                 <div>
                   <div class="info-title">Documento SRI</div>
                   <div class="info-text">
-                    La compra lleva su propio código interno (<strong>COM-XXXXXX</strong>).
-                    La retención llevará clave de acceso SRI de 49 dígitos.
+                    La compra lleva su propio código interno
+                    (<strong>COM-XXXXXX</strong>). La retención llevará clave de
+                    acceso SRI de 49 dígitos.
                   </div>
                 </div>
               </div>
@@ -1063,6 +1072,9 @@
 </template>
 
 <script setup>
+// ============================================================
+// IMPORTS
+// ============================================================
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../../services/api'
@@ -1073,35 +1085,94 @@ import SelectSRI from '../shared/SelectSRI.vue'
 import AlertaPeriodoCerrado from '../shared/AlertaPeriodoCerrado.vue'
 import Fuse from 'fuse.js'
 
-const toast = useToast()
+// ============================================================
+// INSTANCIAS GLOBALES
+// ============================================================
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 const { catalogos, cargarCatalogos } = useCatalogosSRI()
 
-// ==================== CONSTANTES ====================
+// ============================================================
+// CONSTANTES
+// ============================================================
 const CODIGO_IMPUESTO_RETENCION = Object.freeze({ RENTA: '1', IVA: '2' })
 const DRAFT_KEY = 'compra_form_draft_v1'
 const DRAFT_INTERVAL_MS = 15000
-const SEARCH_DEBOUNCE_MS = 250
-const DUPLICADO_CHECK_DEBOUNCE_MS = 600
+const DRAFT_IDLE_MS = 1500
 
-// Presets de retención
 const PRESETS_RETENCION = Object.freeze({
   inventario: [
-    { codigoRetencion: '303', impuesto: 'RENTA' }, // 1% bienes muebles
-    { codigoRetencion: '721', impuesto: 'IVA' }    // 30% IVA bienes
+    { codigoRetencion: '303', impuesto: 'RENTA' },
+    { codigoRetencion: '721', impuesto: 'IVA' }
   ],
   servicios: [
-    { codigoRetencion: '312', impuesto: 'RENTA' }, // 2% servicios
-    { codigoRetencion: '723', impuesto: 'IVA' }    // 70% IVA servicios
+    { codigoRetencion: '312', impuesto: 'RENTA' },
+    { codigoRetencion: '723', impuesto: 'IVA' }
   ],
   honorarios: [
-    { codigoRetencion: '725', impuesto: 'RENTA' }, // 1.75% servicios profesionales
-    { codigoRetencion: '725', impuesto: 'IVA' }    // 100% IVA honorarios
+    { codigoRetencion: '725', impuesto: 'RENTA' },
+    { codigoRetencion: '725', impuesto: 'IVA' }
   ]
 })
 
-// ==================== STATE ====================
+// ============================================================
+// HELPERS PUROS (function declarations → hoisted)
+// ------------------------------------------------------------
+// ⚠️  Estas funciones NO dependen de refs/computeds, así que se
+//     pueden llamar en cualquier punto del setup sin riesgo de TDZ.
+// ============================================================
+function getHoyISO() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function getInitials(nombre) {
+  if (!nombre) return '?'
+  return String(nombre)
+    .split(' ')
+    .filter(Boolean)
+    .map(n => n[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+}
+
+function claseStock(stock) {
+  const s = Number(stock) || 0
+  if (s <= 0) return 'stock-zero'
+  if (s < 10) return 'stock-low'
+  return 'stock-ok'
+}
+
+function generarCodigoCompra() {
+  return `COM-${String(Date.now()).slice(-6)}`
+}
+
+function crearCompraVacia() {
+  return {
+    proveedorId: '',
+    numero_factura: '',
+    fecha_emision: getHoyISO(),
+    detalles: [],
+    subtotal: 0,
+    iva: 0,
+    total: 0,
+    tipo_compra: 'inventario',
+    estado_pago: 'pendiente',
+    forma_pago: '',
+    fecha_pago: '',
+    observaciones: '',
+    impuestos_retencion: []
+  }
+}
+
+// ============================================================
+// STATE
+// ============================================================
 const id = route.params.id || null
 const proveedores = ref([])
 const productos = ref([])
@@ -1126,42 +1197,23 @@ const seccionesExpandidas = ref({ pago: true, retencion: true })
 let fuseProveedores = null
 let fuseProductos = null
 
+// 🎯 compra.value se inicializa SIN usar `hoyISO` (que es un computed
+//    declarado más abajo). Usamos `getHoyISO()` → function declaration
+//    hoisted → cero TDZ.
 const compra = ref(crearCompraVacia())
 const formOriginal = ref(null)
 
 // Timers
 const debounceTimers = {}
 let draftTimer = null
+let draftIdleTimer = null
 let unmounted = false
 let abortController = null
 
-// ==================== HELPERS DE ESTADO ====================
-function crearCompraVacia() {
-  return {
-    proveedorId: '',
-    numero_factura: '',
-    fecha_emision: hoyISO.value,
-    detalles: [],
-    subtotal: 0,
-    iva: 0,
-    total: 0,
-    tipo_compra: 'inventario',
-    estado_pago: 'pendiente',
-    forma_pago: '',
-    fecha_pago: '',
-    observaciones: '',
-    impuestos_retencion: []
-  }
-}
-
-// ==================== COMPUTED ====================
-const hoyISO = computed(() => {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-})
+// ============================================================
+// COMPUTED
+// ============================================================
+const hoyISO = computed(() => getHoyISO())
 
 const proveedorActual = computed(() => {
   if (!compra.value.proveedorId) return null
@@ -1188,7 +1240,6 @@ const productosFiltrados = computed(() => {
   }
 })
 
-// Catálogos de retención
 const RETENCIONES_RENTA = computed(() => {
   const arr = catalogos.value?.TIPO_RETENCION || []
   return arr.filter(t => t.impuesto === 'RENTA')
@@ -1199,7 +1250,6 @@ const RETENCIONES_IVA = computed(() => {
   return arr.filter(t => t.impuesto === 'IVA')
 })
 
-// Cálculos
 const subtotal = computed(() =>
   roundTo2(
     compra.value.detalles.reduce(
@@ -1271,33 +1321,15 @@ const facturaDuplicada = computed(() => {
   if (!num || num.startsWith('COM-')) return null
   return comprasRecientes.value.find(
     c =>
-      c.proveedorId === compra.value.proveedorId &&
+      String(c.proveedorId) === String(compra.value.proveedorId) &&
       String(c.numero_factura || '').trim().toUpperCase() === num &&
       String(c._id) !== String(id)
   ) || null
 })
 
-// ==================== HELPERS GENERALES ====================
-const getInitials = (nombre) => {
-  if (!nombre) return '?'
-  return String(nombre)
-    .split(' ')
-    .filter(Boolean)
-    .map(n => n[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
-}
-
-const generarCodigoCompra = () => `COM-${String(Date.now()).slice(-6)}`
-
-const claseStock = (stock) => {
-  const s = Number(stock) || 0
-  if (s <= 0) return 'stock-zero'
-  if (s < 10) return 'stock-low'
-  return 'stock-ok'
-}
-
+// ============================================================
+// DEBOUNCE
+// ============================================================
 const debounce = (key, fn, ms = 300) => {
   if (debounceTimers[key]) clearTimeout(debounceTimers[key])
   debounceTimers[key] = setTimeout(() => {
@@ -1306,6 +1338,9 @@ const debounce = (key, fn, ms = 300) => {
   }, ms)
 }
 
+// ============================================================
+// SECCIONES
+// ============================================================
 const toggleSeccion = (nombre) => {
   seccionesExpandidas.value[nombre] = !seccionesExpandidas.value[nombre]
   guardarEstadoSecciones()
@@ -1330,9 +1365,11 @@ const restaurarEstadoSecciones = () => {
   } catch { /* noop */ }
 }
 
-// ==================== DRAFT AUTOSAVE ====================
+// ============================================================
+// DRAFT AUTOSAVE
+// ============================================================
 const guardarBorrador = () => {
-  if (id) return // no guardar borrador si estamos editando
+  if (id) return
   try {
     const payload = JSON.stringify({
       compra: compra.value,
@@ -1351,7 +1388,6 @@ const cargarBorrador = () => {
     if (!raw) return false
     const parsed = JSON.parse(raw)
     if (!parsed?.compra) return false
-    // Solo recuperar si tiene algún dato significativo
     const c = parsed.compra
     const tieneDatos =
       c.proveedorId || (c.detalles && c.detalles.length > 0) || c.numero_factura
@@ -1377,7 +1413,9 @@ const limpiarBorrador = () => {
   borradorRecuperado.value = false
 }
 
-// ==================== BÚSQUEDA PROVEEDOR ====================
+// ============================================================
+// BÚSQUEDA PROVEEDOR
+// ============================================================
 const onProveedorInput = () => {
   mostrarListaProveedores.value = true
 }
@@ -1392,7 +1430,6 @@ const seleccionarProveedor = (p) => {
   compra.value.proveedorId = p._id
   busquedaProveedor.value = ''
   mostrarListaProveedores.value = false
-  verificarDuplicado()
 }
 
 const limpiarProveedor = () => {
@@ -1401,7 +1438,9 @@ const limpiarProveedor = () => {
   nextTick(() => inputProveedor.value?.focus())
 }
 
-// ==================== BÚSQUEDA PRODUCTO ====================
+// ============================================================
+// BÚSQUEDA PRODUCTO
+// ============================================================
 const onProductoInput = () => {
   mostrarListaProductos.value = true
 }
@@ -1450,7 +1489,6 @@ const agregarProducto = (p) => {
   mostrarListaProductos.value = false
   nextTick(() => inputProducto.value?.focus())
 
-  // Auto-actualizar bases de retención si aplica
   actualizarBasesRetencion()
 }
 
@@ -1481,7 +1519,9 @@ const onDetalleChange = () => {
   actualizarBasesRetencion()
 }
 
-// ==================== RETENCIÓN ====================
+// ============================================================
+// RETENCIÓN
+// ============================================================
 const buscarRetencionLocal = (codigo, impuesto) => {
   if (!codigo || !impuesto) return null
   const arr = catalogos.value?.TIPO_RETENCION || []
@@ -1509,7 +1549,6 @@ const toggleRetencion = (activar) => {
 }
 
 const aplicarPresetAuto = () => {
-  // Según tipo_compra, sugiere preset
   const preset = compra.value.tipo_compra === 'gasto' ? 'servicios' : 'inventario'
   aplicarPreset(preset)
 }
@@ -1608,39 +1647,31 @@ const recalcularValorRetencion = (idx) => {
   imp.valorRetenido = roundTo2(base * (pct / 100))
 }
 
-/**
- * Actualiza las bases imponibles de los impuestos de retención
- * cuando cambian los productos/IVA.
- * Solo actualiza bases que el usuario NO haya modificado manualmente.
- */
 const actualizarBasesRetencion = () => {
   if (!tieneRetencion.value) return
 
-  for (const imp of compra.value.impuestos_retencion) {
+  for (let i = 0; i < compra.value.impuestos_retencion.length; i++) {
+    const imp = compra.value.impuestos_retencion[i]
     if (!imp.impuesto) continue
     const baseSugerida = imp.impuesto === 'IVA' ? iva.value : subtotal.value
-
-    // Solo sobreescribir si la base actual es 0 o coincide con el patrón anterior
     const baseActual = Number(imp.baseImponible) || 0
     if (baseActual === 0 || imp._autoBase !== false) {
       imp.baseImponible = baseSugerida
       imp._autoBase = true
-      recalcularValorRetencion(compra.value.impuestos_retencion.indexOf(imp))
+      recalcularValorRetencion(i)
     }
   }
 }
 
-/**
- * Cuando cambia el tipo de compra, si hay retención activa,
- * sugiere el preset correcto.
- */
 const onTipoCompraChange = () => {
   if (tieneRetencion.value) {
     aplicarPresetAuto()
   }
 }
 
-// ==================== PERIODO ====================
+// ============================================================
+// PERIODO
+// ============================================================
 const verificarPeriodo = async () => {
   if (!compra.value.fecha_emision) {
     periodoCerrado.value = null
@@ -1659,22 +1690,18 @@ const verificarPeriodo = async () => {
   }
 }
 
-// ==================== DUPLICADO ====================
-const verificarDuplicado = () => {
-  if (debounceTimers.dup) clearTimeout(debounceTimers.dup)
-  debounceTimers.dup = setTimeout(() => {
-    // La computada `facturaDuplicada` ya hace el trabajo
-    delete debounceTimers.dup
-  }, DUPLICADO_CHECK_DEBOUNCE_MS)
-}
-
+// ============================================================
+// DUPLICADO
+// ============================================================
 const abrirDuplicado = () => {
   if (facturaDuplicada.value?._id) {
     router.push(`/compras/editar/${facturaDuplicada.value._id}`)
   }
 }
 
-// ==================== ATAJOS ====================
+// ============================================================
+// ATAJOS
+// ============================================================
 const handleKeydown = (e) => {
   const tag = (e.target?.tagName || '').toLowerCase()
   const esInput = tag === 'input' || tag === 'textarea' || tag === 'select'
@@ -1704,7 +1731,9 @@ const handleKeydown = (e) => {
   }
 }
 
-// ==================== NAVEGACIÓN ====================
+// ============================================================
+// NAVEGACIÓN
+// ============================================================
 const volver = () => {
   if (cargando.value) return
   if (hayCambios.value) {
@@ -1714,11 +1743,12 @@ const volver = () => {
   router.push('/compras')
 }
 
-// ==================== CARGA INICIAL ====================
+// ============================================================
+// CARGA INICIAL
+// ============================================================
 const cargarDatos = async () => {
   cargandoInicial.value = true
   try {
-    // Catálogos y datos base en paralelo
     const [, provsRes, prodsRes, comprasRes] = await Promise.allSettled([
       cargarCatalogos(),
       api.request('/proveedores?limit=2000', { method: 'GET', skipLoader: true }),
@@ -1749,7 +1779,6 @@ const cargarDatos = async () => {
         : (comprasRes.value?.data || [])
     }
 
-    // Fuse para búsqueda difusa
     try {
       if (proveedores.value.length > 0) {
         fuseProveedores = new Fuse(proveedores.value, {
@@ -1771,7 +1800,6 @@ const cargarDatos = async () => {
       }
     } catch { /* noop */ }
 
-    // Cargar compra o borrador
     if (id) {
       const data = await api.request(`/compras/${id}`, {
         method: 'GET',
@@ -1823,7 +1851,7 @@ const cargarDatos = async () => {
         numero_factura: data.numero_factura || '',
         fecha_emision: data.fecha_emision
           ? new Date(data.fecha_emision).toISOString().split('T')[0]
-          : hoyISO.value,
+          : getHoyISO(),
         detalles,
         subtotal: data.subtotal || 0,
         iva: data.iva || 0,
@@ -1838,7 +1866,6 @@ const cargarDatos = async () => {
         impuestos_retencion: impuestos
       }
     } else {
-      // Nueva compra: recuperar borrador o iniciar vacío
       const recuperado = cargarBorrador()
       if (!recuperado) {
         compra.value.numero_factura = generarCodigoCompra()
@@ -1861,7 +1888,9 @@ const cargarDatos = async () => {
   }
 }
 
-// ==================== GUARDAR ====================
+// ============================================================
+// GUARDAR
+// ============================================================
 const guardar = async () => {
   if (periodoCerrado.value) {
     toast.error(`No se puede guardar: ${periodoCerrado.value.nombre} está cerrado`)
@@ -1952,7 +1981,6 @@ const guardar = async () => {
       }
     }
 
-    // Advertencias del backend
     if (response?._advertencia) {
       toast.warning(response._advertencia, { timeout: 10000 })
     }
@@ -1962,7 +1990,6 @@ const guardar = async () => {
       }
     }
 
-    // Limpiar borrador y salir
     limpiarBorrador()
     formOriginal.value = JSON.parse(JSON.stringify(compra.value))
     router.push('/compras')
@@ -1991,7 +2018,9 @@ const guardar = async () => {
   }
 }
 
-// ==================== WATCHERS ====================
+// ============================================================
+// WATCHERS
+// ============================================================
 watch(
   () => compra.value.fecha_emision,
   () => debounce('periodo', verificarPeriodo, 400),
@@ -2016,18 +2045,19 @@ watch(
   }
 )
 
-// Autoguardado del borrador
 watch(
   () => compra.value,
   () => {
     if (id) return
-    if (draftTimer) clearTimeout(draftTimer)
-    draftTimer = setTimeout(guardarBorrador, 1500)
+    if (draftIdleTimer) clearTimeout(draftIdleTimer)
+    draftIdleTimer = setTimeout(guardarBorrador, DRAFT_IDLE_MS)
   },
   { deep: true }
 )
 
-// ==================== PREVENIR SALIDA ====================
+// ============================================================
+// PREVENIR SALIDA
+// ============================================================
 const beforeUnloadHandler = (e) => {
   if (hayCambios.value && !cargando.value) {
     e.preventDefault()
@@ -2035,11 +2065,12 @@ const beforeUnloadHandler = (e) => {
   }
 }
 
-// ==================== LIFECYCLE ====================
+// ============================================================
+// LIFECYCLE
+// ============================================================
 onMounted(async () => {
   await cargarDatos()
 
-  // Autoguardado periódico por si el usuario está inactivo
   draftTimer = setInterval(() => {
     if (!unmounted && !id && hayCambios.value) {
       guardarBorrador()
@@ -2059,6 +2090,10 @@ onBeforeUnmount(() => {
     clearInterval(draftTimer)
     draftTimer = null
   }
+  if (draftIdleTimer) {
+    clearTimeout(draftIdleTimer)
+    draftIdleTimer = null
+  }
 
   for (const k of Object.keys(debounceTimers)) {
     clearTimeout(debounceTimers[k])
@@ -2074,7 +2109,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* ============================================================
-   COMPRA FORM — Estilos profesionales
+   COMPRA FORM — Estilos
    ============================================================ */
 .compra-form {
   max-width: 1400px;
@@ -2351,7 +2386,7 @@ kbd {
   min-width: 0;
 }
 
-/* ============ FORM SECTIONS ============ */
+/* ============ SECTIONS ============ */
 .form-section {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
