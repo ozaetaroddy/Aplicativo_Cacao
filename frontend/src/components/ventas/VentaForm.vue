@@ -171,7 +171,6 @@
               </div>
             </header>
             <div class="section-body">
-              <!-- Buscador -->
               <div v-if="!facturaOriginal" class="position-relative">
                 <div class="search-input-group">
                   <i class="fas fa-search search-icon" aria-hidden="true"></i>
@@ -236,7 +235,6 @@
                 </transition>
               </div>
 
-              <!-- Factura seleccionada -->
               <div v-else class="factura-original-card">
                 <div class="factura-original-icon">
                   <i class="fas fa-file-invoice" aria-hidden="true"></i>
@@ -281,7 +279,6 @@
                 </button>
               </div>
 
-              <!-- Motivo (obligatorio para NC) -->
               <div class="form-row" style="margin-top: 20px;">
                 <div class="form-field">
                   <label class="form-label" for="nc-motivo">
@@ -443,7 +440,7 @@
               </div>
             </header>
             <div class="section-body">
-              <!-- 🆕 Autocompletar desde una compra del proveedor -->
+              <!-- Autocompletar desde una compra del proveedor -->
               <div class="subsection">
                 <h3 class="subsection-title">
                   <i class="fas fa-bolt" aria-hidden="true"></i>
@@ -503,7 +500,7 @@
                       <input
                         type="text"
                         class="search-input"
-                        placeholder="Buscar por N° de factura, clave de acceso o total…"
+                        placeholder="Buscar por N° de factura, clave de acceso o subtotal…"
                         v-model="busquedaCompraRetencion"
                         @focus="mostrarListaCompras = true"
                         @blur="cerrarListaCompras"
@@ -606,6 +603,57 @@
                   </div>
                 </transition>
               </div>
+
+              <!-- 🆕 PANEL DE PRODUCTOS DE LA COMPRA (solo lectura) -->
+              <transition name="fade">
+                <div
+                  v-if="compraSeleccionadaRetencion && detallesCompraRetencion.length > 0"
+                  class="productos-compra-panel"
+                >
+                  <div class="productos-compra-header">
+                    <div class="productos-compra-titulo">
+                      <i class="fas fa-boxes" aria-hidden="true"></i>
+                      Productos de esta compra
+                      <span class="productos-compra-badge">
+                        {{ detallesCompraRetencion.length }}
+                      </span>
+                    </div>
+                    <span class="productos-compra-sub">
+                      Solo lectura · No se incluyen en la retención
+                    </span>
+                  </div>
+                  <div class="productos-compra-lista">
+                    <div
+                      v-for="(d, i) in detallesCompraRetencion"
+                      :key="`det-${i}-${d.productoId || i}`"
+                      class="productos-compra-item"
+                    >
+                      <div class="prod-icon">
+                        <i class="fas fa-box" aria-hidden="true"></i>
+                      </div>
+                      <div class="prod-info">
+                        <div class="prod-nombre">
+                          {{ d.nombre || obtenerNombreProducto(d.productoId) }}
+                        </div>
+                        <div class="prod-codigo" v-if="d.codigo">
+                          {{ d.codigo }}
+                        </div>
+                      </div>
+                      <div class="prod-cant">×{{ formatCantidad(d.cantidad) }}</div>
+                      <div class="prod-precio">
+                        ${{ formatMonto(d.precio_unitario || d.costo_unitario) }}
+                      </div>
+                      <div class="prod-subtotal">
+                        ${{ formatMonto((Number(d.cantidad) || 0) * (Number(d.precio_unitario || d.costo_unitario) || 0)) }}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="productos-compra-footer">
+                    <span>Subtotal de la compra</span>
+                    <strong>${{ formatMonto(compraSeleccionadaRetencion.subtotal) }}</strong>
+                  </div>
+                </div>
+              </transition>
 
               <!-- Documento de sustento -->
               <div class="subsection" style="margin-top: 24px;">
@@ -861,7 +909,6 @@
                   </div>
                 </div>
 
-                <!-- Total retenido -->
                 <div v-if="venta.impuestos_retencion.length > 0" class="ret-total">
                   <span>
                     <i class="fas fa-calculator" aria-hidden="true"></i>
@@ -883,8 +930,8 @@
             </div>
           </section>
 
-          <!-- SECCIÓN: Productos -->
-          <section class="form-section card-with-dropdown">
+          <!-- SECCIÓN: Productos (no aplica a retención) -->
+          <section v-if="!esRetencion" class="form-section card-with-dropdown">
             <header class="section-header">
               <div class="section-number">{{ esNotaCredito ? 4 : 3 }}</div>
               <div class="section-header-content">
@@ -1372,8 +1419,8 @@
             </transition>
           </section>
 
-          <!-- SECCIÓN: Información de Pago -->
-          <section v-if="!esGuia" class="form-section">
+          <!-- SECCIÓN: Información de Pago (no aplica a guías ni retenciones) -->
+          <section v-if="!esGuia && !esRetencion" class="form-section">
             <header class="section-header section-header-clickable" @click="toggleSeccion('pago')">
               <div class="section-number">
                 <i class="fas fa-credit-card" aria-hidden="true"></i>
@@ -1448,48 +1495,65 @@
                 <span>Resumen del documento</span>
               </div>
               <div class="summary-body">
-                <div class="summary-row">
-                  <span class="summary-label">Productos</span>
-                  <span class="summary-value">{{ venta.detalles.length }}</span>
-                </div>
-                <div class="summary-row">
-                  <span class="summary-label">Subtotal</span>
-                  <span class="summary-value">${{ formatMonto(subtotal) }}</span>
-                </div>
-                <div class="summary-row">
-                  <span class="summary-label">IVA</span>
-                  <span class="summary-value">${{ formatMonto(iva) }}</span>
-                </div>
-                <div class="summary-divider"></div>
-                <div class="summary-total">
-                  <span class="total-label">TOTAL</span>
-                  <span class="total-value">${{ formatMonto(total) }}</span>
-                </div>
+                <!-- Resumen especial para retención -->
+                <template v-if="esRetencion">
+                  <div class="summary-row">
+                    <span class="summary-label">Documento</span>
+                    <span class="summary-value">
+                      {{ compraSeleccionadaRetencion ? 'Compra vinculada' : 'Sin vincular' }}
+                    </span>
+                  </div>
+                  <div class="summary-row">
+                    <span class="summary-label">Base sustento</span>
+                    <span class="summary-value">
+                      ${{ formatMonto(compraSeleccionadaRetencion?.subtotal || 0) }}
+                    </span>
+                  </div>
+                  <div class="summary-row">
+                    <span class="summary-label">Impuestos</span>
+                    <span class="summary-value">{{ venta.impuestos_retencion.length }}</span>
+                  </div>
+                  <div class="summary-divider"></div>
+                  <div class="summary-total">
+                    <span class="total-label">TOTAL RETENIDO</span>
+                    <span class="total-value">${{ formatMonto(totalRetenido) }}</span>
+                  </div>
+                </template>
 
-                <div v-if="esRetencion && totalRetenido > 0" class="nc-saldo-info">
-                  <div class="nc-saldo-row">
-                    <span>Retenido:</span>
-                    <strong>${{ formatMonto(totalRetenido) }}</strong>
+                <!-- Resumen estándar -->
+                <template v-else>
+                  <div class="summary-row">
+                    <span class="summary-label">Productos</span>
+                    <span class="summary-value">{{ venta.detalles.length }}</span>
                   </div>
-                  <div class="nc-saldo-row">
-                    <span>Neto a pagar:</span>
-                    <strong>${{ formatMonto(Math.max(0, total - totalRetenido)) }}</strong>
+                  <div class="summary-row">
+                    <span class="summary-label">Subtotal</span>
+                    <span class="summary-value">${{ formatMonto(subtotal) }}</span>
                   </div>
-                </div>
+                  <div class="summary-row">
+                    <span class="summary-label">IVA</span>
+                    <span class="summary-value">${{ formatMonto(iva) }}</span>
+                  </div>
+                  <div class="summary-divider"></div>
+                  <div class="summary-total">
+                    <span class="total-label">TOTAL</span>
+                    <span class="total-value">${{ formatMonto(total) }}</span>
+                  </div>
 
-                <div v-if="esNotaCredito && facturaOriginal" class="nc-saldo-info">
-                  <div class="nc-saldo-row">
-                    <span>Saldo disponible:</span>
-                    <strong>${{ formatMonto(facturaOriginal.saldoAcreditable) }}</strong>
+                  <div v-if="esNotaCredito && facturaOriginal" class="nc-saldo-info">
+                    <div class="nc-saldo-row">
+                      <span>Saldo disponible:</span>
+                      <strong>${{ formatMonto(facturaOriginal.saldoAcreditable) }}</strong>
+                    </div>
+                    <div
+                      class="nc-saldo-row"
+                      :class="{ 'nc-saldo-over': Number(total) > Number(facturaOriginal.saldoAcreditable) + 0.01 }"
+                    >
+                      <span>Usando:</span>
+                      <strong>${{ formatMonto(total) }}</strong>
+                    </div>
                   </div>
-                  <div
-                    class="nc-saldo-row"
-                    :class="{ 'nc-saldo-over': Number(total) > Number(facturaOriginal.saldoAcreditable) + 0.01 }"
-                  >
-                    <span>Usando:</span>
-                    <strong>${{ formatMonto(total) }}</strong>
-                  </div>
-                </div>
+                </template>
               </div>
             </div>
 
@@ -1533,7 +1597,7 @@
                 <span>Impuestos de retención</span>
               </div>
 
-              <div class="status-item" :class="{ complete: venta.detalles.length > 0 }">
+              <div v-if="!esRetencion" class="status-item" :class="{ complete: venta.detalles.length > 0 }">
                 <i
                   :class="venta.detalles.length > 0 ? 'fas fa-check-circle' : 'far fa-circle'"
                   aria-hidden="true"
@@ -1706,6 +1770,12 @@ const formatMonto = (n) => {
   return Number.isFinite(v) ? v.toFixed(2) : '0.00'
 }
 
+const formatCantidad = (n) => {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return '0'
+  return Number.isInteger(v) ? v.toLocaleString('es-EC') : v.toFixed(2)
+}
+
 const formatFechaCorta = (f) => {
   if (!f) return ''
   try {
@@ -1736,7 +1806,8 @@ const esEdicion = computed(() => Boolean(id.value))
 const tipoInicial = computed(() => route.query.tipo || 'factura')
 
 // ===== STATE =====
-const clientes = ref([])
+const clientes = ref([])              // Lista actual mostrada (clientes o proveedores)
+const clientesOriginales = ref([])    // Lista completa de clientes (sin modificar)
 const productos = ref([])
 const proveedores = ref([])
 const cargando = ref(false)
@@ -1762,7 +1833,7 @@ const facturasNC = ref([])
 const buscandoFacturaNC = ref(false)
 const facturaOriginal = ref(null)
 
-// 🆕 RETENCIÓN — compras del proveedor
+// Retención — compras del proveedor
 const comprasProveedor = ref([])
 const busquedaCompraRetencion = ref('')
 const mostrarListaCompras = ref(false)
@@ -1893,6 +1964,27 @@ const comprasFiltradas = computed(() => {
   })
 })
 
+/**
+ * Detalles (productos) de la compra seleccionada, enriquecidos
+ * con info del producto desde el catálogo local.
+ * Se muestran en un panel de solo lectura — NO se envían al backend.
+ */
+const detallesCompraRetencion = computed(() => {
+  const compra = compraSeleccionadaRetencion.value
+  if (!compra) return []
+  const detalles = Array.isArray(compra.detalles) ? compra.detalles : []
+  return detalles.map((d) => {
+    const prod = productos.value.find((p) => String(p._id) === String(d.productoId))
+    return {
+      productoId: d.productoId,
+      nombre: d.nombre || prod?.nombre || '',
+      codigo: d.codigo || prod?.codigo || '',
+      cantidad: Number(d.cantidad) || 0,
+      precio_unitario: Number(d.precio_unitario ?? d.costo_unitario) || 0
+    }
+  })
+})
+
 const numeroPlaceholder = computed(() => {
   if (esNotaCredito.value) return 'Se asigna NCR-XXXXXX automáticamente'
   return 'Automático'
@@ -1920,7 +2012,7 @@ const tituloDocumento = computed(() => {
   return esEdicion.value ? `Editar ${base}` : base
 })
 
-// 🆕 Etiqueta dinámica de la contraparte
+// Etiqueta dinámica de la contraparte
 const etiquetaContraparte = computed(() => {
   if (esGuia.value) return 'Destinatario'
   if (esRetencion.value) return 'Proveedor (Sujeto Retenido)'
@@ -2034,12 +2126,16 @@ const formularioValido = computed(() => {
     if (total.value > saldo + 0.01) return false
   }
 
+  // ⚠️ Retención NO lleva productos según el SRI.
+  //    Solo validamos fecha + impuestos + proveedor.
   if (esRetencion.value) {
     if (!tieneImpuestosRetencion.value) return false
+    if (!venta.value.fecha_emision) return false
+    return true
   }
 
-  if (!Array.isArray(venta.value.detalles) || venta.value.detalles.length === 0) return false
   if (!venta.value.fecha_emision) return false
+  if (!Array.isArray(venta.value.detalles) || venta.value.detalles.length === 0) return false
 
   return venta.value.detalles.every(
     (d) =>
@@ -2074,6 +2170,12 @@ const getInitials = (nombre) => {
 
 const toggleSeccion = (nombre) => {
   seccionesExpandidas.value[nombre] = !seccionesExpandidas.value[nombre]
+}
+
+const obtenerNombreProducto = (id) => {
+  if (!id) return 'Producto'
+  const prod = productos.value.find((p) => String(p._id) === String(id))
+  return prod?.nombre || 'Producto'
 }
 
 // ===== CONFIRMACIÓN =====
@@ -2112,7 +2214,48 @@ const cancelarConfirm = () => {
   if (r) r(false)
 }
 
-// ===== CLIENTES =====
+// ===== CLIENTES / PROVEEDORES =====
+/**
+ * Recarga la lista de contrapartes según el tipo actual.
+ * - Retención → solo proveedores
+ * - Otros → solo clientes
+ * También reconstruye el índice Fuse y limpia la selección si ya no existe.
+ */
+const cargarContrapartesSegunTipo = () => {
+  if (esRetencion.value) {
+    clientes.value = [...proveedores.value]
+  } else {
+    clientes.value = [...clientesOriginales.value]
+  }
+
+  // Reconstruir Fuse con la nueva lista
+  if (clientes.value.length > 0) {
+    fuseClientes = new Fuse(clientes.value, {
+      keys: [
+        { name: 'ruc', weight: 3 },
+        { name: 'nombre', weight: 2 },
+        { name: 'email', weight: 1 },
+        { name: 'telefono', weight: 1 }
+      ],
+      threshold: 0.35,
+      ignoreLocation: true
+    })
+  } else {
+    fuseClientes = null
+  }
+
+  // Si la contraparte seleccionada ya no está, limpiarla
+  if (venta.value.clienteId) {
+    const existe = clientes.value.some(
+      (c) => String(c._id) === String(venta.value.clienteId)
+    )
+    if (!existe) {
+      venta.value.clienteId = ''
+      busquedaCliente.value = ''
+    }
+  }
+}
+
 const filtrarClientes = () => {
   mostrarListaClientes.value = true
 }
@@ -2234,7 +2377,7 @@ const eliminarDetalle = (index) => {
   errores.value.detalles.splice(index, 1)
 }
 
-// ===== NOTA DE CRÉDITO: búsqueda de factura origen =====
+// ===== NOTA DE CRÉDITO =====
 const onBuscarFacturasNC = () => {
   if (timerBusquedaNC) clearTimeout(timerBusquedaNC)
   timerBusquedaNC = setTimeout(() => buscarFacturasNC(), SEARCH_NC_DEBOUNCE)
@@ -2308,7 +2451,7 @@ const limpiarFacturaNC = () => {
 }
 
 // ============================================================
-// 🆕 RETENCIÓN — Autocompletado desde compra
+// RETENCIÓN — Autocompletado desde compra
 // ============================================================
 
 const cerrarListaCompras = () => {
@@ -2318,10 +2461,6 @@ const cerrarListaCompras = () => {
   }, 200)
 }
 
-/**
- * Carga las compras del proveedor seleccionado.
- * Solo se ejecuta cuando el tipo de documento es `retencion`.
- */
 const cargarComprasDelProveedor = async (proveedorId) => {
   if (!proveedorId) {
     comprasProveedor.value = []
@@ -2363,10 +2502,6 @@ const cargarComprasDelProveedor = async (proveedorId) => {
   }
 }
 
-/**
- * Aplica los datos de la compra al documento de sustento
- * y los propaga a cada impuesto ya agregado.
- */
 const seleccionarCompraParaRetencion = (compra) => {
   if (!compra) return
 
@@ -2374,12 +2509,10 @@ const seleccionarCompraParaRetencion = (compra) => {
   mostrarListaCompras.value = false
   busquedaCompraRetencion.value = ''
 
-  // Fecha en ISO corto (YYYY-MM-DD)
   const fechaISO = compra.fecha_emision
     ? new Date(compra.fecha_emision).toISOString().split('T')[0]
     : ''
 
-  // 1. Documento de sustento
   venta.value.comprobante_tipo_emision = 'Electrónica'
   venta.value.comprobante_documento = String(compra.tipo_comprobante || '01')
   venta.value.comprobante_numero = compra.numero_factura || ''
@@ -2387,10 +2520,8 @@ const seleccionarCompraParaRetencion = (compra) => {
   venta.value.comprobante_numero_autorizacion = compra.numero_autorizacion || ''
   venta.value.comprobante_fecha_emision = fechaISO
 
-  // 2. Propagar a TODOS los impuestos existentes
   propagarSustentoAImpuestos()
 
-  // 3. Si hay impuestos sin base, asignar el subtotal de la compra
   const subtotalCompra = Number(compra.subtotal) || 0
   for (const imp of venta.value.impuestos_retencion) {
     if (!Number(imp.baseImponible) && subtotalCompra > 0) {
@@ -2402,11 +2533,6 @@ const seleccionarCompraParaRetencion = (compra) => {
   toast.success(`Compra ${compra.numero_factura || ''} cargada`)
 }
 
-/**
- * Propaga los datos actuales del documento de sustento a cada
- * impuesto que aún no tiene esos campos completos.
- * No sobrescribe lo que el usuario ya escribió.
- */
 const propagarSustentoAImpuestos = () => {
   const sustento = {
     codigoDocumento: String(venta.value.comprobante_documento || '01'),
@@ -2423,17 +2549,9 @@ const propagarSustentoAImpuestos = () => {
   }
 }
 
-/**
- * Limpia la compra seleccionada y su autocompletado.
- * NO limpia los campos que el usuario ya haya modificado manualmente
- * (solo limpia si estaban autocompletados por nosotros — heurística simple:
- *  los limpiamos todos para evitar estados raros).
- */
 const limpiarCompraRetencion = () => {
   compraSeleccionadaRetencion.value = null
   busquedaCompraRetencion.value = ''
-  // No limpiamos el documento de sustento por si el usuario lo editó a mano
-  // tras seleccionar la compra.
 }
 
 // ============================================================
@@ -2447,7 +2565,6 @@ const buscarRetencionLocal = (codigo, impuesto) => {
 }
 
 const agregarImpuestoRetencion = () => {
-  // Pre-cargar datos del sustento + base sugerida
   const sustento = {
     codigoDocumento: String(venta.value.comprobante_documento || '01'),
     numeroDocumento: String(venta.value.comprobante_numero || ''),
@@ -2558,7 +2675,6 @@ const cambiarTipo = () => {
     impuestos_retencion: []
   })
 
-  // Limpiar compra seleccionada al cambiar tipo
   compraSeleccionadaRetencion.value = null
   comprasProveedor.value = []
   busquedaCompraRetencion.value = ''
@@ -2580,7 +2696,14 @@ const cambiarTipo = () => {
     seccionesExpandidas.value.guia = false
   }
 
-  // Cargar compras si es retención y ya hay proveedor
+  // 🔧 Si es retención, limpiamos productos (no aplican)
+  if (esRetencion.value) {
+    venta.value.detalles = []
+  }
+
+  // 🔧 Recargar contrapartes según el nuevo tipo
+  cargarContrapartesSegunTipo()
+
   if (esRetencion.value && venta.value.clienteId) {
     cargarComprasDelProveedor(venta.value.clienteId)
   }
@@ -2666,23 +2789,19 @@ const cargarClientesYProductos = async () => {
       api.request('/proveedores', { method: 'GET', skipLoader: true }).catch(() => [])
     ])
 
-    clientes.value = Array.isArray(clis) ? clis : clis?.data || []
-    productos.value = Array.isArray(prods) ? prods : prods?.data || []
-    proveedores.value = Array.isArray(provs) ? provs : provs?.data || []
+    const clientesData = Array.isArray(clis) ? clis : clis?.data || []
+    const proveedoresData = Array.isArray(provs) ? provs : provs?.data || []
 
-    // Para retenciones, la contraparte es el PROVEEDOR
-    // Unificamos la lista: clientes + proveedores, sin duplicar por _id
+    // Guardamos la lista original de clientes aparte
+    clientesOriginales.value = clientesData
+    proveedores.value = proveedoresData
+    productos.value = Array.isArray(prods) ? prods : prods?.data || []
+
+    // Según el tipo actual, elegimos qué lista mostrar
     if (esRetencion.value) {
-      const map = new Map()
-      for (const c of proveedores.value) map.set(String(c._id), c)
-      // Si algún proveedor no está en clientes, lo agregamos
-      for (const c of clientes.value) {
-        const key = String(c._id)
-        if (!map.has(key)) map.set(key, c)
-      }
-      // Reemplazamos clientes por la lista unificada (proveedores primero)
-      const unificados = Array.from(map.values())
-      clientes.value = unificados
+      clientes.value = [...proveedoresData]
+    } else {
+      clientes.value = [...clientesData]
     }
 
     if (clientes.value.length > 0) {
@@ -2737,6 +2856,9 @@ const cargarVenta = async (ventaId) => {
     if (data.tipo_documento === 'guia_remision') {
       seccionesExpandidas.value.guia = true
     }
+
+    // Recargar lista de contrapartes según el tipo que vinimos editando
+    cargarContrapartesSegunTipo()
 
     if (data.tipo_documento === 'nota_credito' && data.factura_original_id) {
       try {
@@ -2802,8 +2924,15 @@ const guardar = async () => {
   cargando.value = true
 
   try {
+    const esRet = esRetencion.value
+
     const payload = {
-      clienteId: venta.value.clienteId || undefined,
+      // 🔧 FIX: para retención el backend espera `proveedorId`,
+      //    no `clienteId`.
+      ...(esRet
+        ? { proveedorId: venta.value.clienteId || undefined }
+        : { clienteId: venta.value.clienteId || undefined }),
+
       numero_factura: esNotaCredito.value
         ? undefined
         : venta.value.numero_factura || undefined,
@@ -2816,16 +2945,23 @@ const guardar = async () => {
       motivo: esNotaCredito.value
         ? String(venta.value.motivo || '').trim()
         : undefined,
-      detalles: venta.value.detalles.map((d) => ({
-        productoId: d.productoId,
-        cantidad: roundTo2(d.cantidad),
-        precio_unitario: roundTo2(d.precio_unitario),
-        aplica_iva: Boolean(d.aplica_iva)
-      })),
-      subtotal: roundTo2(subtotal.value),
-      iva: roundTo2(iva.value),
-      total: roundTo2(total.value),
-      impuestos_retencion: esRetencion.value
+
+      // 🔧 FIX: retención no lleva productos (SRI). Enviamos array vacío.
+      detalles: esRet
+        ? []
+        : venta.value.detalles.map((d) => ({
+            productoId: d.productoId,
+            cantidad: roundTo2(d.cantidad),
+            precio_unitario: roundTo2(d.precio_unitario),
+            aplica_iva: Boolean(d.aplica_iva)
+          })),
+
+      // 🔧 Para retención, todos estos son 0.
+      subtotal: esRet ? 0 : roundTo2(subtotal.value),
+      iva: esRet ? 0 : roundTo2(iva.value),
+      total: esRet ? 0 : roundTo2(total.value),
+
+      impuestos_retencion: esRet
         ? venta.value.impuestos_retencion
             .filter((imp) => imp.codigoRetencion)
             .map((imp) => ({
@@ -2841,6 +2977,7 @@ const guardar = async () => {
               fechaEmisionDocSustento: imp.fechaEmisionDocSustento || ''
             }))
         : undefined,
+
       ...(() => {
         const extras = {}
         const campos = [
@@ -2945,6 +3082,9 @@ const guardar = async () => {
       msgMostrar = msg || 'Esta factura ya está totalmente acreditada.'
     } else if (codigo === 'RETENCION_INVALIDA') {
       msgMostrar = msg || 'Retención inválida: revisa los impuestos.'
+    } else if (codigo === 'PROVEEDOR_NO_EXISTE' || /cliente no existe/i.test(msg)) {
+      msgMostrar =
+        'El proveedor seleccionado no existe o fue eliminado. Vuelve a seleccionarlo.'
     }
 
     errorGeneral.value = 'Error al guardar: ' + msgMostrar
@@ -3083,12 +3223,11 @@ watch(
   }
 )
 
-// 🆕 Cuando cambia el proveedor y es retención, cargar sus compras
+// Cuando cambia el proveedor y es retención, cargar sus compras
 watch(
   () => [venta.value.clienteId, venta.value.tipo_documento],
   ([newId, tipo]) => {
     if (tipo !== 'retencion') return
-    // Limpiar compra anterior
     compraSeleccionadaRetencion.value = null
     if (!newId) {
       comprasProveedor.value = []
@@ -3098,7 +3237,7 @@ watch(
   }
 )
 
-// 🆕 Cuando cambia el comprobante (tipo, número, fecha), propagar
+// Cuando cambia el comprobante, propagar a impuestos
 watch(
   () => [
     venta.value.comprobante_documento,
@@ -3174,7 +3313,6 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .subsection-title { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border-light); }
 .subsection-title i { color: var(--primary-color); }
 
-/* 🆕 Badge de "Autocompletado" / "Opcional" */
 .badge-hint {
   display: inline-flex;
   align-items: center;
@@ -3200,7 +3338,132 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 }
 .badge-hint i { font-size: 0.7rem; }
 
-/* 🆕 Autofill empty states */
+/* 🆕 Panel de productos de la compra (solo lectura) */
+.productos-compra-panel {
+  margin-top: 16px;
+  background: linear-gradient(135deg, rgba(52, 152, 219, 0.04), rgba(52, 152, 219, 0.01));
+  border: 1px solid rgba(52, 152, 219, 0.22);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.productos-compra-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(52, 152, 219, 0.08);
+  border-bottom: 1px solid rgba(52, 152, 219, 0.15);
+  flex-wrap: wrap;
+}
+.productos-compra-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #2980b9;
+}
+.productos-compra-titulo i { font-size: 0.9rem; }
+.productos-compra-badge {
+  background: #3498db;
+  color: #fff;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 800;
+  min-width: 22px;
+  text-align: center;
+}
+.productos-compra-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.productos-compra-lista {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.productos-compra-item {
+  display: grid;
+  grid-template-columns: 36px 1fr auto auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+  font-size: 0.82rem;
+}
+.productos-compra-item:hover { background: var(--bg-card); }
+.prod-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(52, 152, 219, 0.12);
+  color: #3498db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+.prod-info { min-width: 0; }
+.prod-nombre {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prod-codigo {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+.prod-cant {
+  font-weight: 800;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  background: var(--bg-table-stripe);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+}
+.prod-precio {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  min-width: 70px;
+  text-align: right;
+}
+.prod-subtotal {
+  font-weight: 800;
+  color: var(--primary-color);
+  font-variant-numeric: tabular-nums;
+  min-width: 80px;
+  text-align: right;
+}
+.productos-compra-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(52, 152, 219, 0.06);
+  border-top: 1px solid rgba(52, 152, 219, 0.15);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.productos-compra-footer strong {
+  font-size: 1rem;
+  color: #2980b9;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
 .autofill-empty {
   display: flex;
   align-items: flex-start;
@@ -3268,7 +3531,6 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
   color: var(--text-muted);
 }
 
-/* FORM */
 .form-row { display: grid; gap: 16px; margin-bottom: 16px; }
 .form-row:last-child { margin-bottom: 0; }
 .form-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
@@ -3431,5 +3693,14 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
   .total-value { font-size: 1.4rem; }
   .item-card { padding: 12px; }
   .item-main { min-width: 0; }
+  .productos-compra-item {
+    grid-template-columns: 32px 1fr auto;
+    gap: 8px;
+  }
+  .prod-precio, .prod-subtotal {
+    grid-column: span 2;
+    text-align: left;
+    font-size: 0.72rem;
+  }
 }
 </style>
