@@ -31,18 +31,20 @@
 //
 // 🔧 FIXES Y MEJORAS 2025-XX:
 //   1. Notas de crédito requieren factura original referenciada.
-//      Nuevo endpoint `GET /buscar-acreditable`.
-//   2. Retenciones requieren documento sustento. Nuevo endpoint
-//      `GET /buscar-retenible`.
-//   3. Al crear NC se valida:
-//        - factura existe y es tipo `factura`
-//        - factura.estado_sri === 'AUTORIZADO'
-//        - suma de NCs previas + nueva NC <= total factura
+//   2. Retenciones requieren documento sustento.
+//   3. Al crear NC se valida: factura AUTORIZADA y saldo disponible.
 //   4. `numero_factura` de la NC siempre es el código del contador.
-//   5. `numero_factura_modificada` se guarda con formato SRI
-//      (`EEE-PPP-SSSSSSSSS`).
+//   5. `numero_factura_modificada` en formato SRI.
 //   6. `asegurarClaveYXml` usa guard atómico.
 //   7. DELETE de factura bloqueado si tiene NCs asociadas.
+//   8. 🔴 FIX CRÍTICO: `TIPOS_SIN_MOVIMIENTO_STOCK.has()` fallaba
+//      porque el export original es un ARRAY, no un Set. Ahora se
+//      importa `SETS.TIPOS_SIN_MOVIMIENTO_STOCK` (Set real, O(1)).
+//   9. 🆕 RETENCIONES: `validarYNormalizarImpuestosRetencion()`
+//      valida contra el catálogo SRI (`data/catalogosSRI.js`),
+//      auto-calcula `valorRetenido = base × %`, corrige
+//      discrepancias y devuelve advertencias al cliente.
+//  10. 🆕 Se persiste `total_retenido` en el documento de retención.
 // ============================================================
 'use strict';
 
@@ -76,12 +78,13 @@ const { conTransaccion } = require('../utils/transacciones');
 const { validar } = require('../utils/validacion');
 const { fechaSRI } = require('../utils/fechaEC');
 const {
-  TIPOS_SIN_MOVIMIENTO_STOCK,
-  DOCS_CON_CLAVE,
+  SETS,
   TIPO_COMPROBANTE_SRI,
   PREFIJOS_CONTADOR,
   TIPOS_DOCUMENTO_VALIDOS
 } = require('../utils/tiposDocumento');
+// 🆕 Catálogo SRI para retenciones
+const { buscarRetencion } = require('../data/catalogosSRI');
 const log = require('../utils/logger');
 
 // ============================================================
@@ -122,6 +125,12 @@ const CONFIG = Object.freeze({
     xml_autorizado: 0,
     respuesta_sri: 0
   })
+});
+
+// Mapa: impuesto declarado → código SRI ('1' RENTA | '2' IVA)
+const CODIGO_IMPUESTO_RETENCION = Object.freeze({
+  RENTA: '1',
+  IVA: '2'
 });
 
 // ============================================================
@@ -181,10 +190,22 @@ function extraerValor(result) {
 // ============================================================
 // HELPERS DE NEGOCIO
 // ============================================================
+const TIPOS_SIN_MOVIMIENTO_STOCK_SET = SETS.TIPOS_SIN_MOVIMIENTO_STOCK;
+
+/**
+ * ¿El tipo de documento afecta stock (kardex)?
+ * 🔧 FIX: usa el Set canónico (O(1)), no el Array.
+ */
 function afectaStock(tipoDoc) {
-  return !TIPOS_SIN_MOVIMIENTO_STOCK.has(tipoDoc);
+  if (!tipoDoc || typeof tipoDoc !== 'string') return false;
+  return !TIPOS_SIN_MOVIMIENTO_STOCK_SET.has(tipoDoc);
 }
 
+/**
+ * Signo del movimiento de stock para un tipo dado.
+ *   - Nota de crédito → +1 (devuelve stock)
+ *   - Resto → -1 (consume)
+ */
 function signoStock(tipoDoc) {
   return tipoDoc === 'nota_credito' ? +1 : -1;
 }
@@ -215,9 +236,7 @@ function formatearSecuencial(n) {
 }
 
 /**
- * Formatea el número de un comprobante al formato SRI:
- *   EEE-PPP-SSSSSSSSS  →  "001-001-000000138"
- * Requerido por `<numDocModificado>` en Notas de Crédito.
+ * Formatea el número de comprobante al formato SRI: EEE-PPP-SSSSSSSSS.
  */
 function formatearNumeroSRI(comprobante) {
   if (!comprobante) return '';
@@ -440,9 +459,6 @@ async function verificarNumeroUnico(db, { tipoDoc, numeroFactura, rucEmisor, exc
   return { ok: true };
 }
 
-/**
- * Valida la factura original que una NC quiere acreditar.
- */
 async function resolverFacturaOriginalNC(db, {
   facturaOriginalId,
   comprobanteClaveAcceso,
@@ -511,9 +527,6 @@ async function resolverFacturaOriginalNC(db, {
   return { factura, motivo: String(motivo).trim() };
 }
 
-/**
- * Calcula el saldo acreditable de una factura (total - NCs activas).
- */
 async function calcularSaldoAcreditable(db, facturaId) {
   const [r] = await db.collection(CONFIG.colVentas).aggregate([
     {
@@ -528,41 +541,149 @@ async function calcularSaldoAcreditable(db, facturaId) {
   return round2(toNumber(r?.total));
 }
 
-/**
- * Valida que los impuestos de retención sean coherentes.
- * Acepta tanto `impuestos_retencion` array como `tipo_retencion` legacy.
- */
-function validarImpuestosRetencion(body) {
+// ============================================================
+// 🆕 VALIDACIÓN Y NORMALIZACIÓN DE IMPUESTOS DE RETENCIÓN
+// ------------------------------------------------------------
+// - Valida estructura de cada impuesto.
+// - Busca el `codigoRetencion` en el catálogo SRI (con el
+//   discriminador `impuesto` para evitar ambigüedades del tipo
+//   '725' que existe tanto en RENTA como en IVA).
+// - Auto-calcula `valorRetenido = base × %`.
+// - Corrige discrepancias (por ej. si el usuario envía un %
+//   distinto al del catálogo, gana el del catálogo).
+// - Devuelve advertencias legibles + total retenido.
+//
+// @returns {{
+//   ok: boolean,
+//   error?: string,
+//   impuestos?: object[],
+//   advertencias?: string[],
+//   totalRetenido?: number
+// }}
+// ============================================================
+function validarYNormalizarImpuestosRetencion(body) {
   const arr = body?.impuestos_retencion;
-  if (Array.isArray(arr) && arr.length > 0) {
-    for (let i = 0; i < arr.length; i++) {
-      const imp = arr[i];
-      if (!imp || typeof imp !== 'object') {
-        return `Impuesto #${i + 1}: debe ser un objeto`;
-      }
-      if (!imp.codigoRetencion) {
-        return `Impuesto #${i + 1}: falta codigoRetencion`;
-      }
-      const base = Number(imp.baseImponible);
-      if (!Number.isFinite(base) || base < 0) {
-        return `Impuesto #${i + 1}: baseImponible debe ser >= 0`;
-      }
-      const pct = Number(imp.porcentajeRetener);
-      if (imp.porcentajeRetener !== undefined && (!Number.isFinite(pct) || pct < 0 || pct > 100)) {
-        return `Impuesto #${i + 1}: porcentajeRetener debe estar entre 0 y 100`;
-      }
-      const val = Number(imp.valorRetenido);
-      if (!Number.isFinite(val) || val < 0) {
-        return `Impuesto #${i + 1}: valorRetenido debe ser >= 0`;
-      }
-    }
-    return null;
+
+  if (!Array.isArray(arr) || arr.length === 0) {
+    return {
+      ok: false,
+      error: 'Los comprobantes de retención requieren al menos un impuesto (impuestos_retencion[])'
+    };
   }
 
-  // Legacy: tipo_retencion suelto
-  if (body?.tipo_retencion) return null;
+  const normalizados = [];
+  const advertencias = [];
+  let totalRetenido = 0;
 
-  return 'Los comprobantes de retención requieren al menos un impuesto (impuestos_retencion[] o tipo_retencion)';
+  for (let i = 0; i < arr.length; i++) {
+    const imp = arr[i];
+    const idx = i + 1;
+
+    if (!imp || typeof imp !== 'object') {
+      return { ok: false, error: `Impuesto #${idx}: debe ser un objeto` };
+    }
+
+    const codigoRetencionRaw = imp.codigoRetencion ?? imp.tipo_retencion;
+    if (!codigoRetencionRaw || !String(codigoRetencionRaw).trim()) {
+      return { ok: false, error: `Impuesto #${idx}: falta codigoRetencion` };
+    }
+    const codigoRetencion = String(codigoRetencionRaw).trim();
+
+    const base = Number(imp.baseImponible);
+    if (!Number.isFinite(base) || base < 0) {
+      return { ok: false, error: `Impuesto #${idx}: baseImponible debe ser >= 0` };
+    }
+
+    // Determinar impuesto declarado (RENTA | IVA)
+    let impuestoDeclarado = String(imp.impuesto || imp.impuesto_retencion || '')
+      .trim()
+      .toUpperCase();
+
+    if (!impuestoDeclarado) {
+      // Inferir desde `codigo` ('1' = RENTA, '2' = IVA) o desde el catálogo
+      const codigoNum = String(imp.codigo || '').trim();
+      if (codigoNum === '1') impuestoDeclarado = 'RENTA';
+      else if (codigoNum === '2') impuestoDeclarado = 'IVA';
+    }
+
+    if (!impuestoDeclarado) {
+      // Último fallback: buscar por código en el catálogo sin filtrar
+      const catAny = buscarRetencion(codigoRetencion);
+      if (catAny) impuestoDeclarado = catAny.impuesto;
+    }
+
+    if (!['RENTA', 'IVA'].includes(impuestoDeclarado)) {
+      return {
+        ok: false,
+        error: `Impuesto #${idx}: no se pudo determinar si es RENTA o IVA`
+      };
+    }
+
+    // ---- Buscar en el catálogo SRI ----
+    const cat = buscarRetencion(codigoRetencion, impuestoDeclarado);
+
+    // ---- Porcentaje: prioridad al catálogo; si no está, al enviado ----
+    let pct = cat ? Number(cat.porcentaje) : Number(imp.porcentajeRetener);
+
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      pct = cat ? Number(cat.porcentaje) : 0;
+    }
+
+    // Advertir si el % enviado difiere del catálogo
+    if (cat && imp.porcentajeRetener !== undefined && imp.porcentajeRetener !== null) {
+      const pctEnviado = Number(imp.porcentajeRetener);
+      if (Number.isFinite(pctEnviado) && Math.abs(pctEnviado - cat.porcentaje) > 0.01) {
+        advertencias.push(
+          `Impuesto #${idx}: el % enviado (${pctEnviado}%) difiere del catálogo SRI (${cat.porcentaje}%). Se usará el del catálogo.`
+        );
+        pct = cat.porcentaje;
+      }
+    }
+
+    // ---- Calcular / validar valorRetenido ----
+    const valorCalculado = round2(base * pct / 100);
+    let valor = Number(imp.valorRetenido);
+
+    if (!Number.isFinite(valor) || valor < 0) {
+      valor = valorCalculado;
+    } else if (Math.abs(valor - valorCalculado) > 0.01) {
+      advertencias.push(
+        `Impuesto #${idx}: valorRetenido ($${valor.toFixed(2)}) no coincide con base × % ($${valorCalculado.toFixed(2)}). Se usó el calculado.`
+      );
+      valor = valorCalculado;
+    }
+
+    if (!cat) {
+      advertencias.push(
+        `Impuesto #${idx}: código "${codigoRetencion}" no está en el catálogo SRI. Se emitirá tal cual.`
+      );
+    }
+
+    // ---- Normalizado final ----
+    const normalizado = {
+      // Tax type: '1' RENTA | '2' IVA (requerido por el XML SRI)
+      codigo: CODIGO_IMPUESTO_RETENCION[impuestoDeclarado],
+      codigoRetencion,
+      impuesto: impuestoDeclarado,
+      concepto: cat ? cat.nombre : String(imp.concepto || ''),
+      baseImponible: round2(base),
+      porcentajeRetener: round2(pct),
+      valorRetenido: round2(valor),
+      codigoDocumento: String(imp.codigoDocumento || imp.codDocSustento || '').trim(),
+      numeroDocumento: String(imp.numeroDocumento || imp.numDocSustento || '').trim(),
+      fechaEmisionDocSustento: imp.fechaEmisionDocSustento || ''
+    };
+
+    normalizados.push(normalizado);
+    totalRetenido += normalizado.valorRetenido;
+  }
+
+  return {
+    ok: true,
+    impuestos: normalizados,
+    advertencias,
+    totalRetenido: round2(totalRetenido)
+  };
 }
 
 // ============================================================
@@ -762,10 +883,6 @@ router.get('/buscar-clave/:clave', requierePermiso('ventas', 'ver'), async (req,
 
 // ============================================================
 // GET /buscar-acreditable  → facturas autorizadas con saldo > 0
-// ------------------------------------------------------------
-// Se usa al crear una Nota de Crédito para elegir la factura
-// que se va a acreditar.
-// Query: ?q=<texto>&clienteId=<id>
 // ============================================================
 router.get('/buscar-acreditable', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -861,10 +978,6 @@ router.get('/buscar-acreditable', requierePermiso('ventas', 'ver'), async (req, 
 
 // ============================================================
 // GET /buscar-retenible  → facturas autorizadas para retención
-// ------------------------------------------------------------
-// Se usa al crear un Comprobante de Retención para elegir el
-// documento de sustento (factura de venta).
-// Query: ?q=<texto>&clienteId=<id>
 // ============================================================
 router.get('/buscar-retenible', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -964,7 +1077,7 @@ router.post(
       const col = req.db.collection(CONFIG.colVentas);
 
       const facturasSinClave = await col.find({
-        tipo_documento: { $in: [...DOCS_CON_CLAVE] },
+        tipo_documento: { $in: [...SETS.DOCS_CON_CLAVE] },
         estado_sri: { $ne: 'AUTORIZADO' },
         $or: [
           { clave_acceso: '' },
@@ -1342,7 +1455,7 @@ router.post('/:id/generar-clave', requierePermiso('ventas', 'editar'), async (re
     }
 
     const tipoDoc = venta.tipo_documento || 'factura';
-    if (!DOCS_CON_CLAVE.includes(tipoDoc)) {
+    if (!SETS.DOCS_CON_CLAVE.has(tipoDoc)) {
       return res.status(400).json({
         error: `El tipo "${tipoDoc}" no requiere clave de acceso`,
         codigo: 'NO_REQUIERE'
@@ -1483,7 +1596,7 @@ router.post(
 
       const tipoDoc = tipo_documento || 'factura';
 
-      if (!TIPOS_DOCUMENTO_VALIDOS.includes(tipoDoc)) {
+      if (!SETS.TIPOS_DOCUMENTO_VALIDOS.has(tipoDoc)) {
         return res.status(400).json({
           error: `Tipo de documento "${tipoDoc}" no es válido`,
           codigo: 'TIPO_DOCUMENTO_INVALIDO',
@@ -1539,15 +1652,20 @@ router.post(
         }
       }
 
-      // ===== RETENCIÓN: validar impuestos =====
+      // ===== RETENCIÓN: validar y normalizar impuestos =====
+      let impuestosRetencionFinal = impuestos_retencion;
+      let retencionInfo = null;
+
       if (tipoDoc === 'retencion') {
-        const errorImp = validarImpuestosRetencion(req.body);
-        if (errorImp) {
+        const valRet = validarYNormalizarImpuestosRetencion(req.body);
+        if (!valRet.ok) {
           return res.status(400).json({
-            error: errorImp,
-            codigo: 'RETENCION_SIN_IMPUESTOS'
+            error: valRet.error,
+            codigo: 'RETENCION_INVALIDA'
           });
         }
+        impuestosRetencionFinal = valRet.impuestos;
+        retencionInfo = valRet;
       }
 
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
@@ -1607,7 +1725,7 @@ router.post(
         }
       }
 
-      const generaClave = DOCS_CON_CLAVE.includes(tipoDoc) && configRucValido(config);
+      const generaClave = SETS.DOCS_CON_CLAVE.has(tipoDoc) && configRucValido(config);
       const prefijo = PREFIJOS_CONTADOR[tipoDoc] || 'DOC';
       const pems = await cargarCertificadoSeguro(req.db);
       const clienteIdObj = clienteId && ObjectId.isValid(clienteId)
@@ -1656,7 +1774,6 @@ router.post(
         let estadoSri = generaClave ? 'PENDIENTE' : 'NO_APLICA';
         let fechaFirma = null;
 
-        // Número final
         const numeroFacturaFinal = tipoDoc === 'nota_credito'
           ? codigo
           : (numero_factura || codigo);
@@ -1679,7 +1796,7 @@ router.post(
             razon_social_emisor: config.razon_social || '',
             establecimiento: establecimiento || config.establecimiento || '001',
             punto_emision: punto_emision || config.punto_emision || '001',
-            tipo_retencion, tipo_impuesto, impuestos_retencion,
+            tipo_retencion, tipo_impuesto, impuestos_retencion: impuestosRetencionFinal,
             numero_retencion, porcentaje_retencion,
             comprobante_documento, comprobante_numero, comprobante_fecha_emision,
             numero_factura_modificada: numeroFacturaModificadaFinal,
@@ -1726,12 +1843,13 @@ router.post(
           numero_factura_modificada: numeroFacturaModificadaFinal,
           motivo: motivoNC || motivo || '',
 
-          // Retención
+          // 🆕 Retención (normalizada + total)
           numero_retencion: numero_retencion || '',
           porcentaje_retencion: porcentaje_retencion || 0,
           tipo_retencion: tipo_retencion || '',
           tipo_impuesto: tipo_impuesto || '1',
-          impuestos_retencion: Array.isArray(impuestos_retencion) ? impuestos_retencion : undefined,
+          impuestos_retencion: Array.isArray(impuestosRetencionFinal) ? impuestosRetencionFinal : undefined,
+          total_retenido: retencionInfo?.totalRetenido || 0,
 
           numero_guia: numero_guia || '',
           transportista: transportista || '',
@@ -1809,7 +1927,7 @@ router.post(
         advertencia =
           'El comprobante se guardó sin firma electrónica. Cargue un certificado válido y ' +
           'fírmelo manualmente (POST /api/ventas/{id}/firmar).';
-      } else if (!generaClave && DOCS_CON_CLAVE.includes(tipoDoc)) {
+      } else if (!generaClave && SETS.DOCS_CON_CLAVE.has(tipoDoc)) {
         advertencia =
           'La empresa no tiene un RUC de 13 dígitos configurado. El comprobante se guardó ' +
           'sin clave de acceso.';
@@ -1832,7 +1950,12 @@ router.post(
       return res.status(201).json({
         ...ventaCreada,
         clave_acceso_partes: resultado.partesClave,
-        _advertencia: advertencia
+        _advertencia: advertencia,
+        // 🆕 Advertencias de retención (si las hay)
+        _advertencias_retencion: retencionInfo?.advertencias?.length
+          ? retencionInfo.advertencias
+          : undefined,
+        total_retenido: retencionInfo?.totalRetenido
       });
     } catch (err) {
       log.error({ err: err.message }, 'Error creando venta');
@@ -1953,14 +2076,20 @@ router.put(
         }
       }
 
+      // 🆕 RETENCIÓN: normalizar
+      let impuestosRetencionFinal = impuestos_retencion;
+      let retencionInfo = null;
+
       if (tipoDoc === 'retencion') {
-        const errorImp = validarImpuestosRetencion(req.body);
-        if (errorImp) {
+        const valRet = validarYNormalizarImpuestosRetencion(req.body);
+        if (!valRet.ok) {
           return res.status(400).json({
-            error: errorImp,
-            codigo: 'RETENCION_SIN_IMPUESTOS'
+            error: valRet.error,
+            codigo: 'RETENCION_INVALIDA'
           });
         }
+        impuestosRetencionFinal = valRet.impuestos;
+        retencionInfo = valRet;
       }
 
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
@@ -1995,7 +2124,7 @@ router.put(
       const fechaCambio = new Date(fecha_emision).getTime() !== new Date(ventaActual.fecha_emision).getTime();
       const tipoCambio = tipoDoc !== ventaActual.tipo_documento;
 
-      if ((fechaCambio || tipoCambio || !ventaActual.clave_acceso) && DOCS_CON_CLAVE.includes(tipoDoc)) {
+      if ((fechaCambio || tipoCambio || !ventaActual.clave_acceso) && SETS.DOCS_CON_CLAVE.has(tipoDoc)) {
         if (configRucValido(config)) {
           try {
             const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
@@ -2051,14 +2180,15 @@ router.put(
         numero_factura_modificada: numeroFacturaModificadaFinal,
         motivo: motivoNC || motivo || '',
 
-        // Retención
+        // 🆕 Retención normalizada
         numero_retencion: numero_retencion || '',
         porcentaje_retencion: porcentaje_retencion || 0,
         tipo_retencion: tipo_retencion || ventaActual.tipo_retencion || '',
         tipo_impuesto: tipo_impuesto || ventaActual.tipo_impuesto || '1',
-        impuestos_retencion: Array.isArray(impuestos_retencion)
-          ? impuestos_retencion
+        impuestos_retencion: Array.isArray(impuestosRetencionFinal)
+          ? impuestosRetencionFinal
           : ventaActual.impuestos_retencion,
+        total_retenido: retencionInfo?.totalRetenido || ventaActual.total_retenido || 0,
 
         numero_guia, transportista, placa,
         numero_exportacion, pais_destino,
@@ -2156,7 +2286,14 @@ router.put(
       if (req.io) req.io.emit('venta-actualizada', ventaActualizada);
 
       headersNoStore(res);
-      return res.json(ventaActualizada);
+      return res.json({
+        ...ventaActualizada,
+        // 🆕 Advertencias de retención
+        _advertencias_retencion: retencionInfo?.advertencias?.length
+          ? retencionInfo.advertencias
+          : undefined,
+        total_retenido: retencionInfo?.totalRetenido
+      });
     } catch (err) {
       log.error({ err: err.message }, 'Error actualizando venta');
       return next(err);
@@ -2214,7 +2351,6 @@ router.delete(
         });
       }
 
-      // Bloquear borrado de factura con NCs asociadas
       if (venta.tipo_documento === 'factura') {
         const ncsAsociadas = await req.db.collection(CONFIG.colVentas).countDocuments({
           tipo_documento: 'nota_credito',
@@ -2279,7 +2415,7 @@ async function asegurarClaveYXml(db, venta, opts = {}) {
 
   const tipoDoc = venta.tipo_documento || 'factura';
 
-  if (!DOCS_CON_CLAVE.includes(tipoDoc)) {
+  if (!SETS.DOCS_CON_CLAVE.has(tipoDoc)) {
     return {
       claveAcceso: null,
       xml: null,
@@ -2460,4 +2596,5 @@ module.exports._asegurarClaveYXml = asegurarClaveYXml;
 module.exports._configRucValido = configRucValido;
 module.exports._resolverFacturaOriginalNC = resolverFacturaOriginalNC;
 module.exports._calcularSaldoAcreditable = calcularSaldoAcreditable;
-module.exports._validarImpuestosRetencion = validarImpuestosRetencion;
+module.exports._validarYNormalizarImpuestosRetencion = validarYNormalizarImpuestosRetencion;
+module.exports._CODIGO_IMPUESTO_RETENCION = CODIGO_IMPUESTO_RETENCION;

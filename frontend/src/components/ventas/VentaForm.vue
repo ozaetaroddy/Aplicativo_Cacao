@@ -426,7 +426,7 @@
             </div>
           </section>
 
-          <!-- SECCIÓN: Retención (solo si tipo_documento === 'retencion') -->
+          <!-- ============ 🆕 SECCIÓN: Retención (solo si tipo_documento === 'retencion') ============ -->
           <section v-if="esRetencion" class="form-section">
             <header class="section-header">
               <div class="section-number">
@@ -506,20 +506,22 @@
                 </div>
               </div>
 
-              <!-- Impuestos de retención -->
+              <!-- 🆕 Impuestos de retención con catálogo SRI -->
               <div class="subsection" style="margin-top: 24px;">
                 <h3 class="subsection-title">
                   <i class="fas fa-calculator" aria-hidden="true"></i> Impuestos Retenidos
                 </h3>
+
                 <div v-if="venta.impuestos_retencion.length === 0" class="empty-items" style="padding: 24px;">
                   <div class="empty-icon" style="width: 48px; height: 48px; font-size: 1.2rem;">
                     <i class="fas fa-percent" aria-hidden="true"></i>
                   </div>
                   <div class="empty-title" style="font-size: 0.85rem;">No hay impuestos retenidos</div>
                   <div class="empty-text" style="font-size: 0.78rem;">
-                    Agrega al menos un impuesto para continuar
+                    Agrega al menos un impuesto del catálogo SRI para continuar
                   </div>
                 </div>
+
                 <div v-else class="items-list">
                   <div
                     v-for="(imp, idx) in venta.impuestos_retencion"
@@ -528,19 +530,48 @@
                     style="flex-wrap: wrap; align-items: flex-start;"
                   >
                     <div class="form-row cols-4" style="width: 100%; margin-bottom: 0;">
-                      <div class="form-field">
-                        <label :for="`ret-codigo-${idx}`" class="form-label">Código Retención</label>
-                        <input
+                      <!-- 🆕 Código: SELECT del catálogo SRI -->
+                      <div class="form-field" style="grid-column: span 2;">
+                        <label :for="`ret-codigo-${idx}`" class="form-label">
+                          <span class="required">*</span> Código Retención (SRI)
+                        </label>
+                        <select
                           :id="`ret-codigo-${idx}`"
-                          type="text"
-                          class="form-control"
-                          v-model="imp.codigoRetencion"
-                          placeholder="Ej: 1"
-                          maxlength="10"
-                        />
+                          class="form-select"
+                          :value="`${imp.impuesto}:${imp.codigoRetencion}`"
+                          :disabled="cargando || cargandoCatalogos"
+                          @change="onCambiarCodigoRetencion(idx, $event.target.value)"
+                        >
+                          <option value="">— Seleccione del catálogo SRI —</option>
+                          <optgroup label="Impuesto a la Renta">
+                            <option
+                              v-for="t in RETENCIONES_RENTA"
+                              :key="`RENTA:${t.codigo}`"
+                              :value="`RENTA:${t.codigo}`"
+                            >
+                              {{ t.codigo }} — {{ t.nombre }} ({{ t.porcentaje }}%)
+                            </option>
+                          </optgroup>
+                          <optgroup label="IVA">
+                            <option
+                              v-for="t in RETENCIONES_IVA"
+                              :key="`IVA:${t.codigo}`"
+                              :value="`IVA:${t.codigo}`"
+                            >
+                              {{ t.codigo }} — {{ t.nombre }} ({{ t.porcentaje }}%)
+                            </option>
+                          </optgroup>
+                        </select>
+                        <small v-if="imp.concepto" class="form-hint">
+                          <i class="fas fa-info-circle" aria-hidden="true"></i>
+                          {{ imp.impuesto }} · {{ imp.concepto }}
+                        </small>
                       </div>
+
                       <div class="form-field">
-                        <label :for="`ret-base-${idx}`" class="form-label">Base Imponible</label>
+                        <label :for="`ret-base-${idx}`" class="form-label">
+                          <span class="required">*</span> Base Imponible ($)
+                        </label>
                         <input
                           :id="`ret-base-${idx}`"
                           type="number"
@@ -549,10 +580,14 @@
                           min="0"
                           step="0.01"
                           placeholder="0.00"
+                          @input="onCambiarBaseRetencion(idx)"
                         />
                       </div>
+
                       <div class="form-field">
-                        <label :for="`ret-porcentaje-${idx}`" class="form-label">% Retener</label>
+                        <label :for="`ret-porcentaje-${idx}`" class="form-label">
+                          % Retener
+                        </label>
                         <input
                           :id="`ret-porcentaje-${idx}`"
                           type="number"
@@ -562,25 +597,34 @@
                           max="100"
                           step="0.01"
                           placeholder="0.00"
+                          @input="onCambiarBaseRetencion(idx)"
                         />
                       </div>
+                    </div>
+
+                    <div class="form-row cols-4" style="width: 100%; margin-top: 12px; margin-bottom: 0;">
                       <div class="form-field">
-                        <label :for="`ret-valor-${idx}`" class="form-label">Valor Retenido</label>
+                        <label :for="`ret-valor-${idx}`" class="form-label">
+                          Valor Retenido ($)
+                        </label>
                         <input
                           :id="`ret-valor-${idx}`"
                           type="number"
                           class="form-control"
-                          v-model.number="imp.valorRetenido"
+                          :value="imp.valorRetenido"
                           min="0"
                           step="0.01"
                           placeholder="0.00"
+                          readonly
+                          style="background: var(--bg-table-stripe); cursor: not-allowed; font-weight: 700; color: var(--primary-color);"
+                          title="Se calcula automáticamente como base × %"
                         />
                       </div>
-                    </div>
-                    <!-- Campos opcionales de documento de sustento por impuesto -->
-                    <div class="form-row cols-3" style="width: 100%; margin-top: 10px; margin-bottom: 0;">
+
                       <div class="form-field">
-                        <label :for="`ret-doc-codigo-${idx}`" class="form-label">Código Doc. Sustento</label>
+                        <label :for="`ret-doc-codigo-${idx}`" class="form-label">
+                          Código Doc. Sustento
+                        </label>
                         <input
                           :id="`ret-doc-codigo-${idx}`"
                           type="text"
@@ -590,8 +634,11 @@
                           maxlength="3"
                         />
                       </div>
+
                       <div class="form-field">
-                        <label :for="`ret-doc-numero-${idx}`" class="form-label">Nº Doc. Sustento</label>
+                        <label :for="`ret-doc-numero-${idx}`" class="form-label">
+                          Nº Doc. Sustento
+                        </label>
                         <input
                           :id="`ret-doc-numero-${idx}`"
                           type="text"
@@ -600,8 +647,11 @@
                           placeholder="001-001-000000001"
                         />
                       </div>
+
                       <div class="form-field">
-                        <label :for="`ret-doc-fecha-${idx}`" class="form-label">Fecha Doc. Sustento</label>
+                        <label :for="`ret-doc-fecha-${idx}`" class="form-label">
+                          Fecha Doc. Sustento
+                        </label>
                         <input
                           :id="`ret-doc-fecha-${idx}`"
                           type="date"
@@ -610,6 +660,7 @@
                         />
                       </div>
                     </div>
+
                     <button
                       type="button"
                       class="item-remove"
@@ -622,6 +673,13 @@
                     </button>
                   </div>
                 </div>
+
+                <!-- 🆕 Total retenido -->
+                <div v-if="venta.impuestos_retencion.length > 0" class="ret-total">
+                  <span><i class="fas fa-calculator" aria-hidden="true"></i> Total retenido:</span>
+                  <strong>${{ formatMonto(totalRetenido) }}</strong>
+                </div>
+
                 <button
                   type="button"
                   class="btn-new-inline btn-new-primary"
@@ -1218,6 +1276,18 @@
                   <span class="total-value">${{ formatMonto(total) }}</span>
                 </div>
 
+                <!-- 🆕 Total retenido en el sidebar -->
+                <div v-if="esRetencion && totalRetenido > 0" class="nc-saldo-info">
+                  <div class="nc-saldo-row">
+                    <span>Retenido:</span>
+                    <strong>${{ formatMonto(totalRetenido) }}</strong>
+                  </div>
+                  <div class="nc-saldo-row">
+                    <span>Neto a pagar:</span>
+                    <strong>${{ formatMonto(Math.max(0, total - totalRetenido)) }}</strong>
+                  </div>
+                </div>
+
                 <div v-if="esNotaCredito && facturaOriginal" class="nc-saldo-info">
                   <div class="nc-saldo-row">
                     <span>Saldo disponible:</span>
@@ -1454,14 +1524,6 @@ const formatFechaCorta = (f) => {
   } catch { return '' }
 }
 
-const escapeHtml = (s) =>
-  String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-
 const inferirTipoIdent = (valor) => {
   if (!valor) return ''
   const s = String(valor).trim()
@@ -1483,6 +1545,7 @@ const clientes = ref([])
 const productos = ref([])
 const cargando = ref(false)
 const cargandoInicial = ref(false)
+const cargandoCatalogos = ref(false)
 const errorGeneral = ref('')
 const periodoCerrado = ref(null)
 const configEmpresa = ref(null)
@@ -1565,7 +1628,7 @@ const venta = ref({
   estado_pago: 'pendiente',
   fecha_pago: '',
   observaciones: '',
-  // Retención
+  // 🆕 Retención
   impuestos_retencion: []
 })
 
@@ -1590,6 +1653,28 @@ const seriePreview = computed(() => {
 const esGuia = computed(() => venta.value.tipo_documento === 'guia_remision')
 const esNotaCredito = computed(() => venta.value.tipo_documento === 'nota_credito')
 const esRetencion = computed(() => venta.value.tipo_documento === 'retencion')
+
+// 🆕 Catálogos de retenciones (desde useCatalogosSRI)
+const RETENCIONES_RENTA = computed(() => {
+  const arr = catalogos.value?.TIPO_RETENCION || []
+  return arr.filter((t) => t.impuesto === 'RENTA')
+})
+
+const RETENCIONES_IVA = computed(() => {
+  const arr = catalogos.value?.TIPO_RETENCION || []
+  return arr.filter((t) => t.impuesto === 'IVA')
+})
+
+// 🆕 Total retenido (suma de valorRetenido de cada impuesto)
+const totalRetenido = computed(() => {
+  if (!Array.isArray(venta.value.impuestos_retencion)) return 0
+  return roundTo2(
+    venta.value.impuestos_retencion.reduce(
+      (s, x) => s + (Number(x.valorRetenido) || 0),
+      0
+    )
+  )
+})
 
 const numeroPlaceholder = computed(() => {
   if (esNotaCredito.value) return 'Se asigna NCR-XXXXXX automáticamente'
@@ -1688,6 +1773,7 @@ const iva = computed(() => {
 
 const total = computed(() => roundTo2(subtotal.value + iva.value))
 
+// 🆕 ¿Hay al menos un impuesto válido de retención?
 const tieneImpuestosRetencion = computed(() => {
   if (!Array.isArray(venta.value.impuestos_retencion)) return false
   return venta.value.impuestos_retencion.some(
@@ -1705,7 +1791,6 @@ const formularioValido = computed(() => {
   if (esNotaCredito.value) {
     if (!facturaOriginal.value) return false
     if (!String(venta.value.motivo || '').trim()) return false
-    // Verificar que el total no exceda el saldo
     const saldo = Number(facturaOriginal.value.saldoAcreditable) || 0
     if (total.value > saldo + 0.01) return false
   }
@@ -1945,12 +2030,10 @@ const seleccionarFacturaNC = (f) => {
   mostrarListaFacturasNC.value = false
   busquedaFacturaNC.value = ''
 
-  // Autocompletar cliente
   if (f.clienteId && !venta.value.clienteId) {
     venta.value.clienteId = f.clienteId
   }
 
-  // Autocompletar detalles desde la factura original
   if (Array.isArray(f.detalles) && f.detalles.length > 0) {
     venta.value.detalles = f.detalles.map((d) => {
       const prod = productos.value.find((p) => String(p._id) === String(d.productoId))
@@ -1977,10 +2060,28 @@ const limpiarFacturaNC = () => {
   nextTick(() => inputFacturaNC.value?.focus())
 }
 
-// ===== RETENCIÓN =====
+// ============================================================
+// 🆕 RETENCIÓN — Handlers con catálogo SRI + auto-cálculo
+// ============================================================
+
+/** Busca en el catálogo local de retenciones (por código + impuesto). */
+const buscarRetencionLocal = (codigo, impuesto) => {
+  if (!codigo || !impuesto) return null
+  const arr = catalogos.value?.TIPO_RETENCION || []
+  return arr.find((t) => t.codigo === codigo && t.impuesto === impuesto) || null
+}
+
+/** Agrega un impuesto de retención vacío. */
 const agregarImpuestoRetencion = () => {
   venta.value.impuestos_retencion.push({
+    // código tipo impuesto ('1' RENTA | '2' IVA) — se llena al elegir
+    codigo: '',
+    // código específico del SRI (ej. '312', '725')
     codigoRetencion: '',
+    // impuesto declarado ('RENTA' | 'IVA')
+    impuesto: '',
+    // descripción desde el catálogo
+    concepto: '',
     baseImponible: 0,
     porcentajeRetener: 0,
     valorRetenido: 0,
@@ -1990,8 +2091,58 @@ const agregarImpuestoRetencion = () => {
   })
 }
 
+/** Elimina un impuesto de retención. */
 const eliminarImpuestoRetencion = (index) => {
   venta.value.impuestos_retencion.splice(index, 1)
+}
+
+/**
+ * Handler del select de código de retención.
+ * Parsea el valor "IMPUESTO:CODIGO" y actualiza el objeto.
+ */
+const onCambiarCodigoRetencion = (idx, value) => {
+  const imp = venta.value.impuestos_retencion[idx]
+  if (!imp) return
+
+  // Reset
+  if (!value) {
+    imp.codigoRetencion = ''
+    imp.impuesto = ''
+    imp.codigo = ''
+    imp.concepto = ''
+    imp.porcentajeRetener = 0
+    imp.valorRetenido = 0
+    return
+  }
+
+  const [impuesto, codigo] = String(value).split(':')
+  if (!impuesto || !codigo) return
+
+  imp.impuesto = impuesto
+  imp.codigoRetencion = codigo
+  imp.codigo = impuesto === 'IVA' ? '2' : '1'
+
+  const cat = buscarRetencionLocal(codigo, impuesto)
+  if (cat) {
+    imp.concepto = cat.nombre
+    imp.porcentajeRetener = cat.porcentaje
+  }
+
+  recalcularValorRetencion(idx)
+}
+
+/** Handler cuando cambia base o % → recalcula el valor retenido. */
+const onCambiarBaseRetencion = (idx) => {
+  recalcularValorRetencion(idx)
+}
+
+/** Recalcula `valorRetenido = base × %`. */
+const recalcularValorRetencion = (idx) => {
+  const imp = venta.value.impuestos_retencion[idx]
+  if (!imp) return
+  const base = Number(imp.baseImponible) || 0
+  const pct = Number(imp.porcentajeRetener) || 0
+  imp.valorRetenido = roundTo2(base * (pct / 100))
 }
 
 // ===== TIPO DE DOCUMENTO =====
@@ -2029,11 +2180,10 @@ const cambiarTipo = () => {
     comprobante_numero: '',
     comprobante_fecha_emision: '',
     numero_factura: '',
-    // Reset retención
+    // 🆕 Reset retención
     impuestos_retencion: []
   })
 
-  // Reset estado NC cuando se cambia a otro tipo
   if (!esNotaCredito.value) {
     facturaOriginal.value = null
     facturasNC.value = []
@@ -2183,7 +2333,6 @@ const cargarVenta = async (ventaId) => {
       seccionesExpandidas.value.guia = true
     }
 
-    // Si es NC y tiene factura_original_id, cargarla
     if (data.tipo_documento === 'nota_credito' && data.factura_original_id) {
       try {
         const factura = await api.request(`/ventas/${data.factura_original_id}`, {
@@ -2263,17 +2412,22 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
-      // Retención
+      // 🆕 Retención normalizada (solo cuando aplica)
       impuestos_retencion: esRetencion.value
-        ? venta.value.impuestos_retencion.map((imp) => ({
-            codigoRetencion: String(imp.codigoRetencion || '').trim(),
-            baseImponible: Number(imp.baseImponible) || 0,
-            porcentajeRetener: Number(imp.porcentajeRetener) || 0,
-            valorRetenido: Number(imp.valorRetenido) || 0,
-            codigoDocumento: imp.codigoDocumento || '',
-            numeroDocumento: imp.numeroDocumento || '',
-            fechaEmisionDocSustento: imp.fechaEmisionDocSustento || ''
-          }))
+        ? venta.value.impuestos_retencion
+            .filter((imp) => imp.codigoRetencion)
+            .map((imp) => ({
+              codigo: imp.codigo || (imp.impuesto === 'IVA' ? '2' : '1'),
+              codigoRetencion: String(imp.codigoRetencion || '').trim(),
+              impuesto: imp.impuesto || '',
+              concepto: imp.concepto || '',
+              baseImponible: roundTo2(Number(imp.baseImponible) || 0),
+              porcentajeRetener: roundTo2(Number(imp.porcentajeRetener) || 0),
+              valorRetenido: roundTo2(Number(imp.valorRetenido) || 0),
+              codigoDocumento: imp.codigoDocumento || '',
+              numeroDocumento: imp.numeroDocumento || '',
+              fechaEmisionDocSustento: imp.fechaEmisionDocSustento || ''
+            }))
         : undefined,
       ...(() => {
         const extras = {}
@@ -2327,6 +2481,13 @@ const guardar = async () => {
         if (res?._advertencia) {
           toast.warning(res._advertencia, { timeout: 10000 })
         }
+
+        // 🆕 Advertencias de retención del backend
+        if (Array.isArray(res?._advertencias_retencion) && res._advertencias_retencion.length) {
+          for (const adv of res._advertencias_retencion) {
+            toast.warning(adv, { timeout: 8000 })
+          }
+        }
       }
     }
 
@@ -2351,6 +2512,8 @@ const guardar = async () => {
       msgMostrar = msg || 'La factura debe estar AUTORIZADA por el SRI.'
     } else if (codigo === 'NC_FACTURA_SIN_SALDO') {
       msgMostrar = msg || 'Esta factura ya está totalmente acreditada.'
+    } else if (codigo === 'RETENCION_INVALIDA') {
+      msgMostrar = msg || 'Retención inválida: revisa los impuestos.'
     }
 
     errorGeneral.value = 'Error al guardar: ' + msgMostrar
@@ -2409,7 +2572,12 @@ onBeforeRouteLeave(async (to, from, next) => {
 onMounted(async () => {
   cargandoInicial.value = true
   try {
-    await Promise.all([cargarCatalogos().catch(() => {}), cargarConfigEmpresa()])
+    cargandoCatalogos.value = true
+    await Promise.all([
+      cargarCatalogos().catch(() => {}),
+      cargarConfigEmpresa()
+    ])
+    cargandoCatalogos.value = false
     await cargarClientesYProductos()
 
     if (esEdicion.value) {
@@ -2430,6 +2598,7 @@ onMounted(async () => {
       errorGeneral.value = 'Error al cargar datos: ' + (e?.message || 'desconocido')
     }
   } finally {
+    cargandoCatalogos.value = false
     if (!unmounted) cargandoInicial.value = false
   }
 })
@@ -2622,6 +2791,29 @@ kbd { background: var(--bg-table-stripe); color: var(--text-primary); padding: 3
 .subtotal-value { padding: 9px 12px; background: var(--bg-card); border: 1.5px solid var(--border-color); border-radius: var(--radius-sm); font-weight: 800; color: var(--primary-color); font-size: 0.9rem; text-align: right; font-variant-numeric: tabular-nums; }
 .item-remove { width: 36px; height: 36px; border-radius: var(--radius-sm); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-muted); cursor: pointer; transition: all var(--transition-fast); font-size: 0.85rem; }
 .item-remove:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+
+/* 🆕 Total retenido */
+.ret-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(142, 68, 173, 0.08), rgba(142, 68, 173, 0.03));
+  border: 1px solid rgba(142, 68, 173, 0.25);
+  border-left: 4px solid #8e44ad;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.ret-total span { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.ret-total span i { color: #8e44ad; }
+.ret-total strong {
+  font-size: 1.15rem;
+  color: #8e44ad;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
 
 .form-sidebar { position: relative; }
 .sidebar-sticky { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 16px; }

@@ -7,7 +7,7 @@
 // descripción).
 //
 // Uso típico:
-//   const { TIPOS_NO_CXC, SETS, esComercial } = require('../utils/tiposDocumento');
+//   const { SETS, esComercial, afectaStock } = require('../utils/tiposDocumento');
 //
 //   // Chequeo rápido O(1) en bucles grandes
 //   if (SETS.TIPOS_NO_CXC.has(doc.tipo_documento)) continue;
@@ -17,7 +17,7 @@
 //
 // API pública (compat total con la versión anterior):
 //   TIPOS_NO_COMERCIALES
-//   TIPOS_NO_CXC           (alias: TIPOS_NO_DEUDA)
+//   TIPOS_NO_CXC                (alias: TIPOS_NO_DEUDA)
 //   TIPOS_VENTA_NO_ATS
 //   TIPOS_SIN_MOVIMIENTO_STOCK
 //   DOCS_CON_CLAVE
@@ -40,6 +40,18 @@
 //   getPrefijo(t)                          → 'FAC' | null
 //   getDescripcion(t)                      → string
 //   normalizarTipo(t)                      → 'factura' | null
+//
+// 🔧 FIX 2025-XX
+//   Los módulos consumidores (ej. `routes/ventas.js`) hacían
+//   `TIPOS_SIN_MOVIMIENTO_STOCK.has(...)` sobre el ARRAY
+//   exportado → TypeError. El Set correcto SIEMPRE estuvo en
+//   `SETS.TIPOS_SIN_MOVIMIENTO_STOCK`, pero se prestaba a
+//   confusión. Ahora:
+//     1. Se exportan aliases `*_SET` explícitos (mismo objeto
+//        que `SETS.*`, así no hay duplicación de memoria).
+//     2. Se exporta el helper `afectaStock(tipo)` listo para
+//        usar, que internamente usa el Set correcto.
+//     3. Se documenta con JSDoc qué es Array y qué es Set.
 // ============================================================
 'use strict';
 
@@ -58,7 +70,11 @@ const _NO_COMERCIALES_BASE = Object.freeze([
 ]);
 
 // ============================================================
-// LISTAS PÚBLICAS (todas congeladas)
+// LISTAS PÚBLICAS (todas congeladas — son ARRAYS)
+// ------------------------------------------------------------
+// ⚠️  Para chequeos en bucles grandes usá `SETS.*` (O(1)).
+//     Estos arrays son para mantener compatibilidad con código
+//     que usa `.includes()`, `.forEach()`, `.map()`, etc.
 // ============================================================
 
 /** Comprobantes que NO son comerciales: no cuentan como venta ni deuda. */
@@ -152,20 +168,39 @@ const DESCRIPCIONES_TIPO = Object.freeze({
 });
 
 // ============================================================
-// SETS PARA O(1)
+// SETS PARA O(1) — fuente canónica
 // ------------------------------------------------------------
-// Se exponen como `SETS.*` para que los routers eviten
-// `array.includes(tipo)` dentro de bucles sobre miles de docs.
+// Se exponen como `SETS.*` (API preferida) y también como
+// `*_SET` (aliases explícitos, misma referencia en memoria).
 // ============================================================
 const SETS = Object.freeze({
-  TIPOS_NO_COMERCIALES:    Object.freeze(new Set(TIPOS_NO_COMERCIALES)),
-  TIPOS_NO_CXC:            Object.freeze(new Set(TIPOS_NO_CXC)),
-  TIPOS_NO_DEUDA:          Object.freeze(new Set(TIPOS_NO_DEUDA)),
-  TIPOS_VENTA_NO_ATS:      Object.freeze(new Set(TIPOS_VENTA_NO_ATS)),
-  TIPOS_SIN_MOVIMIENTO_STOCK: Object.freeze(new Set(TIPOS_SIN_MOVIMIENTO_STOCK)),
-  DOCS_CON_CLAVE:          Object.freeze(new Set(DOCS_CON_CLAVE)),
-  TIPOS_DOCUMENTO_VALIDOS: Object.freeze(new Set(TIPOS_DOCUMENTO_VALIDOS))
+  TIPOS_NO_COMERCIALES:        Object.freeze(new Set(TIPOS_NO_COMERCIALES)),
+  TIPOS_NO_CXC:                Object.freeze(new Set(TIPOS_NO_CXC)),
+  TIPOS_NO_DEUDA:              Object.freeze(new Set(TIPOS_NO_DEUDA)),
+  TIPOS_VENTA_NO_ATS:          Object.freeze(new Set(TIPOS_VENTA_NO_ATS)),
+  TIPOS_SIN_MOVIMIENTO_STOCK:  Object.freeze(new Set(TIPOS_SIN_MOVIMIENTO_STOCK)),
+  DOCS_CON_CLAVE:              Object.freeze(new Set(DOCS_CON_CLAVE)),
+  TIPOS_DOCUMENTO_VALIDOS:     Object.freeze(new Set(TIPOS_DOCUMENTO_VALIDOS))
 });
+
+// ============================================================
+// ALIASES EXPLÍCITOS (`*_SET`)
+// ------------------------------------------------------------
+// Misma referencia que `SETS.*`. Existen para que el import
+// sea autoexplicativo en el código consumidor:
+//
+//   const { TIPOS_SIN_MOVIMIENTO_STOCK_SET } = require('...');
+//   if (TIPOS_SIN_MOVIMIENTO_STOCK_SET.has(tipo)) { ... }
+//
+// Es imposible confundirse con el array homónimo.
+// ============================================================
+const TIPOS_NO_COMERCIALES_SET       = SETS.TIPOS_NO_COMERCIALES;
+const TIPOS_NO_CXC_SET               = SETS.TIPOS_NO_CXC;
+const TIPOS_NO_DEUDA_SET             = SETS.TIPOS_NO_DEUDA;
+const TIPOS_VENTA_NO_ATS_SET         = SETS.TIPOS_VENTA_NO_ATS;
+const TIPOS_SIN_MOVIMIENTO_STOCK_SET = SETS.TIPOS_SIN_MOVIMIENTO_STOCK;
+const DOCS_CON_CLAVE_SET             = SETS.DOCS_CON_CLAVE;
+const TIPOS_DOCUMENTO_VALIDOS_SET    = SETS.TIPOS_DOCUMENTO_VALIDOS;
 
 // ============================================================
 // HELPERS
@@ -227,6 +262,11 @@ function aplicaATS(tipo) {
 
 /**
  * ¿El tipo genera movimiento de stock en kardex?
+ *
+ * 🔧 FIX: antes algunos consumidores intentaban `.has()` sobre el
+ *    ARRAY `TIPOS_SIN_MOVIMIENTO_STOCK` (TypeError). Este helper
+ *    usa el Set correcto y es la forma recomendada de chequear.
+ *
  * @param {*} tipo
  * @returns {boolean}
  */
@@ -314,7 +354,7 @@ function matchVentasNetas() {
 // EXPORTS
 // ============================================================
 module.exports = {
-  // ---- API original ----
+  // ---- Arrays (compat con código que usa `.includes()` / `.map()`) ----
   TIPOS_NO_COMERCIALES,
   TIPOS_NO_CXC,
   TIPOS_NO_DEUDA,
@@ -322,14 +362,26 @@ module.exports = {
   TIPOS_SIN_MOVIMIENTO_STOCK,
   TIPOS_DOCUMENTO_VALIDOS,
   DOCS_CON_CLAVE,
+
+  // ---- Sets canónicos (API preferida) ----
+  SETS,
+
+  // ---- Aliases explícitos `*_SET` (misma referencia que SETS.*) ----
+  // Usar estos cuando el import debe ser autoexplicativo.
+  TIPOS_NO_COMERCIALES_SET,
+  TIPOS_NO_CXC_SET,
+  TIPOS_NO_DEUDA_SET,
+  TIPOS_VENTA_NO_ATS_SET,
+  TIPOS_SIN_MOVIMIENTO_STOCK_SET,
+  DOCS_CON_CLAVE_SET,
+  TIPOS_DOCUMENTO_VALIDOS_SET,
+
+  // ---- Mapas ----
   TIPO_COMPROBANTE_SRI,
   PREFIJOS_CONTADOR,
-  matchSoloVentasComerciales,
-  matchVentasNetas,
-
-  // ---- Extensiones ----
-  SETS,
   DESCRIPCIONES_TIPO,
+
+  // ---- Helpers ----
   normalizarTipo,
   esTipoValido,
   esComercial,
@@ -341,7 +393,11 @@ module.exports = {
   getPrefijo,
   getDescripcion,
 
-  // ---- Constantes ----
+  // ---- Matches Mongo ----
+  matchSoloVentasComerciales,
+  matchVentasNetas,
+
+  // ---- Config congelado ----
   CONFIG: Object.freeze({
     tiposDocumento: TIPOS_DOCUMENTO_VALIDOS,
     docsConClave: DOCS_CON_CLAVE,
