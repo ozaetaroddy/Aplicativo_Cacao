@@ -426,6 +426,215 @@
             </div>
           </section>
 
+          <!-- SECCIÓN: Retención (solo si tipo_documento === 'retencion') -->
+          <section v-if="esRetencion" class="form-section">
+            <header class="section-header">
+              <div class="section-number">
+                <i class="fas fa-percent" aria-hidden="true"></i>
+              </div>
+              <div class="section-header-content">
+                <h2 class="section-title">Información de Retención</h2>
+                <p class="section-desc">Documento de sustento e impuestos retenidos</p>
+              </div>
+            </header>
+            <div class="section-body">
+              <!-- Documento de sustento -->
+              <div class="subsection">
+                <h3 class="subsection-title">
+                  <i class="fas fa-file-alt" aria-hidden="true"></i> Documento de Sustento
+                </h3>
+                <div class="form-row cols-3">
+                  <div class="form-field">
+                    <label class="form-label" for="ret-tipo-emision">Tipo Emisión</label>
+                    <select
+                      id="ret-tipo-emision"
+                      class="form-select"
+                      v-model="venta.comprobante_tipo_emision"
+                    >
+                      <option value="">Seleccione</option>
+                      <option value="Física">Física</option>
+                      <option value="Electrónica">Electrónica</option>
+                    </select>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">Tipo Comprobante</label>
+                    <SelectSRI
+                      v-model="venta.comprobante_documento"
+                      :lista="catalogos.DOCUMENTO_SUSTENTO || []"
+                      placeholder="Seleccione…"
+                    />
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label" for="ret-comp-numero">Nº Comprobante</label>
+                    <input
+                      id="ret-comp-numero"
+                      type="text"
+                      class="form-control"
+                      v-model="venta.comprobante_numero"
+                      placeholder="001-001-000000001"
+                    />
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label" for="ret-comp-clave">Clave de Acceso</label>
+                    <input
+                      id="ret-comp-clave"
+                      type="text"
+                      class="form-control"
+                      v-model="venta.comprobante_clave_acceso"
+                      maxlength="49"
+                      placeholder="49 dígitos"
+                    />
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label" for="ret-comp-aut">Nº Autorización</label>
+                    <input
+                      id="ret-comp-aut"
+                      type="text"
+                      class="form-control"
+                      v-model="venta.comprobante_numero_autorizacion"
+                    />
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label" for="ret-comp-fecha">Fecha Emisión</label>
+                    <input
+                      id="ret-comp-fecha"
+                      type="date"
+                      class="form-control"
+                      v-model="venta.comprobante_fecha_emision"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Impuestos de retención -->
+              <div class="subsection" style="margin-top: 24px;">
+                <h3 class="subsection-title">
+                  <i class="fas fa-calculator" aria-hidden="true"></i> Impuestos Retenidos
+                </h3>
+                <div v-if="venta.impuestos_retencion.length === 0" class="empty-items" style="padding: 24px;">
+                  <div class="empty-icon" style="width: 48px; height: 48px; font-size: 1.2rem;">
+                    <i class="fas fa-percent" aria-hidden="true"></i>
+                  </div>
+                  <div class="empty-title" style="font-size: 0.85rem;">No hay impuestos retenidos</div>
+                  <div class="empty-text" style="font-size: 0.78rem;">
+                    Agrega al menos un impuesto para continuar
+                  </div>
+                </div>
+                <div v-else class="items-list">
+                  <div
+                    v-for="(imp, idx) in venta.impuestos_retencion"
+                    :key="`ret-${idx}`"
+                    class="item-card"
+                    style="flex-wrap: wrap; align-items: flex-start;"
+                  >
+                    <div class="form-row cols-4" style="width: 100%; margin-bottom: 0;">
+                      <div class="form-field">
+                        <label :for="`ret-codigo-${idx}`" class="form-label">Código Retención</label>
+                        <input
+                          :id="`ret-codigo-${idx}`"
+                          type="text"
+                          class="form-control"
+                          v-model="imp.codigoRetencion"
+                          placeholder="Ej: 1"
+                          maxlength="10"
+                        />
+                      </div>
+                      <div class="form-field">
+                        <label :for="`ret-base-${idx}`" class="form-label">Base Imponible</label>
+                        <input
+                          :id="`ret-base-${idx}`"
+                          type="number"
+                          class="form-control"
+                          v-model.number="imp.baseImponible"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div class="form-field">
+                        <label :for="`ret-porcentaje-${idx}`" class="form-label">% Retener</label>
+                        <input
+                          :id="`ret-porcentaje-${idx}`"
+                          type="number"
+                          class="form-control"
+                          v-model.number="imp.porcentajeRetener"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div class="form-field">
+                        <label :for="`ret-valor-${idx}`" class="form-label">Valor Retenido</label>
+                        <input
+                          :id="`ret-valor-${idx}`"
+                          type="number"
+                          class="form-control"
+                          v-model.number="imp.valorRetenido"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                    <!-- Campos opcionales de documento de sustento por impuesto -->
+                    <div class="form-row cols-3" style="width: 100%; margin-top: 10px; margin-bottom: 0;">
+                      <div class="form-field">
+                        <label :for="`ret-doc-codigo-${idx}`" class="form-label">Código Doc. Sustento</label>
+                        <input
+                          :id="`ret-doc-codigo-${idx}`"
+                          type="text"
+                          class="form-control"
+                          v-model="imp.codigoDocumento"
+                          placeholder="Ej: 01"
+                          maxlength="3"
+                        />
+                      </div>
+                      <div class="form-field">
+                        <label :for="`ret-doc-numero-${idx}`" class="form-label">Nº Doc. Sustento</label>
+                        <input
+                          :id="`ret-doc-numero-${idx}`"
+                          type="text"
+                          class="form-control"
+                          v-model="imp.numeroDocumento"
+                          placeholder="001-001-000000001"
+                        />
+                      </div>
+                      <div class="form-field">
+                        <label :for="`ret-doc-fecha-${idx}`" class="form-label">Fecha Doc. Sustento</label>
+                        <input
+                          :id="`ret-doc-fecha-${idx}`"
+                          type="date"
+                          class="form-control"
+                          v-model="imp.fechaEmisionDocSustento"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="item-remove"
+                      @click="eliminarImpuestoRetencion(idx)"
+                      title="Quitar impuesto"
+                      aria-label="Quitar impuesto"
+                      style="margin-left: auto; margin-top: 8px;"
+                    >
+                      <i class="fas fa-times" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="btn-new-inline btn-new-primary"
+                  @click="agregarImpuestoRetencion"
+                  style="margin-top: 12px;"
+                >
+                  <i class="fas fa-plus" aria-hidden="true"></i>
+                  <span>Agregar impuesto</span>
+                </button>
+              </div>
+            </div>
+          </section>
+
           <!-- SECCIÓN: Productos -->
           <section class="form-section card-with-dropdown">
             <header class="section-header">
@@ -1057,6 +1266,14 @@
                 <span>Motivo especificado</span>
               </div>
 
+              <div v-if="esRetencion" class="status-item" :class="{ complete: tieneImpuestosRetencion }">
+                <i
+                  :class="tieneImpuestosRetencion ? 'fas fa-check-circle' : 'far fa-circle'"
+                  aria-hidden="true"
+                ></i>
+                <span>Impuestos de retención</span>
+              </div>
+
               <div class="status-item" :class="{ complete: venta.detalles.length > 0 }">
                 <i
                   :class="venta.detalles.length > 0 ? 'fas fa-check-circle' : 'far fa-circle'"
@@ -1347,7 +1564,9 @@ const venta = ref({
   forma_pago: '',
   estado_pago: 'pendiente',
   fecha_pago: '',
-  observaciones: ''
+  observaciones: '',
+  // Retención
+  impuestos_retencion: []
 })
 
 const errores = ref({ cliente: '', detalles: [] })
@@ -1370,6 +1589,7 @@ const seriePreview = computed(() => {
 // ===== COMPUTED =====
 const esGuia = computed(() => venta.value.tipo_documento === 'guia_remision')
 const esNotaCredito = computed(() => venta.value.tipo_documento === 'nota_credito')
+const esRetencion = computed(() => venta.value.tipo_documento === 'retencion')
 
 const numeroPlaceholder = computed(() => {
   if (esNotaCredito.value) return 'Se asigna NCR-XXXXXX automáticamente'
@@ -1468,6 +1688,16 @@ const iva = computed(() => {
 
 const total = computed(() => roundTo2(subtotal.value + iva.value))
 
+const tieneImpuestosRetencion = computed(() => {
+  if (!Array.isArray(venta.value.impuestos_retencion)) return false
+  return venta.value.impuestos_retencion.some(
+    (imp) =>
+      imp.codigoRetencion &&
+      Number(imp.baseImponible) >= 0 &&
+      Number(imp.valorRetenido) >= 0
+  )
+})
+
 const formularioValido = computed(() => {
   if (!esGuia.value && !venta.value.clienteId) return false
   if (esGuia.value && !venta.value.destinatario_razon_social) return false
@@ -1478,6 +1708,10 @@ const formularioValido = computed(() => {
     // Verificar que el total no exceda el saldo
     const saldo = Number(facturaOriginal.value.saldoAcreditable) || 0
     if (total.value > saldo + 0.01) return false
+  }
+
+  if (esRetencion.value) {
+    if (!tieneImpuestosRetencion.value) return false
   }
 
   if (!Array.isArray(venta.value.detalles) || venta.value.detalles.length === 0) return false
@@ -1743,6 +1977,23 @@ const limpiarFacturaNC = () => {
   nextTick(() => inputFacturaNC.value?.focus())
 }
 
+// ===== RETENCIÓN =====
+const agregarImpuestoRetencion = () => {
+  venta.value.impuestos_retencion.push({
+    codigoRetencion: '',
+    baseImponible: 0,
+    porcentajeRetener: 0,
+    valorRetenido: 0,
+    codigoDocumento: '',
+    numeroDocumento: '',
+    fechaEmisionDocSustento: ''
+  })
+}
+
+const eliminarImpuestoRetencion = (index) => {
+  venta.value.impuestos_retencion.splice(index, 1)
+}
+
 // ===== TIPO DE DOCUMENTO =====
 const cambiarTipo = () => {
   Object.assign(venta.value, {
@@ -1777,7 +2028,9 @@ const cambiarTipo = () => {
     comprobante_numero_autorizacion: '',
     comprobante_numero: '',
     comprobante_fecha_emision: '',
-    numero_factura: ''
+    numero_factura: '',
+    // Reset retención
+    impuestos_retencion: []
   })
 
   // Reset estado NC cuando se cambia a otro tipo
@@ -2010,6 +2263,18 @@ const guardar = async () => {
       subtotal: roundTo2(subtotal.value),
       iva: roundTo2(iva.value),
       total: roundTo2(total.value),
+      // Retención
+      impuestos_retencion: esRetencion.value
+        ? venta.value.impuestos_retencion.map((imp) => ({
+            codigoRetencion: String(imp.codigoRetencion || '').trim(),
+            baseImponible: Number(imp.baseImponible) || 0,
+            porcentajeRetener: Number(imp.porcentajeRetener) || 0,
+            valorRetenido: Number(imp.valorRetenido) || 0,
+            codigoDocumento: imp.codigoDocumento || '',
+            numeroDocumento: imp.numeroDocumento || '',
+            fechaEmisionDocSustento: imp.fechaEmisionDocSustento || ''
+          }))
+        : undefined,
       ...(() => {
         const extras = {}
         const campos = [

@@ -7,6 +7,7 @@
 //   POST   /validar-clave               → valida estructura de clave SRI
 //   GET    /buscar-clave/:clave         → buscar por clave de acceso
 //   GET    /buscar-acreditable          → facturas autorizadas con saldo > 0 (NC)
+//   GET    /buscar-retenible            → facturas autorizadas (Retención)
 //   POST   /migrar-claves               → migración masiva (admin)
 //   GET    /:id/xml                     → descarga XML
 //   GET    /:id/xml-preview             → previsualiza XML + estado
@@ -28,24 +29,20 @@
 //     puede editar/eliminar: se requiere nota de crédito.
 //   - Errores delegados al `errorHandler` central.
 //
-// 🔧 FIX 2025-XX:
+// 🔧 FIXES Y MEJORAS 2025-XX:
 //   1. Notas de crédito requieren factura original referenciada.
-//      Nuevo endpoint `GET /buscar-acreditable` para que el frontend
-//      liste facturas AUTORIZADAS con saldo acreditable > 0.
-//   2. Al crear NC se valida:
+//      Nuevo endpoint `GET /buscar-acreditable`.
+//   2. Retenciones requieren documento sustento. Nuevo endpoint
+//      `GET /buscar-retenible`.
+//   3. Al crear NC se valida:
 //        - factura existe y es tipo `factura`
 //        - factura.estado_sri === 'AUTORIZADO'
 //        - suma de NCs previas + nueva NC <= total factura
-//      Códigos de error: NC_FACTURA_NO_ENCONTRADA, NC_SOLO_FACTURA,
-//      NC_FACTURA_NO_AUTORIZADA, NC_FACTURA_SIN_SALDO, NC_EXCEDE_SALDO,
-//      NC_MOTIVO_REQUERIDO.
-//   3. `numero_factura` de la NC siempre es el código del contador
-//      (`NCR-XXXXXX`), nunca el del payload → evita colisión con
-//      la factura original.
-//   4. `numero_factura_modificada` se guarda con formato SRI
-//      `EEE-PPP-SSSSSSSSS` (vía `formatearNumeroSRI`).
-//   5. `asegurarClaveYXml` usa guard atómico para evitar claves
-//      distintas entre GETs concurrentes.
+//   4. `numero_factura` de la NC siempre es el código del contador.
+//   5. `numero_factura_modificada` se guarda con formato SRI
+//      (`EEE-PPP-SSSSSSSSS`).
+//   6. `asegurarClaveYXml` usa guard atómico.
+//   7. DELETE de factura bloqueado si tiene NCs asociadas.
 // ============================================================
 'use strict';
 
@@ -445,9 +442,13 @@ async function verificarNumeroUnico(db, { tipoDoc, numeroFactura, rucEmisor, exc
 
 /**
  * Valida la factura original que una NC quiere acreditar.
- * Devuelve { factura, motivo, error? } o lanza.
  */
-async function resolverFacturaOriginalNC(db, { facturaOriginalId, comprobanteClaveAcceso, numeroFacturaModificada, motivo }) {
+async function resolverFacturaOriginalNC(db, {
+  facturaOriginalId,
+  comprobanteClaveAcceso,
+  numeroFacturaModificada,
+  motivo
+}) {
   let factura = null;
 
   if (facturaOriginalId && ObjectId.isValid(facturaOriginalId)) {
@@ -527,6 +528,43 @@ async function calcularSaldoAcreditable(db, facturaId) {
   return round2(toNumber(r?.total));
 }
 
+/**
+ * Valida que los impuestos de retención sean coherentes.
+ * Acepta tanto `impuestos_retencion` array como `tipo_retencion` legacy.
+ */
+function validarImpuestosRetencion(body) {
+  const arr = body?.impuestos_retencion;
+  if (Array.isArray(arr) && arr.length > 0) {
+    for (let i = 0; i < arr.length; i++) {
+      const imp = arr[i];
+      if (!imp || typeof imp !== 'object') {
+        return `Impuesto #${i + 1}: debe ser un objeto`;
+      }
+      if (!imp.codigoRetencion) {
+        return `Impuesto #${i + 1}: falta codigoRetencion`;
+      }
+      const base = Number(imp.baseImponible);
+      if (!Number.isFinite(base) || base < 0) {
+        return `Impuesto #${i + 1}: baseImponible debe ser >= 0`;
+      }
+      const pct = Number(imp.porcentajeRetener);
+      if (imp.porcentajeRetener !== undefined && (!Number.isFinite(pct) || pct < 0 || pct > 100)) {
+        return `Impuesto #${i + 1}: porcentajeRetener debe estar entre 0 y 100`;
+      }
+      const val = Number(imp.valorRetenido);
+      if (!Number.isFinite(val) || val < 0) {
+        return `Impuesto #${i + 1}: valorRetenido debe ser >= 0`;
+      }
+    }
+    return null;
+  }
+
+  // Legacy: tipo_retencion suelto
+  if (body?.tipo_retencion) return null;
+
+  return 'Los comprobantes de retención requieren al menos un impuesto (impuestos_retencion[] o tipo_retencion)';
+}
+
 // ============================================================
 // VALIDADORES (express-validator)
 // ============================================================
@@ -552,23 +590,13 @@ const validarVenta = [
     .isIn(TIPOS_DOCUMENTO_VALIDOS)
     .withMessage(`Tipo de documento inválido. Válidos: ${TIPOS_DOCUMENTO_VALIDOS.join(', ')}`),
 
-  body('impuestos_retencion')
-    .if(body('tipo_documento').equals('retencion'))
-    .optional().isArray().withMessage('impuestos_retencion debe ser un array')
-    .custom((arr) => {
-      if (!arr) return true;
-      for (const imp of arr) {
-        if (!imp || typeof imp !== 'object') throw new Error('Cada impuesto debe ser un objeto');
-        if (imp.codDocSustento === undefined || imp.numDocSustento === undefined) {
-          throw new Error('Cada impuesto de retención requiere codDocSustento y numDocSustento');
-        }
-      }
-      return true;
-    }),
-
   body('factura_original_id')
     .optional({ nullable: true, checkFalsy: true })
-    .isMongoId().withMessage('ID de factura original inválido')
+    .isMongoId().withMessage('ID de factura original inválido'),
+
+  body('impuestos_retencion')
+    .optional()
+    .isArray().withMessage('impuestos_retencion debe ser un array')
 ];
 
 // ============================================================
@@ -682,7 +710,7 @@ router.get('/', requierePermiso('ventas', 'ver'), async (req, res, next) => {
 });
 
 // ============================================================
-// POST /validar-clave  → validar estructura de clave SRI
+// POST /validar-clave
 // ============================================================
 router.post('/validar-clave', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -698,7 +726,7 @@ router.post('/validar-clave', requierePermiso('ventas', 'ver'), async (req, res,
 });
 
 // ============================================================
-// GET /buscar-clave/:clave  → buscar por clave de acceso
+// GET /buscar-clave/:clave
 // ============================================================
 router.get('/buscar-clave/:clave', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -832,7 +860,77 @@ router.get('/buscar-acreditable', requierePermiso('ventas', 'ver'), async (req, 
 });
 
 // ============================================================
-// POST /migrar-claves  → migración masiva (solo admin)
+// GET /buscar-retenible  → facturas autorizadas para retención
+// ------------------------------------------------------------
+// Se usa al crear un Comprobante de Retención para elegir el
+// documento de sustento (factura de venta).
+// Query: ?q=<texto>&clienteId=<id>
+// ============================================================
+router.get('/buscar-retenible', requierePermiso('ventas', 'ver'), async (req, res, next) => {
+  try {
+    const q = (soloString(req.query.q) || '').trim();
+    const clienteId = soloString(req.query.clienteId);
+
+    const match = {
+      tipo_documento: 'factura',
+      estado_sri: 'AUTORIZADO'
+    };
+
+    if (q) {
+      const regex = new RegExp(escapeRegex(q), 'i');
+      match.$or = [
+        { numero_factura: regex },
+        { clave_acceso: regex }
+      ];
+    }
+
+    if (clienteId && ObjectId.isValid(clienteId)) {
+      match.clienteId = new ObjectId(clienteId);
+    }
+
+    const facturas = await req.db.collection(CONFIG.colVentas).aggregate([
+      { $match: match },
+      { $sort: { fecha_emision: -1 } },
+      { $limit: 30 },
+      {
+        $lookup: {
+          from: CONFIG.colClientes,
+          localField: 'clienteId',
+          foreignField: '_id',
+          as: 'cliente',
+          pipeline: [{ $project: { nombre: 1, ruc: 1, telefono: 1, email: 1, direccion: 1 } }]
+        }
+      },
+      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 1,
+          numero_factura: 1,
+          clave_acceso: 1,
+          numero_autorizacion: 1,
+          fecha_emision: 1,
+          fecha_autorizacion: 1,
+          subtotal: 1,
+          iva: 1,
+          total: 1,
+          detalles: 1,
+          clienteId: 1,
+          cliente: 1,
+          razon_social_emisor: 1,
+          ruc_emisor: 1
+        }
+      }
+    ]).toArray();
+
+    headersNoStore(res);
+    return res.json(facturas);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ============================================================
+// POST /migrar-claves
 // ============================================================
 router.post(
   '/migrar-claves',
@@ -992,7 +1090,7 @@ router.post(
 );
 
 // ============================================================
-// GET /:id/xml  → descarga XML
+// GET /:id/xml
 // ============================================================
 router.get('/:id/xml', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -1021,7 +1119,7 @@ router.get('/:id/xml', requierePermiso('ventas', 'ver'), async (req, res, next) 
 });
 
 // ============================================================
-// GET /:id/xml-preview  → previsualiza XML + estado
+// GET /:id/xml-preview
 // ============================================================
 router.get('/:id/xml-preview', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -1053,7 +1151,7 @@ router.get('/:id/xml-preview', requierePermiso('ventas', 'ver'), async (req, res
 });
 
 // ============================================================
-// GET /:id/xml-firmado  → descarga XML firmado
+// GET /:id/xml-firmado
 // ============================================================
 router.get('/:id/xml-firmado', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -1083,7 +1181,7 @@ router.get('/:id/xml-firmado', requierePermiso('ventas', 'ver'), async (req, res
 });
 
 // ============================================================
-// GET /:id/qr  → QR de verificación SRI
+// GET /:id/qr
 // ============================================================
 router.get('/:id/qr', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
@@ -1153,7 +1251,7 @@ router.get('/:id', requierePermiso('ventas', 'ver'), async (req, res, next) => {
 });
 
 // ============================================================
-// POST /:id/firmar  → firmar con certificado
+// POST /:id/firmar
 // ============================================================
 router.post('/:id/firmar', requierePermiso('ventas', 'editar'), async (req, res, next) => {
   try {
@@ -1218,7 +1316,7 @@ router.post('/:id/firmar', requierePermiso('ventas', 'editar'), async (req, res,
 });
 
 // ============================================================
-// POST /:id/generar-clave  → genera clave + XML + firma
+// POST /:id/generar-clave
 // ============================================================
 router.post('/:id/generar-clave', requierePermiso('ventas', 'editar'), async (req, res, next) => {
   try {
@@ -1418,7 +1516,6 @@ router.post(
         facturaOriginal = resuelto.factura;
         motivoNC = resuelto.motivo;
 
-        // Calcular saldo acreditable
         const totalNCsPrevio = await calcularSaldoAcreditable(req.db, facturaOriginal._id);
         const saldoAcreditable = round2(toNumber(facturaOriginal.total) - totalNCsPrevio);
         const totalNuevaNC = round2(toNumber(total));
@@ -1442,10 +1539,12 @@ router.post(
         }
       }
 
+      // ===== RETENCIÓN: validar impuestos =====
       if (tipoDoc === 'retencion') {
-        if (!Array.isArray(impuestos_retencion) && !tipo_retencion) {
+        const errorImp = validarImpuestosRetencion(req.body);
+        if (errorImp) {
           return res.status(400).json({
-            error: 'Los comprobantes de retención requieren al menos un impuesto (impuestos_retencion[] o tipo_retencion)',
+            error: errorImp,
             codigo: 'RETENCION_SIN_IMPUESTOS'
           });
         }
@@ -1478,7 +1577,7 @@ router.post(
         }
       }
 
-      // Solo verificar unicidad de número si NO es NC (la NC siempre usa el código del contador)
+      // Solo verificar unicidad de número si NO es NC
       if (tipoDoc !== 'nota_credito') {
         const uniqCheck = await verificarNumeroUnico(req.db, {
           tipoDoc,
@@ -1557,12 +1656,11 @@ router.post(
         let estadoSri = generaClave ? 'PENDIENTE' : 'NO_APLICA';
         let fechaFirma = null;
 
-        // Determinar número de factura final (NC siempre usa el código del contador)
+        // Número final
         const numeroFacturaFinal = tipoDoc === 'nota_credito'
           ? codigo
           : (numero_factura || codigo);
 
-        // Determinar número de factura modificada (con formato SRI)
         const numeroFacturaModificadaFinal = tipoDoc === 'nota_credito' && facturaOriginal
           ? formatearNumeroSRI(facturaOriginal)
           : (numero_factura_modificada || '');
@@ -1623,21 +1721,23 @@ router.post(
           ruc_emisor: config?.ruc || '',
           razon_social_emisor: config?.razon_social || '',
 
-          // 🔧 Campos específicos de Nota de Crédito
+          // Nota de Crédito
           factura_original_id: facturaOriginal?._id || null,
           numero_factura_modificada: numeroFacturaModificadaFinal,
           motivo: motivoNC || motivo || '',
+
+          // Retención
+          numero_retencion: numero_retencion || '',
+          porcentaje_retencion: porcentaje_retencion || 0,
+          tipo_retencion: tipo_retencion || '',
+          tipo_impuesto: tipo_impuesto || '1',
+          impuestos_retencion: Array.isArray(impuestos_retencion) ? impuestos_retencion : undefined,
 
           numero_guia: numero_guia || '',
           transportista: transportista || '',
           placa: placa || '',
           numero_exportacion: numero_exportacion || exportacionCodigo || '',
           pais_destino: pais_destino || '',
-          numero_retencion: numero_retencion || '',
-          porcentaje_retencion: porcentaje_retencion || 0,
-          tipo_retencion: tipo_retencion || '',
-          tipo_impuesto: tipo_impuesto || '1',
-          impuestos_retencion: Array.isArray(impuestos_retencion) ? impuestos_retencion : undefined,
           establecimiento: establecimiento || config?.establecimiento || '',
           nombre_comercial: nombre_comercial || config?.nombre_comercial || '',
           punto_emision: punto_emision || config?.punto_emision || '',
@@ -1805,7 +1905,6 @@ router.put(
       const config = await req.db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
       const tipoDoc = tipo_documento || 'factura';
 
-      // ===== NOTA DE CRÉDITO en PUT =====
       let facturaOriginal = null;
       let motivoNC = '';
 
@@ -1827,7 +1926,6 @@ router.put(
         facturaOriginal = resuelto.factura;
         motivoNC = resuelto.motivo;
 
-        // Recalcular saldo excluyendo esta NC
         const totalNCsPrevio = await req.db.collection(CONFIG.colVentas).aggregate([
           {
             $match: {
@@ -1855,6 +1953,16 @@ router.put(
         }
       }
 
+      if (tipoDoc === 'retencion') {
+        const errorImp = validarImpuestosRetencion(req.body);
+        if (errorImp) {
+          return res.status(400).json({
+            error: errorImp,
+            codigo: 'RETENCION_SIN_IMPUESTOS'
+          });
+        }
+      }
+
       if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
         for (const detalle of detalles) {
           if (!ObjectId.isValid(detalle.productoId)) {
@@ -1867,7 +1975,6 @@ router.put(
         }
       }
 
-      // Unicidad: solo si NO es NC
       if (tipoDoc !== 'nota_credito' && (numero_factura !== ventaActual.numero_factura || tipoDoc !== ventaActual.tipo_documento)) {
         const uniqCheck = await verificarNumeroUnico(req.db, {
           tipoDoc,
@@ -1923,7 +2030,6 @@ router.put(
         }
       }
 
-      // Número de factura final
       const numeroFacturaFinal = tipoDoc === 'nota_credito'
         ? (ventaActual.numero_factura || '')
         : numero_factura;
@@ -1945,14 +2051,17 @@ router.put(
         numero_factura_modificada: numeroFacturaModificadaFinal,
         motivo: motivoNC || motivo || '',
 
-        numero_guia, transportista, placa,
-        numero_exportacion, pais_destino,
-        numero_retencion, porcentaje_retencion,
+        // Retención
+        numero_retencion: numero_retencion || '',
+        porcentaje_retencion: porcentaje_retencion || 0,
         tipo_retencion: tipo_retencion || ventaActual.tipo_retencion || '',
         tipo_impuesto: tipo_impuesto || ventaActual.tipo_impuesto || '1',
         impuestos_retencion: Array.isArray(impuestos_retencion)
           ? impuestos_retencion
           : ventaActual.impuestos_retencion,
+
+        numero_guia, transportista, placa,
+        numero_exportacion, pais_destino,
         establecimiento, nombre_comercial, punto_emision,
         transportista_identificacion, transportista_tipo,
         transportista_razon_social, transportista_correo,
@@ -2105,9 +2214,7 @@ router.delete(
         });
       }
 
-      // Si es NC, evitar borrar si tiene <-> hmm no hay relación inversa que proteger
-      // Si es factura, permitir (aunque tenga NCs, el usuario decide).
-      // Aquí podrías añadir un guard: bloquear si hay NCs activas.
+      // Bloquear borrado de factura con NCs asociadas
       if (venta.tipo_documento === 'factura') {
         const ncsAsociadas = await req.db.collection(CONFIG.colVentas).countDocuments({
           tipo_documento: 'nota_credito',
@@ -2167,10 +2274,6 @@ router.delete(
 // ============================================================
 // HELPERS DE GENERACIÓN DE CLAVE + XML
 // ============================================================
-/**
- * Asegura que una venta tenga clave + XML generados.
- * Usa guard atómico en el update para evitar race entre GETs.
- */
 async function asegurarClaveYXml(db, venta, opts = {}) {
   const { persistir = true } = opts;
 
@@ -2357,3 +2460,4 @@ module.exports._asegurarClaveYXml = asegurarClaveYXml;
 module.exports._configRucValido = configRucValido;
 module.exports._resolverFacturaOriginalNC = resolverFacturaOriginalNC;
 module.exports._calcularSaldoAcreditable = calcularSaldoAcreditable;
+module.exports._validarImpuestosRetencion = validarImpuestosRetencion;
