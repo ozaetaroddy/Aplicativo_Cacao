@@ -52,6 +52,9 @@
 //
 //   [Monitores] Render y similares hacen `HEAD /` para healthcheck.
 //          Sin handler, devolvían 404 → ruido en logs. Añadido.
+//
+//   [Warnings] Simplificada la condición redundante
+//          `!X || X !== 'true'` → `X !== 'true'`.
 // ============================================================
 'use strict';
 
@@ -69,8 +72,6 @@
 //
 // Además, `require('dotenv')` y otros módulos pueden hacer DNS en
 // su init, así que este bloque va ANTES de cualquier require.
-// ------------------------------------------------------------
-// backend/server.js — al inicio, después de 'use strict';
 // ------------------------------------------------------------
 // 🔧 FIX IPv6 (parte 2): Node 20+ activa autoSelectFamily (Happy
 //    Eyeballs) por default, lo que HACE QUE LA OPCIÓN `family: 4`
@@ -630,14 +631,16 @@ async function bootstrap() {
     if (!process.env.CORS_ORIGINS && IS_PROD) {
       log.warn('⚠️  CORS_ORIGINS no definido en producción — CORS cerrado por defecto.');
     }
-    if (!process.env.COOKIE_CROSS_SITE || process.env.COOKIE_CROSS_SITE !== 'true') {
-      if (IS_PROD) {
-        log.warn(
-          '⚠️  COOKIE_CROSS_SITE no está en "true". Si el frontend y el backend ' +
-          'están en dominios distintos (ej: vercel.app ↔ onrender.com), las cookies ' +
-          'NO viajarán y la sesión se caerá cada 15 min.'
-        );
-      }
+    // 🔧 FIX: condición simplificada. Antes era
+    //    `!X || X !== 'true'` (redundante: si X no existe, `X !== 'true'`
+    //    ya es true). El warning se dispara exactamente cuando NO está
+    //    configurado en 'true' — que es lo que queremos.
+    if (IS_PROD && process.env.COOKIE_CROSS_SITE !== 'true') {
+      log.warn(
+        '⚠️  COOKIE_CROSS_SITE no está en "true". Si el frontend y el backend ' +
+        'están en dominios distintos (ej: vercel.app ↔ onrender.com), las cookies ' +
+        'NO viajarán y la sesión se caerá cada 15 min.'
+      );
     }
   });
 

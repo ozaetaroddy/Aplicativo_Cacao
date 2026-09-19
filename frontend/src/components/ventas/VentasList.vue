@@ -5,9 +5,9 @@
       <div>
         <h1 class="page-title">
           <span class="title-icon"><i class="fas fa-hand-holding-usd" aria-hidden="true"></i></span>
-          Ventas
+          {{ tituloPagina }}
         </h1>
-        <p class="page-subtitle">Gestiona y consulta todos tus comprobantes de venta</p>
+        <p class="page-subtitle">{{ subtituloPagina }}</p>
       </div>
       <div class="page-header-actions">
         <button type="button" class="btn-secondary-action" @click="irEnvioSri">
@@ -56,8 +56,34 @@
     <!-- ===== FILTROS ===== -->
     <div class="filters-bar">
       <div class="filters-group">
+        <!-- Filtro por tipo de documento -->
+        <div class="filter-tipo-wrapper">
+          <label for="filtro-tipo-doc" class="filters-label">
+            <i class="fas fa-file-alt" aria-hidden="true"></i> Tipo:
+          </label>
+          <select
+            id="filtro-tipo-doc"
+            class="filter-select"
+            v-model="filtroTipoDoc"
+            @change="reload"
+            aria-label="Filtrar por tipo de documento"
+          >
+            <option value="">Todos los tipos</option>
+            <option value="factura">Facturas</option>
+            <option value="nota_credito">Notas de Crédito</option>
+            <option value="nota_debito">Notas de Débito</option>
+            <option value="guia_remision">Guías de Remisión</option>
+            <option value="retencion">Retenciones</option>
+            <option value="liquidacion">Liquidaciones</option>
+            <option value="exportacion">Facturas de Exportación</option>
+            <option value="reembolso">Facturas de Reembolso</option>
+            <option value="proforma">Proformas</option>
+          </select>
+        </div>
+
+        <!-- Filtro por estado SRI -->
         <span class="filters-label">
-          <i class="fas fa-filter" aria-hidden="true"></i> Filtrar:
+          <i class="fas fa-filter" aria-hidden="true"></i> Estado:
         </span>
         <button
           type="button"
@@ -142,7 +168,6 @@
                 <th style="width:200px;" class="text-center">Acciones</th>
               </tr>
             </thead>
-            <!-- 🔧 FIX: `aria-busy="{{ }}"` era Vue 2. Ahora binding Vue 3. -->
             <tbody :aria-busy="loading ? 'true' : 'false'">
               <template v-if="loading">
                 <tr v-for="n in 5" :key="`sk-${n}`">
@@ -156,15 +181,23 @@
                 <td colspan="8" class="empty-state-cell">
                   <div class="empty-state">
                     <div class="empty-icon"><i class="fas fa-file-invoice" aria-hidden="true"></i></div>
-                    <div class="empty-title">No hay ventas registradas</div>
-                    <div class="empty-text">
-                      {{ filtroEstadoSri
-                        ? `No hay ventas con estado "${filtroEstadoSri}"`
-                        : 'Crea tu primera venta para comenzar' }}
-                    </div>
-                    <router-link to="/ventas/nuevo" class="btn-empty-action">
+                    <div class="empty-title">{{ tituloEmpty }}</div>
+                    <div class="empty-text">{{ textoEmpty }}</div>
+                    <router-link
+                      v-if="!hayFiltrosActivos"
+                      to="/ventas/nuevo"
+                      class="btn-empty-action"
+                    >
                       <i class="fas fa-plus" aria-hidden="true"></i> Crear Nueva Venta
                     </router-link>
+                    <button
+                      v-else
+                      type="button"
+                      class="btn-empty-action"
+                      @click="limpiarTodosFiltros"
+                    >
+                      <i class="fas fa-undo" aria-hidden="true"></i> Limpiar filtros
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -193,7 +226,9 @@
                     </div>
                   </div>
                 </td>
-                <td><span class="badge-tipo">{{ v.tipo_documento || 'N/A' }}</span></td>
+                <td>
+                  <span class="badge-tipo">{{ labelTipoDoc(v.tipo_documento) }}</span>
+                </td>
                 <td class="text-end">
                   <div class="cell-total">${{ formatMonto(v.total) }}</div>
                 </td>
@@ -287,7 +322,6 @@
                       <i class="fas fa-eye" aria-hidden="true"></i>
                     </button>
                     <div class="dropdown-more">
-                      <!-- 🔧 FIX: menuAbierto guarda String(id); comparar con String(v._id) -->
                       <button
                         type="button"
                         class="action-icon-btn btn-action-secondary"
@@ -421,8 +455,6 @@
     </div>
 
     <!-- ===== MODAL CONFIRMACIÓN (TELEPORTADO) ===== -->
-    <!-- 🔧 FIX: teleportado para no romper el stacking context si
-         hay otro modal abierto (ej. el de email). -->
     <Teleport to="body">
       <div
         class="modal fade"
@@ -471,7 +503,6 @@
     </Teleport>
 
     <!-- ===== MODAL EMAIL ===== -->
-    <!-- 🔧 FIX: usamos ref + expose para abrirlo programáticamente. -->
     <EnviarEmailModal
       ref="emailModalRef"
       :venta="ventaParaEmail"
@@ -490,13 +521,14 @@ import {
   onMounted,
   onBeforeUnmount
 } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 import EnviarEmailModal from './EnviarEmailModal.vue'
 
 const router = useRouter()
+const route = useRoute()
 const toast = useToast()
 
 // ===== CONSTANTES =====
@@ -504,6 +536,21 @@ const SEARCH_DEBOUNCE_MS = 400
 const ESTADOS_SRI_VALIDOS = new Set([
   'PENDIENTE', 'FIRMADO', 'AUTORIZADO', 'RECHAZADA', 'DEVUELTA', 'RECIBIDA'
 ])
+const TIPOS_DOC_VALIDOS = new Set([
+  'factura', 'nota_credito', 'nota_debito', 'guia_remision',
+  'retencion', 'liquidacion', 'exportacion', 'reembolso', 'proforma'
+])
+const LABELS_TIPO_DOC = Object.freeze({
+  factura: 'Factura',
+  nota_credito: 'Nota de Crédito',
+  nota_debito: 'Nota de Débito',
+  guia_remision: 'Guía de Remisión',
+  retencion: 'Retención',
+  liquidacion: 'Liquidación',
+  exportacion: 'Exportación',
+  reembolso: 'Reembolso',
+  proforma: 'Proforma'
+})
 
 // ===== STATE =====
 const ventas = ref([])
@@ -515,6 +562,14 @@ const loading = ref(false)
 const searchInput = ref('')
 const search = ref('')
 const filtroEstadoSri = ref('')
+
+// 🆕 Filtro por tipo de documento (alimentado por query param)
+const filtroTipoDoc = ref(
+  TIPOS_DOC_VALIDOS.has(String(route.query.tipo_documento || ''))
+    ? String(route.query.tipo_documento)
+    : ''
+)
+
 const menuAbierto = ref(null)
 const ventaParaEmail = ref(null)
 const emailModalRef = ref(null)
@@ -552,7 +607,9 @@ const formatFecha = (f) => {
   if (!f) return ''
   try {
     return new Date(f).toLocaleDateString('es-EC', {
-      day: '2-digit', month: 'short', year: 'numeric'
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
     })
   } catch {
     return ''
@@ -563,7 +620,8 @@ const formatHora = (f) => {
   if (!f) return ''
   try {
     return new Date(f).toLocaleTimeString('es-EC', {
-      hour: '2-digit', minute: '2-digit'
+      hour: '2-digit',
+      minute: '2-digit'
     })
   } catch {
     return ''
@@ -578,7 +636,15 @@ const formatMonto = (n) => {
 
 const getInitials = (n) => {
   if (!n || typeof n !== 'string') return '?'
-  return n.split(/\s+/).filter(Boolean).map(x => x[0]).slice(0, 2).join('').toUpperCase() || '?'
+  return (
+    n
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((x) => x[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?'
+  )
 }
 
 const escapeHtml = (s) =>
@@ -588,6 +654,8 @@ const escapeHtml = (s) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+
+const labelTipoDoc = (tipo) => LABELS_TIPO_DOC[tipo] || tipo || 'Documento'
 
 // ===== BADGES SRI =====
 const getEstadoSriClass = (estado) => {
@@ -613,6 +681,37 @@ const getEstadoSriIcon = (estado) => {
     default: return 'fas fa-circle'
   }
 }
+
+// ===== TÍTULOS DINÁMICOS =====
+const tituloPagina = computed(() =>
+  filtroTipoDoc.value === 'retencion' ? 'Retenciones Emitidas' : 'Ventas'
+)
+
+const subtituloPagina = computed(() =>
+  filtroTipoDoc.value === 'retencion'
+    ? 'Comprobantes de retención emitidos a proveedores'
+    : 'Gestiona y consulta todos tus comprobantes de venta'
+)
+
+const hayFiltrosActivos = computed(
+  () => Boolean(filtroTipoDoc.value || filtroEstadoSri.value || search.value)
+)
+
+const tituloEmpty = computed(() => {
+  if (hayFiltrosActivos.value) return 'Sin resultados'
+  return filtroTipoDoc.value === 'retencion'
+    ? 'No hay retenciones registradas'
+    : 'No hay ventas registradas'
+})
+
+const textoEmpty = computed(() => {
+  if (hayFiltrosActivos.value) {
+    return 'No hay documentos que coincidan con los filtros aplicados'
+  }
+  return filtroTipoDoc.value === 'retencion'
+    ? 'Crea tu primera retención desde Documentos → Retención'
+    : 'Crea tu primera venta para comenzar'
+})
 
 // ===== PERMISOS DE ACCIÓN =====
 const puedeFirmar = (v) =>
@@ -686,6 +785,27 @@ const limpiarBusqueda = () => {
   cargar()
 }
 
+const limpiarTodosFiltros = () => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  searchInput.value = ''
+  search.value = ''
+  filtroEstadoSri.value = ''
+  filtroTipoDoc.value = ''
+  page.value = 1
+
+  // Limpiar query params de la URL si los hay
+  const query = { ...route.query }
+  delete query.tipo_documento
+  if (Object.keys(query).length !== Object.keys(route.query).length) {
+    router.replace({ path: route.path, query })
+  }
+
+  cargar()
+}
+
 // ===== PAGINACIÓN =====
 const reload = () => {
   page.value = 1
@@ -709,7 +829,11 @@ const cambiarFiltroSri = (estado) => {
 // ===== CARGA PRINCIPAL =====
 const cargar = async () => {
   if (abortController) {
-    try { abortController.abort() } catch { /* noop */ }
+    try {
+      abortController.abort()
+    } catch {
+      /* noop */
+    }
   }
   abortController = new AbortController()
   const mySeq = ++requestSeq
@@ -723,6 +847,8 @@ const cargar = async () => {
     params.set('sortDir', 'desc')
     if (search.value) params.set('search', search.value)
     if (filtroEstadoSri.value) params.set('estado_sri', filtroEstadoSri.value)
+    // 🆕 Filtro por tipo de documento
+    if (filtroTipoDoc.value) params.set('tipo_documento', filtroTipoDoc.value)
 
     const res = await api.request(`/ventas?${params.toString()}`, {
       method: 'GET',
@@ -743,7 +869,7 @@ const cargar = async () => {
     }
 
     if (menuAbierto.value) {
-      const sigue = ventas.value.some(v => String(v._id) === String(menuAbierto.value))
+      const sigue = ventas.value.some((v) => String(v._id) === String(menuAbierto.value))
       if (!sigue) menuAbierto.value = null
     }
   } catch (e) {
@@ -787,7 +913,9 @@ const toggleMenuAcciones = (id) => {
   menuAbierto.value = menuAbierto.value === s ? null : s
 }
 
-const cerrarMenu = () => { menuAbierto.value = null }
+const cerrarMenu = () => {
+  menuAbierto.value = null
+}
 
 const handleClickOutside = () => cerrarMenu()
 
@@ -807,8 +935,9 @@ const ejecutarAccionSri = async (row, { url, confirmOpts, loadingMsg }) => {
     if (res?.success) {
       toast.success(`✅ Autorizado: ${res.numero_autorizacion || 'S/N'}`)
     } else if (['RECHAZADA', 'DEVUELTA'].includes(res?.estado)) {
-      const msgs = (res?.mensajes || []).slice(0, 2)
-        .map(m => `${m.identificador || ''}: ${m.mensaje || ''}`.trim())
+      const msgs = (res?.mensajes || [])
+        .slice(0, 2)
+        .map((m) => `${m.identificador || ''}: ${m.mensaje || ''}`.trim())
         .filter(Boolean)
         .join(' | ')
       toast.error(`❌ Rechazado: ${msgs || 'Sin detalle'}`, { timeout: 8000 })
@@ -823,31 +952,33 @@ const ejecutarAccionSri = async (row, { url, confirmOpts, loadingMsg }) => {
   }
 }
 
-const firmar = (row) => ejecutarAccionSri(row, {
-  url: `/ventas/${row._id}/firmar`,
-  loadingMsg: 'Firmando…',
-  confirmOpts: {
-    titulo: 'Firmar documento',
-    mensaje: `¿Firmar electrónicamente <strong>${escapeHtml(row.numero_factura)}</strong>?`,
-    detalle: 'Se usará el certificado configurado actualmente.',
-    textoConfirmar: 'Firmar',
-    variante: 'warning',
-    icono: 'fas fa-signature'
-  }
-})
+const firmar = (row) =>
+  ejecutarAccionSri(row, {
+    url: `/ventas/${row._id}/firmar`,
+    loadingMsg: 'Firmando…',
+    confirmOpts: {
+      titulo: 'Firmar documento',
+      mensaje: `¿Firmar electrónicamente <strong>${escapeHtml(row.numero_factura)}</strong>?`,
+      detalle: 'Se usará el certificado configurado actualmente.',
+      textoConfirmar: 'Firmar',
+      variante: 'warning',
+      icono: 'fas fa-signature'
+    }
+  })
 
-const enviarAlSRI = (row) => ejecutarAccionSri(row, {
-  url: `/sri/enviar/${row._id}`,
-  loadingMsg: 'Enviando al SRI…',
-  confirmOpts: {
-    titulo: 'Enviar al SRI',
-    mensaje: `¿Enviar <strong>${escapeHtml(row.numero_factura)}</strong> al SRI?`,
-    detalle: 'Esta acción consume tiempo del servidor. No cierres la ventana.',
-    textoConfirmar: 'Enviar',
-    variante: 'success',
-    icono: 'fas fa-paper-plane'
-  }
-})
+const enviarAlSRI = (row) =>
+  ejecutarAccionSri(row, {
+    url: `/sri/enviar/${row._id}`,
+    loadingMsg: 'Enviando al SRI…',
+    confirmOpts: {
+      titulo: 'Enviar al SRI',
+      mensaje: `¿Enviar <strong>${escapeHtml(row.numero_factura)}</strong> al SRI?`,
+      detalle: 'Esta acción consume tiempo del servidor. No cierres la ventana.',
+      textoConfirmar: 'Enviar',
+      variante: 'success',
+      icono: 'fas fa-paper-plane'
+    }
+  })
 
 const consultarSRI = async (row) => {
   const id = String(row._id)
@@ -878,7 +1009,9 @@ const descargarXML = async (row, firmado) => {
     const endpoint = firmado
       ? `/ventas/${row._id}/xml-firmado`
       : `/ventas/${row._id}/xml`
-    const nombreArchivo = `${row.clave_acceso || 'comprobante'}${firmado ? '_firmado' : ''}.xml`
+    const nombreArchivo = `${row.clave_acceso || 'comprobante'}${
+      firmado ? '_firmado' : ''
+    }.xml`
 
     await api.download(endpoint, nombreArchivo)
     if (!unmounted) toast.success('XML descargado')
@@ -891,16 +1024,14 @@ const descargarXML = async (row, firmado) => {
 const abrirModalEmail = (row) => {
   cerrarMenu()
   ventaParaEmail.value = row
-  // 🔧 FIX: el modal expone `abrir()`; lo invocamos tras un tick
-  //    para que el watcher interno (que carga historial con el
-  //    nuevo `venta`) haya corrido al menos una vez.
   nextTick(() => {
     emailModalRef.value?.abrir?.()
   })
 }
 
 // ===== NAVEGACIÓN =====
-const irDocumento = (row) => router.push(`/consultar-documentos?tipo=venta&id=${row._id}`)
+const irDocumento = (row) =>
+  router.push(`/consultar-documentos?tipo=venta&id=${row._id}`)
 const irEnvioSri = () => router.push('/envio-sri')
 
 const editar = (row) => {
@@ -951,7 +1082,9 @@ const confirmarEliminar = async (row) => {
 }
 
 // ===== WATCH =====
-watch([search, filtroEstadoSri], () => { cerrarMenu() })
+watch([search, filtroEstadoSri, filtroTipoDoc], () => {
+  cerrarMenu()
+})
 
 // ===== LIFECYCLE =====
 onMounted(() => {
@@ -969,11 +1102,19 @@ onBeforeUnmount(() => {
   }
 
   if (abortController) {
-    try { abortController.abort() } catch { /* noop */ }
+    try {
+      abortController.abort()
+    } catch {
+      /* noop */
+    }
     abortController = null
   }
 
-  try { modalConfirm?.hide() } catch { /* noop */ }
+  try {
+    modalConfirm?.hide()
+  } catch {
+    /* noop */
+  }
 
   if (confirmState.resolve) {
     confirmState.resolve(false)
@@ -983,10 +1124,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ============================================================
-   Los estilos se mantienen idénticos al original.
-   Se agregó solo `.modal-content-clean` que ya existía.
-   ============================================================ */
 .ventas-page { display: flex; flex-direction: column; gap: 20px; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
 .page-title { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; color: var(--text-primary); letter-spacing: -0.03em; display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
@@ -1009,7 +1146,36 @@ onBeforeUnmount(() => {
 
 .filters-bar { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .filters-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.filters-label { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; display: flex; align-items: center; gap: 6px; margin-right: 8px; }
+.filters-label { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; display: flex; align-items: center; gap: 6px; margin-right: 4px; }
+
+.filter-tipo-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  border-right: 1px solid var(--border-color);
+  margin-right: 4px;
+}
+.filter-select {
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: all var(--transition-fast);
+  min-width: 160px;
+}
+.filter-select:hover { border-color: var(--border-strong); }
+.filter-select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--shadow-focus);
+}
+
 .filter-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius-full); background: var(--bg-table-stripe); border: 1.5px solid var(--border-color); font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; transition: all var(--transition-fast); font-family: inherit; }
 .filter-chip:hover { border-color: var(--primary-color); color: var(--primary-color); }
 .filter-chip.active { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
@@ -1052,9 +1218,12 @@ onBeforeUnmount(() => {
 .action-icon-btn { width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 0.78rem; transition: all var(--transition-fast); padding: 0; }
 .action-icon-btn:hover:not(:disabled) { transform: translateY(-1px); }
 .action-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-action-warning { border-color: #f39c12; color: #f39c12; } .btn-action-warning:hover:not(:disabled) { background: #f39c12; color: #fff; }
-.btn-action-success { border-color: #27ae60; color: #27ae60; } .btn-action-success:hover:not(:disabled) { background: #27ae60; color: #fff; }
-.btn-action-info { border-color: #3498db; color: #3498db; } .btn-action-info:hover:not(:disabled) { background: #3498db; color: #fff; }
+.btn-action-warning { border-color: #f39c12; color: #f39c12; }
+.btn-action-warning:hover:not(:disabled) { background: #f39c12; color: #fff; }
+.btn-action-success { border-color: #27ae60; color: #27ae60; }
+.btn-action-success:hover:not(:disabled) { background: #27ae60; color: #fff; }
+.btn-action-info { border-color: #3498db; color: #3498db; }
+.btn-action-info:hover:not(:disabled) { background: #3498db; color: #fff; }
 .btn-action-secondary:hover:not(:disabled) { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
 
 .dropdown-more { position: relative; }
@@ -1083,7 +1252,8 @@ onBeforeUnmount(() => {
 .empty-icon { width: 80px; height: 80px; border-radius: 50%; background: var(--bg-table-stripe); display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 2rem; }
 .empty-title { font-weight: 700; font-size: 1.05rem; }
 .empty-text { font-size: 0.85rem; color: var(--text-muted); max-width: 380px; }
-.btn-empty-action { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; background: var(--primary-color); color: #fff; border-radius: var(--radius-md); font-weight: 600; text-decoration: none; }
+.btn-empty-action { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; background: var(--primary-color); color: #fff; border-radius: var(--radius-md); font-weight: 600; text-decoration: none; border: none; cursor: pointer; font-family: inherit; }
+.btn-empty-action:hover { background: var(--primary-hover); color: #fff; }
 .skeleton-line { height: 14px; background: linear-gradient(90deg, var(--border-light) 25%, var(--bg-table-stripe) 50%, var(--border-light) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; }
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 .modal-content-clean { border-radius: 14px; overflow: hidden; border: none; }
@@ -1095,5 +1265,7 @@ onBeforeUnmount(() => {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .filters-bar { flex-direction: column; align-items: stretch; }
   .search-box { min-width: 0; width: 100%; }
+  .filter-tipo-wrapper { border-right: none; padding-right: 0; }
+  .filter-select { width: 100%; }
 }
 </style>

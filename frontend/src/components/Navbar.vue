@@ -70,6 +70,19 @@
                     <span>Bandeja de Ventas</span>
                   </router-link>
                 </li>
+
+                <!-- 🆕 RETENCIONES EMITIDAS (filtro dentro de Ventas) -->
+                <li v-if="puedeVerVentas">
+                  <router-link
+                    class="dropdown-link"
+                    :to="{ path: '/ventas', query: { tipo_documento: 'retencion' } }"
+                    @click="cerrarTodo"
+                  >
+                    <i class="fas fa-percent" aria-hidden="true"></i>
+                    <span>Retenciones emitidas</span>
+                  </router-link>
+                </li>
+
                 <li v-if="puedeVerCompras">
                   <router-link class="dropdown-link" to="/compras" @click="cerrarTodo">
                     <i class="fas fa-inbox" aria-hidden="true"></i>
@@ -92,7 +105,6 @@
                     </router-link>
                   </li>
 
-                  <!-- 🆕 NUEVA COMPRA -->
                   <li v-if="puedeCrearCompras">
                     <router-link
                       class="dropdown-link highlight-compra"
@@ -328,42 +340,6 @@
                   <router-link class="dropdown-link" to="/periodos-cerrados" @click="cerrarTodo">
                     <i class="fas fa-lock" aria-hidden="true"></i>
                     <span>Períodos cerrados</span>
-                  </router-link>
-                </li>
-              </ul>
-            </transition>
-          </li>
-
-          <!-- RETENCIONES -->
-          <li
-            v-if="puedeVerRetenciones"
-            class="nav-dropdown"
-            :class="{ open: dropdowns.retenciones }"
-          >
-            <button
-              type="button"
-              class="nav-item"
-              :class="{ active: rutaActiva(['/retenciones']) }"
-              @click.stop="toggleDropdown('retenciones', $event)"
-              :aria-expanded="dropdowns.retenciones ? 'true' : 'false'"
-              aria-haspopup="true"
-            >
-              <i class="fas fa-percent" aria-hidden="true"></i>
-              <span>Retenciones</span>
-              <i class="fas fa-chevron-down nav-caret" aria-hidden="true"></i>
-            </button>
-            <transition name="dropdown">
-              <ul v-if="dropdowns.retenciones" class="dropdown-panel">
-                <li>
-                  <router-link class="dropdown-link" to="/retenciones" @click="cerrarTodo">
-                    <i class="fas fa-list" aria-hidden="true"></i>
-                    <span>Lista de retenciones</span>
-                  </router-link>
-                </li>
-                <li v-if="puedeCrearRetenciones">
-                  <router-link class="dropdown-link" to="/retenciones/nuevo" @click="cerrarTodo">
-                    <i class="fas fa-plus" aria-hidden="true"></i>
-                    <span>Nueva retención</span>
                   </router-link>
                 </li>
               </ul>
@@ -627,6 +603,18 @@
                   Bandeja de Ventas
                 </router-link>
               </li>
+
+              <!-- 🆕 RETENCIONES EMITIDAS -->
+              <li v-if="puedeVerVentas">
+                <router-link
+                  class="mobile-subitem"
+                  :to="{ path: '/ventas', query: { tipo_documento: 'retencion' } }"
+                  @click="cerrarTodo"
+                >
+                  Retenciones emitidas
+                </router-link>
+              </li>
+
               <li v-if="puedeVerCompras">
                 <router-link class="mobile-subitem" to="/compras" @click="cerrarTodo">
                   Bandeja de Compras
@@ -638,7 +626,6 @@
                 </router-link>
               </li>
 
-              <!-- 🆕 NUEVA COMPRA -->
               <li v-if="puedeCrearCompras">
                 <router-link class="mobile-subitem mobile-subitem-highlight" to="/compras/nuevo" @click="cerrarTodo">
                   Nueva Compra
@@ -736,13 +723,6 @@
             </ul>
           </li>
 
-          <li v-if="puedeVerRetenciones">
-            <router-link class="mobile-nav-item" to="/retenciones" @click="cerrarTodo">
-              <i class="fas fa-percent" aria-hidden="true"></i>
-              <span>Retenciones</span>
-            </router-link>
-          </li>
-
           <li v-if="puedeVerUsuarios || puedeVerAuditoria">
             <button
               type="button"
@@ -776,7 +756,8 @@ import {
   computed,
   onMounted,
   onBeforeUnmount,
-  nextTick
+  nextTick,
+  watch
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './SearchBar.vue'
@@ -788,7 +769,6 @@ import { api } from '../services/api'
 const router = useRouter()
 const route = useRoute()
 
-// 🆕 useAuth() → user es reactivo y ya no lee localStorage directo
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
 
@@ -803,12 +783,12 @@ const searchBar = ref(null)
 const certificadoInfo = ref(null)
 const estadoSri = ref(null)
 
+// 🔧 Refactor: ya NO existe la key `retenciones`
 const dropdowns = ref({
   documentos: false,
   maestros: false,
   inventarios: false,
   reportes: false,
-  retenciones: false,
   admin: false
 })
 
@@ -823,7 +803,7 @@ let visibilityHandler = null
 const puedeVerVentas = computed(() => puede('ventas', 'ver'))
 const puedeCrearVentas = computed(() => puede('ventas', 'crear'))
 const puedeVerCompras = computed(() => puede('compras', 'ver'))
-const puedeCrearCompras = computed(() => puede('compras', 'crear')) // 🆕
+const puedeCrearCompras = computed(() => puede('compras', 'crear'))
 const puedeVerClientes = computed(() => puede('clientes', 'ver'))
 const puedeVerProveedores = computed(() => puede('proveedores', 'ver'))
 const puedeVerProductos = computed(() => puede('productos', 'ver'))
@@ -832,8 +812,6 @@ const puedeVerInventario = computed(() => puede('inventario', 'ver'))
 const puedeEditarInventario = computed(() => puede('inventario', 'editar'))
 const puedeVerKardex = computed(() => puede('kardex', 'ver'))
 const puedeVerReportes = computed(() => puede('reportes', 'ver'))
-const puedeVerRetenciones = computed(() => puede('retenciones', 'ver'))
-const puedeCrearRetenciones = computed(() => puede('retenciones', 'crear'))
 const puedeVerAuditoria = computed(() => puede('auditoria', 'ver'))
 const puedeVerUsuarios = computed(() => puede('usuarios', 'ver'))
 
@@ -861,7 +839,11 @@ const cargarInfoSistema = async () => {
   if (unmounted) return
 
   if (infoAbort) {
-    try { infoAbort.abort() } catch { /* noop */ }
+    try {
+      infoAbort.abort()
+    } catch {
+      /* noop */
+    }
   }
   infoAbort = new AbortController()
 
@@ -883,7 +865,9 @@ const cargarInfoSistema = async () => {
 
     if (cert.status === 'fulfilled') certificadoInfo.value = cert.value
     if (sri.status === 'fulfilled') estadoSri.value = sri.value
-  } catch { /* silencioso */ }
+  } catch {
+    /* silencioso */
+  }
 }
 
 // ============================================================
@@ -896,7 +880,9 @@ function emitirCierreGlobal() {
     window.dispatchEvent(
       new CustomEvent('app:cerrar-dropdowns', { detail: { origen: ORIGEN } })
     )
-  } catch { /* noop */ }
+  } catch {
+    /* noop */
+  }
 }
 
 function onCierreGlobal(e) {
@@ -990,8 +976,9 @@ const handleScroll = () => {
 // ============================================================
 // ATAJOS
 // ============================================================
-const esMac = typeof navigator !== 'undefined'
-  && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '')
+const esMac =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '')
 
 const handleKeyboard = (e) => {
   if (!e.isTrusted) return
@@ -1026,7 +1013,11 @@ const handleKeyboard = (e) => {
   }
 
   if (
-    e.altKey && !e.ctrlKey && !e.metaKey && !esMac && !esInput &&
+    e.altKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !esMac &&
+    !esInput &&
     /^[1-9]$/.test(e.key)
   ) {
     e.preventDefault()
@@ -1052,10 +1043,22 @@ const handleKeyboard = (e) => {
 // ============================================================
 // NAVEGACIÓN
 // ============================================================
-const irPerfil = () => { cerrarTodo(); router.push('/mi-perfil') }
-const irConfigEmpresa = () => { cerrarTodo(); router.push('/configuracion-empresa') }
-const irCertificado = () => { cerrarTodo(); router.push('/certificado-firma') }
-const irEnvioSri = () => { cerrarTodo(); router.push('/envio-sri') }
+const irPerfil = () => {
+  cerrarTodo()
+  router.push('/mi-perfil')
+}
+const irConfigEmpresa = () => {
+  cerrarTodo()
+  router.push('/configuracion-empresa')
+}
+const irCertificado = () => {
+  cerrarTodo()
+  router.push('/certificado-firma')
+}
+const irEnvioSri = () => {
+  cerrarTodo()
+  router.push('/envio-sri')
+}
 
 const cerrarSesion = async () => {
   cerrarTodo()
@@ -1103,10 +1106,12 @@ const detenerPolling = () => {
 // ============================================================
 // WATCH
 // ============================================================
-import { watch } from 'vue'
-watch(() => route.path, () => {
-  cerrarTodoInterno()
-})
+watch(
+  () => route.path,
+  () => {
+    cerrarTodoInterno()
+  }
+)
 
 // ============================================================
 // LIFECYCLE
@@ -1114,7 +1119,9 @@ watch(() => route.path, () => {
 onMounted(async () => {
   try {
     await cargarPermisos()
-  } catch { /* noop */ }
+  } catch {
+    /* noop */
+  }
 
   await cargarInfoSistema()
   iniciarPolling()
@@ -1154,7 +1161,11 @@ onBeforeUnmount(() => {
     scrollRafId = null
   }
   if (infoAbort) {
-    try { infoAbort.abort() } catch { /* noop */ }
+    try {
+      infoAbort.abort()
+    } catch {
+      /* noop */
+    }
     infoAbort = null
   }
   detenerPolling()
@@ -1225,7 +1236,9 @@ onBeforeUnmount(() => {
   transition: background 0.2s ease;
   flex-shrink: 0;
 }
-.brand:hover { background: rgba(255, 255, 255, 0.08); }
+.brand:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
 
 .brand-logo {
   width: 36px;
@@ -1315,7 +1328,9 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
 }
 
-.nav-item > i:first-child { font-size: 0.88rem; }
+.nav-item > i:first-child {
+  font-size: 0.88rem;
+}
 
 .nav-caret {
   font-size: 0.58rem;
@@ -1334,18 +1349,32 @@ onBeforeUnmount(() => {
   margin-left: 2px;
   animation: pulse-dot 2s infinite;
 }
-.nav-alert-dot.warning { background: #f59e0b; }
-.nav-alert-dot.info { background: #0ea5e9; }
+.nav-alert-dot.warning {
+  background: #f59e0b;
+}
+.nav-alert-dot.info {
+  background: #0ea5e9;
+}
 
 @keyframes pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
-  50% { box-shadow: 0 0 0 4px transparent; opacity: 0.7; }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 4px transparent;
+    opacity: 0.7;
+  }
 }
 
 /* ============================================================
    DROPDOWN PANEL
    ============================================================ */
-.nav-dropdown { position: relative; overflow: visible; }
+.nav-dropdown {
+  position: relative;
+  overflow: visible;
+}
 
 .dropdown-panel {
   position: absolute;
@@ -1369,13 +1398,27 @@ onBeforeUnmount(() => {
   overflow-x: visible;
 }
 
-.dropdown-panel.dropdown-panel--right { left: auto; right: 0; }
-.dropdown-panel.dropdown-panel-right { left: auto; right: 0; }
-.dropdown-panel.dropdown-panel-wide { min-width: 300px; }
+.dropdown-panel.dropdown-panel--right {
+  left: auto;
+  right: 0;
+}
+.dropdown-panel.dropdown-panel-right {
+  left: auto;
+  right: 0;
+}
+.dropdown-panel.dropdown-panel-wide {
+  min-width: 300px;
+}
 
 @keyframes dropdown-in {
-  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .dropdown-section {
@@ -1407,23 +1450,32 @@ onBeforeUnmount(() => {
   text-align: center;
   transition: transform 0.15s ease;
 }
-.dropdown-link > span:first-of-type { flex: 1; }
+.dropdown-link > span:first-of-type {
+  flex: 1;
+}
 .dropdown-link:hover {
   background: var(--primary-color, #2563eb);
   color: #fff;
 }
-.dropdown-link:hover > i { color: #fff; transform: scale(1.1); }
+.dropdown-link:hover > i {
+  color: #fff;
+  transform: scale(1.1);
+}
 
 .dropdown-link.highlight-compra {
   background: rgba(139, 92, 246, 0.08);
   border: 1px solid rgba(139, 92, 246, 0.2);
 }
-.dropdown-link.highlight-compra > i { color: #a78bfa; }
+.dropdown-link.highlight-compra > i {
+  color: #a78bfa;
+}
 .dropdown-link.highlight-compra:hover {
   background: #7c3aed;
   color: #fff;
 }
-.dropdown-link.highlight-compra:hover > i { color: #fff; }
+.dropdown-link.highlight-compra:hover > i {
+  color: #fff;
+}
 
 .shortcut {
   font-size: 0.65rem;
@@ -1445,8 +1497,14 @@ onBeforeUnmount(() => {
   min-width: 22px;
   text-align: center;
 }
-.badge-mini.info { background: rgba(14,165,233,0.15); color: #0ea5e9; }
-.badge-mini.warning { background: rgba(245,158,11,0.15); color: #d97706; }
+.badge-mini.info {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0ea5e9;
+}
+.badge-mini.warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+}
 
 .dropdown-divider {
   height: 1px;
@@ -1509,11 +1567,26 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
-[data-rol="admin"]    { --rol-c1: #ef4444; --rol-c2: #dc2626; }
-[data-rol="contador"] { --rol-c1: #3b82f6; --rol-c2: #2563eb; }
-[data-rol="vendedor"] { --rol-c1: #10b981; --rol-c2: #059669; }
-[data-rol="bodeguero"]{ --rol-c1: #f59e0b; --rol-c2: #d97706; }
-[data-rol="auditor"]  { --rol-c1: #8b5cf6; --rol-c2: #7c3aed; }
+[data-rol='admin'] {
+  --rol-c1: #ef4444;
+  --rol-c2: #dc2626;
+}
+[data-rol='contador'] {
+  --rol-c1: #3b82f6;
+  --rol-c2: #2563eb;
+}
+[data-rol='vendedor'] {
+  --rol-c1: #10b981;
+  --rol-c2: #059669;
+}
+[data-rol='bodeguero'] {
+  --rol-c1: #f59e0b;
+  --rol-c2: #d97706;
+}
+[data-rol='auditor'] {
+  --rol-c1: #8b5cf6;
+  --rol-c2: #7c3aed;
+}
 
 .user-name {
   font-size: 0.82rem;
@@ -1531,7 +1604,10 @@ onBeforeUnmount(() => {
   transition: transform 0.2s ease, opacity 0.2s ease;
   flex-shrink: 0;
 }
-.user-caret.rotated { transform: rotate(180deg); opacity: 1; }
+.user-caret.rotated {
+  transform: rotate(180deg);
+  opacity: 1;
+}
 
 /* ============================================================
    USER PANEL
@@ -1580,7 +1656,10 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
-.user-panel-info { flex: 1; min-width: 0; }
+.user-panel-info {
+  flex: 1;
+  min-width: 0;
+}
 .user-panel-name {
   font-size: 0.95rem;
   font-weight: 700;
@@ -1607,11 +1686,26 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
-.badge-rol-admin { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
-.badge-rol-contador { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
-.badge-rol-vendedor { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; }
-.badge-rol-bodeguero { background: rgba(245, 158, 11, 0.25); color: #fbbf24; }
-.badge-rol-auditor { background: rgba(139, 92, 246, 0.25); color: #c4b5fd; }
+.badge-rol-admin {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+.badge-rol-contador {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+.badge-rol-vendedor {
+  background: rgba(16, 185, 129, 0.25);
+  color: #6ee7b7;
+}
+.badge-rol-bodeguero {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+.badge-rol-auditor {
+  background: rgba(139, 92, 246, 0.25);
+  color: #c4b5fd;
+}
 
 .user-alert {
   display: flex;
@@ -1621,20 +1715,37 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   align-items: flex-start;
 }
-.user-alert.warning { background: rgba(245, 158, 11, 0.08); }
-.user-alert.warning > i { color: #f59e0b; }
-.user-alert.info { background: rgba(14, 165, 233, 0.08); }
-.user-alert.info > i { color: #0ea5e9; }
-.user-alert > i { font-size: 1rem; margin-top: 2px; flex-shrink: 0; }
+.user-alert.warning {
+  background: rgba(245, 158, 11, 0.08);
+}
+.user-alert.warning > i {
+  color: #f59e0b;
+}
+.user-alert.info {
+  background: rgba(14, 165, 233, 0.08);
+}
+.user-alert.info > i {
+  color: #0ea5e9;
+}
+.user-alert > i {
+  font-size: 1rem;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
 .user-alert-title {
   font-weight: 700;
   color: #fff;
   margin-bottom: 2px;
   font-size: 0.78rem;
 }
-.user-alert-text { color: rgba(255, 255, 255, 0.55); font-size: 0.72rem; }
+.user-alert-text {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.72rem;
+}
 
-.user-menu-actions { padding: 8px; }
+.user-menu-actions {
+  padding: 8px;
+}
 
 .user-action {
   display: flex;
@@ -1659,11 +1770,21 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
   text-align: center;
 }
-.user-action > span:first-of-type { flex: 1; }
-.user-action:hover { background: rgba(255, 255, 255, 0.06); }
-.user-action.danger { color: #fca5a5; }
-.user-action.danger > i { color: #ef4444; }
-.user-action.danger:hover { background: rgba(239, 68, 68, 0.15); }
+.user-action > span:first-of-type {
+  flex: 1;
+}
+.user-action:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.user-action.danger {
+  color: #fca5a5;
+}
+.user-action.danger > i {
+  color: #ef4444;
+}
+.user-action.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
 
 .user-divider {
   height: 1px;
@@ -1705,9 +1826,15 @@ onBeforeUnmount(() => {
   animation: pulse-status 2s infinite;
 }
 @keyframes pulse-status {
-  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
 }
 
 /* ============================================================
@@ -1729,7 +1856,9 @@ onBeforeUnmount(() => {
   padding: 0;
   flex-shrink: 0;
 }
-.burger:hover { background: rgba(255, 255, 255, 0.15); }
+.burger:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
 
 .burger-line {
   width: 20px;
@@ -1738,9 +1867,15 @@ onBeforeUnmount(() => {
   border-radius: 2px;
   transition: all 0.25s ease;
 }
-.burger-line.open:nth-child(1) { transform: translateY(6px) rotate(45deg); }
-.burger-line.open:nth-child(2) { opacity: 0; }
-.burger-line.open:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+.burger-line.open:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+.burger-line.open:nth-child(2) {
+  opacity: 0;
+}
+.burger-line.open:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
 
 /* ============================================================
    MENÚ MÓVIL
@@ -1797,14 +1932,19 @@ onBeforeUnmount(() => {
   color: #f59e0b;
   text-align: center;
 }
-.mobile-nav-item > span { flex: 1; }
+.mobile-nav-item > span {
+  flex: 1;
+}
 
 .mobile-caret {
   font-size: 0.7rem;
   opacity: 0.6;
   transition: transform 0.2s ease;
 }
-.mobile-nav-item.open .mobile-caret { transform: rotate(180deg); opacity: 1; }
+.mobile-nav-item.open .mobile-caret {
+  transform: rotate(180deg);
+  opacity: 1;
+}
 
 .mobile-submenu {
   list-style: none;
@@ -1882,22 +2022,53 @@ onBeforeUnmount(() => {
    ============================================================ */
 
 @media (max-width: 1500px) {
-  .navbar-inner { padding: 0 16px; gap: 12px; }
-  .navbar-left { gap: 6px; }
-  .nav-item { padding: 8px 12px; font-size: 0.84rem; }
-  .search-container { width: clamp(160px, 15vw, 240px); }
-  .user-name { max-width: 80px; }
+  .navbar-inner {
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .navbar-left {
+    gap: 6px;
+  }
+  .nav-item {
+    padding: 8px 12px;
+    font-size: 0.84rem;
+  }
+  .search-container {
+    width: clamp(160px, 15vw, 240px);
+  }
+  .user-name {
+    max-width: 80px;
+  }
 }
 
 @media (max-width: 1300px) {
-  .nav-list { margin-left: 4px; }
-  .nav-item { padding: 8px 10px; gap: 6px; font-size: 0.83rem; }
-  .nav-item > i:first-child { font-size: 0.85rem; }
-  .brand-name { font-size: 0.95rem; }
-  .search-container { width: 200px; }
-  .user-name { display: none; }
-  .user-btn { padding: 4px; max-width: 40px; }
-  .user-caret { display: none; }
+  .nav-list {
+    margin-left: 4px;
+  }
+  .nav-item {
+    padding: 8px 10px;
+    gap: 6px;
+    font-size: 0.83rem;
+  }
+  .nav-item > i:first-child {
+    font-size: 0.85rem;
+  }
+  .brand-name {
+    font-size: 0.95rem;
+  }
+  .search-container {
+    width: 200px;
+  }
+  .user-name {
+    display: none;
+  }
+  .user-btn {
+    padding: 4px;
+    max-width: 40px;
+  }
+  .user-caret {
+    display: none;
+  }
 }
 
 @media (max-width: 1150px) {
@@ -1907,28 +2078,62 @@ onBeforeUnmount(() => {
   .nav-item.active > span:not(.shortcut):not(.badge-mini):not(.nav-alert-dot) {
     display: inline;
   }
-  .nav-caret { display: none; }
-  .nav-item { padding: 9px 11px; gap: 0; }
-  .nav-alert-dot { margin-left: 2px; }
-  .dropdown-panel { left: auto; right: 0; }
+  .nav-caret {
+    display: none;
+  }
+  .nav-item {
+    padding: 9px 11px;
+    gap: 0;
+  }
+  .nav-alert-dot {
+    margin-left: 2px;
+  }
+  .dropdown-panel {
+    left: auto;
+    right: 0;
+  }
 }
 
 @media (max-width: 992px) {
-  .navbar-inner { gap: 10px; }
-  .navbar-left { flex: 0 1 auto; overflow: visible; }
-  .nav-list { display: none; }
-  .burger { display: flex; }
-  .mobile-menu { display: block; }
+  .navbar-inner {
+    gap: 10px;
+  }
+  .navbar-left {
+    flex: 0 1 auto;
+    overflow: visible;
+  }
+  .nav-list {
+    display: none;
+  }
+  .burger {
+    display: flex;
+  }
+  .mobile-menu {
+    display: block;
+  }
 
-  .search-container { width: 200px; }
+  .search-container {
+    width: 200px;
+  }
 
-  .user-name { display: inline; max-width: 90px; }
-  .user-btn { padding: 4px 10px 4px 4px; max-width: 180px; }
-  .user-caret { display: inline; }
+  .user-name {
+    display: inline;
+    max-width: 90px;
+  }
+  .user-btn {
+    padding: 4px 10px 4px 4px;
+    max-width: 180px;
+  }
+  .user-caret {
+    display: inline;
+  }
 }
 
 @media (max-width: 720px) {
-  .navbar-inner { padding: 0 12px; gap: 8px; }
+  .navbar-inner {
+    padding: 0 12px;
+    gap: 8px;
+  }
 
   .search-container {
     width: 40px;
@@ -1963,7 +2168,7 @@ onBeforeUnmount(() => {
     left: 50%;
     transform: translateX(-50%);
     transition: left 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
-                transform 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      transform 0.28s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
   }
   .search-container:focus-within :deep(.search-icon) {
     left: 14px;
@@ -1977,29 +2182,58 @@ onBeforeUnmount(() => {
     display: none !important;
   }
 
-  .user-name { display: none; }
-  .user-btn { padding: 4px; max-width: 40px; }
-  .user-caret { display: none; }
-  .brand-name { display: none; }
-  .brand-tag { display: none; }
+  .user-name {
+    display: none;
+  }
+  .user-btn {
+    padding: 4px;
+    max-width: 40px;
+  }
+  .user-caret {
+    display: none;
+  }
+  .brand-name {
+    display: none;
+  }
+  .brand-tag {
+    display: none;
+  }
 }
 
 @media (max-width: 480px) {
-  .navbar-inner { min-height: 58px; height: 58px; padding: 0 10px; }
-  .brand { padding: 4px; }
-  .brand-logo { width: 34px; height: 34px; font-size: 0.95rem; }
+  .navbar-inner {
+    min-height: 58px;
+    height: 58px;
+    padding: 0 10px;
+  }
+  .brand {
+    padding: 4px;
+  }
+  .brand-logo {
+    width: 34px;
+    height: 34px;
+    font-size: 0.95rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .nav-alert-dot,
-  .status-dot { animation: none; }
+  .status-dot {
+    animation: none;
+  }
   .dropdown-panel,
   .user-panel,
-  .mobile-menu { animation: none; }
-  .brand:hover .brand-logo { transform: none; }
+  .mobile-menu {
+    animation: none;
+  }
+  .brand:hover .brand-logo {
+    transform: none;
+  }
   .dropdown-enter-active,
   .dropdown-leave-active,
   .mobile-drawer-enter-active,
-  .mobile-drawer-leave-active { transition: none; }
+  .mobile-drawer-leave-active {
+    transition: none;
+  }
 }
 </style>

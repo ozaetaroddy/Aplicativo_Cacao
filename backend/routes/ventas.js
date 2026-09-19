@@ -45,6 +45,12 @@
 //      auto-calcula `valorRetenido = base × %`, corrige
 //      discrepancias y devuelve advertencias al cliente.
 //  10. 🆕 Se persiste `total_retenido` en el documento de retención.
+//  11. 🔴 FIX CRÍTICO (POST /): la reserva del contador se hacía
+//      DENTRO de `conTransaccion`. Si el driver reintentaba por
+//      `TransientTransactionError`, el `$inc` se ejecutaba 2+ veces
+//      → secuenciales duplicados y claves desalineadas con el
+//      `numero_factura`. Ahora se reserva FUERA, igual que en
+//      `routes/compras.js`.
 // ============================================================
 'use strict';
 
@@ -283,6 +289,21 @@ async function firmarXMLConCertificado(db, xmlSinFirma) {
 // ============================================================
 // HELPERS DE STOCK
 // ============================================================
+/**
+ * Reserva un número secuencial del contador (atómico).
+ *
+ * ⚠️  IMPORTANTE: NUNCA llamar esto dentro de `session.withTransaction`.
+ *     El `$inc` es atómico a nivel de documento y NO necesita
+ *     transacción. Si el driver reintenta el callback por
+ *     `TransientTransactionError`, el `$inc` se ejecuta múltiples
+ *     veces → secuenciales duplicados. Reservar SIEMPRE antes de
+ *     abrir la transacción.
+ *
+ * @param {Db} db
+ * @param {string} tipoDoc
+ * @param {ClientSession|null} [session]  Solo por compat con llamadas
+ *   externas; el flujo normal debe pasarlo como `null`/omitido.
+ */
 async function reservarContador(db, tipoDoc, session = null) {
   const opts = { upsert: true, returnDocument: 'after' };
   if (session) opts.session = session;
@@ -552,14 +573,6 @@ async function calcularSaldoAcreditable(db, facturaId) {
 // - Corrige discrepancias (por ej. si el usuario envía un %
 //   distinto al del catálogo, gana el del catálogo).
 // - Devuelve advertencias legibles + total retenido.
-//
-// @returns {{
-//   ok: boolean,
-//   error?: string,
-//   impuestos?: object[],
-//   advertencias?: string[],
-//   totalRetenido?: number
-// }}
 // ============================================================
 function validarYNormalizarImpuestosRetencion(body) {
   const arr = body?.impuestos_retencion;
@@ -594,20 +607,17 @@ function validarYNormalizarImpuestosRetencion(body) {
       return { ok: false, error: `Impuesto #${idx}: baseImponible debe ser >= 0` };
     }
 
-    // Determinar impuesto declarado (RENTA | IVA)
     let impuestoDeclarado = String(imp.impuesto || imp.impuesto_retencion || '')
       .trim()
       .toUpperCase();
 
     if (!impuestoDeclarado) {
-      // Inferir desde `codigo` ('1' = RENTA, '2' = IVA) o desde el catálogo
       const codigoNum = String(imp.codigo || '').trim();
       if (codigoNum === '1') impuestoDeclarado = 'RENTA';
       else if (codigoNum === '2') impuestoDeclarado = 'IVA';
     }
 
     if (!impuestoDeclarado) {
-      // Último fallback: buscar por código en el catálogo sin filtrar
       const catAny = buscarRetencion(codigoRetencion);
       if (catAny) impuestoDeclarado = catAny.impuesto;
     }
@@ -619,17 +629,14 @@ function validarYNormalizarImpuestosRetencion(body) {
       };
     }
 
-    // ---- Buscar en el catálogo SRI ----
     const cat = buscarRetencion(codigoRetencion, impuestoDeclarado);
 
-    // ---- Porcentaje: prioridad al catálogo; si no está, al enviado ----
     let pct = cat ? Number(cat.porcentaje) : Number(imp.porcentajeRetener);
 
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
       pct = cat ? Number(cat.porcentaje) : 0;
     }
 
-    // Advertir si el % enviado difiere del catálogo
     if (cat && imp.porcentajeRetener !== undefined && imp.porcentajeRetener !== null) {
       const pctEnviado = Number(imp.porcentajeRetener);
       if (Number.isFinite(pctEnviado) && Math.abs(pctEnviado - cat.porcentaje) > 0.01) {
@@ -640,7 +647,6 @@ function validarYNormalizarImpuestosRetencion(body) {
       }
     }
 
-    // ---- Calcular / validar valorRetenido ----
     const valorCalculado = round2(base * pct / 100);
     let valor = Number(imp.valorRetenido);
 
@@ -659,9 +665,7 @@ function validarYNormalizarImpuestosRetencion(body) {
       );
     }
 
-    // ---- Normalizado final ----
     const normalizado = {
-      // Tax type: '1' RENTA | '2' IVA (requerido por el XML SRI)
       codigo: CODIGO_IMPUESTO_RETENCION[impuestoDeclarado],
       codigoRetencion,
       impuesto: impuestoDeclarado,
@@ -1732,10 +1736,26 @@ router.post(
         ? new ObjectId(clienteId)
         : null;
 
-      const resultado = await conTransaccion(req.db, async (session) => {
-        const contadorValor = await reservarContador(req.db, tipoDoc, session);
-        const codigo = `${prefijo}-${String(contadorValor).padStart(6, '0')}`;
+      // 🔧 FIX CRÍTICO: reservar el contador FUERA de la transacción.
+      //
+      //    ANTES: `reservarContador` se llamaba DENTRO del callback de
+      //    `conTransaccion`. Un `findOneAndUpdate` con `$inc` es atómico
+      //    a nivel de documento y NO requiere transacción. Pero al
+      //    envolverlo en `session.withTransaction`, si el driver
+      //    reintentaba el callback por `TransientTransactionError`
+      //    (conflicto de escritura sobre el propio documento `contadores`
+      //    cuando hay concurrencia), el `$inc` se ejecutaba 2+ veces →
+      //    secuenciales duplicados y `clave_acceso` desalineada con
+      //    `numero_factura`.
+      //
+      //    AHORA: se reserva antes de abrir la transacción. Si la
+      //    transacción falla después, el número queda "quemado" — es
+      //    aceptable y muchísimo mejor que duplicar. Mismo criterio ya
+      //    aplicado en `routes/compras.js`.
+      const contadorValor = await reservarContador(req.db, tipoDoc);
+      const codigo = `${prefijo}-${String(contadorValor).padStart(6, '0')}`;
 
+      const resultado = await conTransaccion(req.db, async (session) => {
         let claveAcceso = null;
         let partesClave = null;
         let serieFormateada = null;

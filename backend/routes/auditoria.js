@@ -12,6 +12,11 @@
 //   - Fechas validadas con `Date.parse`.
 //   - `search` escapa regex (vía `escapeRegex`).
 //   - `limit` acotado (1..500) y `page` >= 1.
+//
+// 🔧 FIX 2025-XX: el `finally` que limpiaba `statsEnVuelo` podía
+//    pisar una promesa más nueva creada por otra request concurrente.
+//    Ahora se guarda una referencia local `promesaEnVuelo` antes del
+//    `await` y solo se anula `statsEnVuelo` si sigue siendo la misma.
 // ============================================================
 'use strict';
 
@@ -192,12 +197,17 @@ router.get('/stats', async (req, res, next) => {
       })();
     }
 
+    // 🔧 FIX: guardar la referencia ANTES del await, para que el `finally`
+    //    no pise una promesa más nueva creada por otra request concurrente
+    //    que entró mientras estábamos esperando. Solo limpiamos si sigue
+    //    siendo la misma promesa que nosotros arrancamos/observamos.
+    const promesaEnVuelo = statsEnVuelo;
     let payload;
     try {
-      payload = await statsEnVuelo;
+      payload = await promesaEnVuelo;
       statsCache = { expiresAt: ahora + STATS_TTL_MS, payload };
     } finally {
-      statsEnVuelo = null;
+      if (statsEnVuelo === promesaEnVuelo) statsEnVuelo = null;
     }
 
     res.set('X-Cache', 'MISS');
