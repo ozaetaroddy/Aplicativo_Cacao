@@ -631,13 +631,12 @@
                                 Valor Retenido ($)
                               </label>
                               <input
-                                :id="`ret-valor-${idx}`"
-                                type="number"
-                                class="form-control"
-                                :value="imp.valorRetenido"
-                                readonly
-                                class="input-readonly"
-                              />
+  :id="`ret-valor-${idx}`"
+  type="number"
+  class="form-control input-readonly"
+  :value="imp.valorRetenido"
+  readonly
+/>
                             </div>
                             <div class="form-field">
                               <label :for="`ret-doc-codigo-${idx}`" class="form-label">
