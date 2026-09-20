@@ -337,7 +337,6 @@ const INDICES = [
     key: { codigoNorm: 1 },
     opts: {
       unique: true,
-      sparse: true,
       name: 'productos_codigoNorm_unique',
       partialFilterExpression: { codigoNorm: { $type: 'string', $gt: '' } }
     },
@@ -348,7 +347,6 @@ const INDICES = [
     key: { nombreNorm: 1 },
     opts: {
       unique: true,
-      sparse: true,
       name: 'productos_nombreNorm_unique',
       partialFilterExpression: { nombreNorm: { $type: 'string', $gt: '' } }
     }
@@ -358,7 +356,6 @@ const INDICES = [
     key: { codigoBarrasNorm: 1 },
     opts: {
       unique: true,
-      sparse: true,
       name: 'productos_codigoBarrasNorm_unique',
       partialFilterExpression: { codigoBarrasNorm: { $type: 'string', $gt: '' } }
     }
@@ -392,7 +389,6 @@ const INDICES = [
     key: { nombreNorm: 1 },
     opts: {
       unique: true,
-      sparse: true,
       name: 'categorias_nombreNorm_unique',
       partialFilterExpression: { nombreNorm: { $type: 'string', $gt: '' } }
     },
@@ -447,7 +443,6 @@ const INDICES = [
     key: { origen: 1, fecha: -1 },
     opts: {
       name: 'auditoria_origen_fecha',
-      sparse: true,
       partialFilterExpression: { origen: { $type: 'string', $gt: '' } }
     }
   },
@@ -480,7 +475,6 @@ const INDICES = [
     key: { clave_acceso: 1 },
     opts: {
       unique: true,
-      sparse: true,
       name: 'ventas_clave_unique',
       partialFilterExpression: { clave_acceso: { $type: 'string', $gt: '' } }
     }
@@ -516,7 +510,6 @@ const INDICES = [
     key: { factura_original_id: 1 },
     opts: {
       name: 'ventas_nc_factura_original',
-      sparse: true,
       partialFilterExpression: { factura_original_id: { $type: 'objectId' } }
     }
   },
@@ -538,7 +531,6 @@ const INDICES = [
     key: { compra_origen_id: 1 },
     opts: {
       name: 'ventas_retencion_compra_origen',
-      sparse: true,
       partialFilterExpression: { compra_origen_id: { $type: 'objectId' } }
     }
   },
@@ -579,7 +571,6 @@ const INDICES = [
     key: { retencion_pendiente_emision: 1, fecha_emision: -1 },
     opts: {
       name: 'compras_retencion_pendiente',
-      sparse: true,
       partialFilterExpression: { retencion_pendiente_emision: true }
     }
   },
@@ -608,7 +599,6 @@ const INDICES = [
     key: { gridfs_id: 1 },
     opts: {
       name: 'backups_gridfs_id',
-      sparse: true,
       partialFilterExpression: { gridfs_id: { $type: 'objectId' } }
     }
   },
@@ -618,7 +608,6 @@ const INDICES = [
     key: { storage: 1, tipo: 1, fecha: -1 },
     opts: {
       name: 'backups_storage_tipo_fecha',
-      sparse: true,
       partialFilterExpression: { storage: { $type: 'string', $gt: '' } }
     }
   },
