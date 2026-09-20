@@ -497,7 +497,7 @@ app.get('/readyz', async (req, res) => {
     res.status(503).json({ status: 'not-ready', error: e.message });
   }
 });
-
+app.use('/api/cron', require('./routes/cron'));
 // ============================================================
 // RUTAS PROTEGIDAS (requieren auth + CSRF)
 // ============================================================
