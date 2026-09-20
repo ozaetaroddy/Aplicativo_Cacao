@@ -19,22 +19,33 @@
 //   - Cambios de stock se hacen dentro de transacción con guard de cantidad.
 //   - Errores se delegan al `errorHandler` central.
 //
-// 🔧 FIXES HISTÓRICOS:
+// ============================================================
+// 🔧 FIXES HISTÓRICOS (preservados)
 //   1. Los contadores de compra se reservan FUERA de la transacción.
 //   2. `importar-txt`: reserva N contadores del lote en UNA sola
 //      operación atómica.
 //   3. `importar-txt`: ya no exige producto para compras de tipo
 //      'gasto'.
 //
-// 🆕 FIX 2025-XX (AUTO-RETENCIÓN):
-//   4. Al crear/editar una compra con `retencion_valor > 0`, se
-//      emite AUTOMÁTICAMENTE el comprobante de retención en
-//      `ventas_v2` (tipo_documento='retencion'), con clave de
-//      acceso SRI, XML y firma electrónica.
-//   5. Si falla, la compra NO se revierte: queda marcada con
-//      `retencion_pendiente_emision: true` para reintento manual.
-//   6. Al editar/eliminar la compra, la retención se re-sincroniza
-//      (solo si NO fue enviada al SRI).
+// 🔴 FIX CRÍTICO 2025-XX — RETENCIÓN HUÉRFANA
+// ------------------------------------------------------------
+// Antes: si `updateOne` de vinculación fallaba tras crear la
+// retención, la retención quedaba HUÉRFANA en `ventas_v2` sin
+// que la compra la referenciara → duplicados al reintentar.
+//
+// Ahora:
+//   1. Se marca `retencion_pendiente_emision=true` ANTES de crear.
+//   2. Se crea la retención (con `retryTransient: false`).
+//   3. Se vincula con retry (hasta 3 intentos, backoff exponencial).
+//   4. Si los 3 intentos fallan → se BORRA la retención (rollback)
+//      y la compra queda con `retencion_pendiente_emision=true`
+//      para reintento manual desde el panel.
+//
+// 🆕 MEJORAS ADICIONALES
+//   - Rate limit dedicado a `importar-txt` (3 lotes / 5 min).
+//   - Validación estricta de `tipo_compra` (antes caía a 'inventario').
+//   - Helper `validarDetallesInventario` compartido por POST/PUT.
+//   - Advertencias del frontend unificadas en `_advertencia`.
 // ============================================================
 'use strict';
 
@@ -42,6 +53,8 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { body } = require('express-validator');
+const rateLimit = require('express-rate-limit');
+
 const { logAudit } = require('../utils/audit');
 const { requierePermiso } = require('../utils/permisos');
 const { parsePagination, wantsPagination, parseSort, escapeRegex } = require('../utils/pagination');
@@ -55,10 +68,7 @@ const { validar } = require('../utils/validacion');
 const log = require('../utils/logger');
 
 // ---- Auto-retención ----
-const {
-  generarClaveAcceso,
-  formatearSerie
-} = require('../utils/claveAcceso');
+const { generarClaveAcceso, formatearSerie } = require('../utils/claveAcceso');
 const { generarXMLComprobante } = require('../utils/xmlComprobante');
 const {
   cargarCertificado,
@@ -78,19 +88,33 @@ const CONFIG = Object.freeze({
   colProductos: 'productos',
   colKardex: 'kardex',
   colPagos: 'pagos',
-  colRetenciones: 'retenciones',
+  colRetenciones: 'retenciones',       // legacy (solo lectura)
   colContadores: 'contadores',
-  colVentas: 'ventas_v2',            // ← retenciones emitidas
-  colConfig: 'configuracion',        // ← RUC / ambiente empresa
-  colCertificados: 'certificados',   // ← certificado .p12
+  colVentas: 'ventas_v2',              // ← retenciones emitidas
+  colConfig: 'configuracion',
+  colCertificados: 'certificados',
 
   tiposCompra: Object.freeze(['inventario', 'gasto']),
   estadosPago: Object.freeze(['pendiente', 'pagado', 'parcial', 'anulado']),
+
   maxDetallesPorDocumento: 500,
   importBatchSize: 50,
   importMaxLineas: 500,
   anioMin: 2000,
-  anioMax: 2100
+  anioMax: 2100,
+
+  /**
+   * Reintentos para vincular retención a compra.
+   * Si falla tras estos intentos, se hace rollback.
+   */
+  vinculoRetencionReintentos: 3,
+  vinculoRetencionBackoffMs: 500,
+
+  /**
+   * Config del rate limiter para importar-txt.
+   */
+  importRateWindowMs: 5 * 60 * 1000,
+  importRateMax: 3
 });
 
 const TIPOS_COMPRA_VALIDOS = CONFIG.tiposCompra;
@@ -136,6 +160,14 @@ function round2(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return 0;
   return Math.round((v + Number.EPSILON) * 100) / 100;
+}
+
+/** Sleep con `.unref()` para no retener el proceso. */
+function dormir(ms) {
+  return new Promise(resolve => {
+    const t = setTimeout(resolve, ms);
+    if (t.unref) t.unref();
+  });
 }
 
 async function auditarSeguro(db, req, payload) {
@@ -201,6 +233,53 @@ function validarDetalle(detalle) {
     return `Costo unitario inválido (debe ser >= 0): ${detalle?.costo_unitario}`;
   }
   return null;
+}
+
+/**
+ * Valida los detalles cuando tipo_compra === 'inventario'.
+ * Verifica:
+ *   - ObjectId válido en cada `productoId`.
+ *   - Cantidades y costos válidos.
+ *   - Que TODOS los productos existan en la colección.
+ *
+ * @param {object} db
+ * @param {Array} detalles
+ * @throws {Error} tipado (status 400)
+ */
+async function validarDetallesInventario(db, detalles) {
+  // 1. Validación de forma
+  for (const detalle of detalles) {
+    if (!ObjectId.isValid(detalle?.productoId)) {
+      const err = new Error(`ID de producto inválido: ${detalle?.productoId}`);
+      err.status = 400;
+      err.codigo = 'PRODUCTO_ID_INVALIDO';
+      throw err;
+    }
+    const msg = validarDetalle(detalle);
+    if (msg) {
+      const err = new Error(msg);
+      err.status = 400;
+      err.codigo = 'DETALLE_INVALIDO';
+      throw err;
+    }
+  }
+
+  // 2. Validación contra BD: todos los productos deben existir
+  const ids = detalles.map(d => new ObjectId(d.productoId));
+  const productos = await db.collection(CONFIG.colProductos)
+    .find({ _id: { $in: ids } })
+    .project({ _id: 1 })
+    .toArray();
+
+  const encontrados = new Set(productos.map(p => String(p._id)));
+  for (const detalle of detalles) {
+    if (!encontrados.has(String(detalle.productoId))) {
+      const err = new Error(`Producto ${detalle.productoId} no encontrado`);
+      err.status = 400;
+      err.codigo = 'PRODUCTO_NO_EXISTE';
+      throw err;
+    }
+  }
 }
 
 // ============================================================
@@ -341,13 +420,7 @@ async function cargarCertificadoSeguro(db) {
 
 /**
  * Normaliza el array de impuestos de retención.
- *
- * Prioridad:
- *   1. Si el frontend envía `impuestos_retencion[]` bien formado → se usa.
- *   2. Si no, se construye un fallback razonable según `tipo_compra`:
- *      - inventario → RENTA 1% (303) + IVA 30% (721) [si IVA > 0]
- *      - gasto      → RENTA 2% (312) + IVA 70% (723) [si IVA > 0]
- *   3. Si nada funciona, se devuelve [] y se emite advertencia.
+ * (Sin cambios respecto a la versión previa — solo documentación).
  */
 function normalizarImpuestosRetencion(impuestosRaw, ctx) {
   const {
@@ -371,9 +444,7 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
       const impuestoDecl = String(imp.impuesto || imp.impuesto_retencion || '')
         .trim().toUpperCase();
       const cat = buscarRetencion(codigoRet, impuestoDecl || undefined);
-      const impuestoFinal = impuestoDecl
-        || cat?.impuesto
-        || 'RENTA';
+      const impuestoFinal = impuestoDecl || cat?.impuesto || 'RENTA';
 
       const codigoSRI = CODIGO_IMPUESTO_RETENCION[impuestoFinal] || '1';
       const base = round2(Number(imp.baseImponible) || 0);
@@ -401,15 +472,11 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
       });
     }
     if (out.length > 0) {
-      return {
-        impuestos: out,
-        advertencias: [],
-        origen: 'frontend'
-      };
+      return { impuestos: out, advertencias: [], origen: 'frontend' };
     }
   }
 
-  // ---- Caso 2: fallback heurístico según tipo_compra ----
+  // ---- Caso 2: fallback heurístico ----
   if (retencionValor <= 0 && !retencionPorcentaje) {
     return { impuestos: [], advertencias: [], origen: 'vacio' };
   }
@@ -426,7 +493,6 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
   const impuestos = [];
 
   if (tipoCompra === 'inventario') {
-    // RENTA 1% sobre subtotal (código 303 — Bienes muebles corporales)
     const valorRenta = round2(subtotalNum * 0.01);
     if (valorRenta > 0) {
       impuestos.push({
@@ -442,7 +508,6 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
         fechaEmisionDocSustento: fechaEmision
       });
     }
-    // IVA 30% sobre IVA (código 721)
     if (ivaNum > 0) {
       const valorIva = round2(ivaNum * 0.30);
       if (valorIva > 0) {
@@ -461,7 +526,6 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
       }
     }
   } else {
-    // gasto → RENTA 2% (código 312 — Servicios)
     const valorRenta = round2(subtotalNum * 0.02);
     if (valorRenta > 0) {
       impuestos.push({
@@ -477,7 +541,6 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
         fechaEmisionDocSustento: fechaEmision
       });
     }
-    // IVA 70% sobre IVA (código 723)
     if (ivaNum > 0) {
       const valorIva = round2(ivaNum * 0.70);
       if (valorIva > 0) {
@@ -497,13 +560,10 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
     }
   }
 
-  // Ajuste final: si el total calculado no coincide con `retencion_valor`
-  // y solo hay 1 impuesto, se corrige directamente para mantener consistencia.
   if (impuestos.length === 1 && totalRet > 0) {
     const diff = Math.abs(impuestos[0].valorRetenido - totalRet);
     if (diff > 0.01) {
       impuestos[0].valorRetenido = totalRet;
-      // Recalcular % en función del valor enviado para no dejar inconsistencia
       if (impuestos[0].baseImponible > 0) {
         impuestos[0].porcentajeRetener = round2(
           (totalRet / impuestos[0].baseImponible) * 100
@@ -515,16 +575,12 @@ function normalizarImpuestosRetencion(impuestosRaw, ctx) {
     }
   }
 
-  return {
-    impuestos,
-    advertencias,
-    origen: 'fallback'
-  };
+  return { impuestos, advertencias, origen: 'fallback' };
 }
 
 /**
  * Crea el comprobante de retención a partir de una compra.
- * @returns {Promise<{_id, numero_factura, clave_acceso, estado_sri, total_retenido, advertencias}>}
+ * ⚠️  El llamador es responsable de la vinculación post-creación.
  */
 async function crearRetencionDesdeCompra(db, {
   compra,
@@ -598,15 +654,12 @@ async function crearRetencionDesdeCompra(db, {
   const secuencialSRI = String(contadorValor).padStart(9, '0');
 
   // ---- 3. Generar XML ----
-    const ventaParaXml = {
+  const ventaParaXml = {
     clienteId: proveedor?._id || null,
     numero_factura: numeroRetencion,
     fecha_emision: new Date(fechaEmisionCompra),
     tipo_documento: 'retencion',
     detalles: [],
-    // 🆕 FIX 2025-XX: el "total" de una retención = suma de los
-    //    valores retenidos. Antes se guardaba 0, y el listado
-    //    mostraba $0.00 pareciendo un documento vacío.
     subtotal: totalRetenido,
     iva: 0,
     total: totalRetenido,
@@ -658,10 +711,7 @@ async function crearRetencionDesdeCompra(db, {
 
   // ---- 5. Persistir ----
   const ahora = new Date();
-    const doc = {
-    // Compat: ventas usan `clienteId`; retenciones desde compras usan
-    // `proveedorId` (mismo ObjectId, distinto nombre semántico).
-    // El `$lookup` de `ventas.js` resuelve la contraparte real.
+  const doc = {
     clienteId: proveedor?._id || null,
     proveedorId: proveedor?._id || null,
 
@@ -670,16 +720,11 @@ async function crearRetencionDesdeCompra(db, {
     tipo_documento: 'retencion',
     detalles: [],
 
-    // 🆕 FIX 2025-XX: el "total" de una retención = suma de los
-    //    valores retenidos. Antes se guardaba 0 → el listado
-    //    mostraba $0.00 y parecía que la retención estaba vacía.
     subtotal: totalRetenido,
     iva: 0,
     total: totalRetenido,
 
-    // 🆕 FIX 2025-XX: las retenciones son documentos informativos,
-    //    NO deuda del proveedor. Marcamos como `pagado` para no
-    //    confundir al usuario con un badge "Pendiente".
+    // Las retenciones son documentos informativos, NO deuda del proveedor.
     estado_pago: 'pagado',
 
     clave_acceso: claveAcceso,
@@ -699,7 +744,7 @@ async function crearRetencionDesdeCompra(db, {
     total_retenido: totalRetenido,
     numero_retencion: numeroRetencion,
 
-    // Documento de sustento (la factura del proveedor)
+    // Documento de sustento
     comprobante_tipo_emision: 'Electrónica',
     comprobante_documento: '01',
     comprobante_numero: numeroFacturaCompra || '',
@@ -718,10 +763,10 @@ async function crearRetencionDesdeCompra(db, {
     updatedAt: ahora
   };
 
-  const res = await db.collection(CONFIG.colVentas).insertOne(doc);
+  const insertResult = await db.collection(CONFIG.colVentas).insertOne(doc);
 
   return {
-    _id: res.insertedId,
+    _id: insertResult.insertedId,
     numero_factura: numeroRetencion,
     clave_acceso: claveAcceso,
     estado_sri: estadoSri,
@@ -730,6 +775,102 @@ async function crearRetencionDesdeCompra(db, {
     origen: norm.origen
   };
 }
+
+/**
+ * Vincula una retención recién creada con su compra, con retry.
+ *
+ * 🔴 FIX CRÍTICO: si los `vinculoRetencionReintentos` fallan, se
+ * asume que no se puede vincular y se hace ROLLBACK (borrar la
+ * retención). Esto evita retenciones huérfanas.
+ *
+ * @returns {Promise<{ ok: boolean, motivo?: string }>}
+ */
+async function vincularRetencionACompra(db, compraId, retencion) {
+  const { _id: retencionId, numero_factura, clave_acceso, estado_sri } = retencion;
+
+  const updateData = {
+    retencion_id: retencionId,
+    retencion_numero: numero_factura,
+    retencion_clave_acceso: clave_acceso,
+    retencion_estado_sri: estado_sri,
+    retencion_pendiente_emision: false,
+    updatedAt: new Date()
+  };
+
+  let ultimoError = null;
+
+  for (let intento = 1; intento <= CONFIG.vinculoRetencionReintentos; intento++) {
+    try {
+      const r = await db.collection(CONFIG.colCompras).updateOne(
+        { _id: compraId },
+        { $set: updateData }
+      );
+      if (r.matchedCount > 0) {
+        return { ok: true };
+      }
+      // matchedCount === 0 → la compra fue borrada entre medio.
+      ultimoError = new Error('La compra ya no existe (fue borrada concurrentemente)');
+      break;
+    } catch (err) {
+      ultimoError = err;
+      log.warn(
+        {
+          err: err.message,
+          compraId: String(compraId),
+          retencionId: String(retencionId),
+          intento,
+          max: CONFIG.vinculoRetencionReintentos
+        },
+        'Fallo vinculando retención a compra, reintentando'
+      );
+      if (intento < CONFIG.vinculoRetencionReintentos) {
+        await dormir(CONFIG.vinculoRetencionBackoffMs * intento);
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    motivo: ultimoError?.message || 'Error desconocido al vincular'
+  };
+}
+
+/**
+ * Rollback: borra una retención recién creada (no enviada al SRI).
+ * @returns {Promise<boolean>}
+ */
+async function rollbackRetencion(db, retencionId) {
+  try {
+    const r = await db.collection(CONFIG.colVentas).deleteOne({
+      _id: retencionId,
+      estado_sri: 'PENDIENTE'  // solo si NO fue firmada/enviada
+    });
+    return r.deletedCount > 0;
+  } catch (err) {
+    log.error(
+      { err: err.message, retencionId: String(retencionId) },
+      'Error en rollback de retención huérfana'
+    );
+    return false;
+  }
+}
+
+// ============================================================
+// RATE LIMITER PARA IMPORT
+// ============================================================
+const importLimiter = rateLimit({
+  windowMs: CONFIG.importRateWindowMs,
+  max: CONFIG.importRateMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.status(429).json({
+      error: 'Demasiadas importaciones. Espere unos minutos.',
+      codigo: 'RATE_LIMIT_IMPORT'
+    });
+  }
+});
 
 // ============================================================
 // LISTAR
@@ -1025,10 +1166,14 @@ router.post(
     if (validar(req, res)) return;
 
     const errorTotales = validarTotales(req.body);
-    if (errorTotales) return res.status(400).json({ error: errorTotales, codigo: 'TOTALES_INCONSISTENTES' });
+    if (errorTotales) {
+      return res.status(400).json({ error: errorTotales, codigo: 'TOTALES_INCONSISTENTES' });
+    }
 
     const errorFecha = validarFechaNoFutura(req.body.fecha_emision);
-    if (errorFecha) return res.status(400).json({ error: errorFecha, codigo: 'FECHA_INVALIDA' });
+    if (errorFecha) {
+      return res.status(400).json({ error: errorFecha, codigo: 'FECHA_INVALIDA' });
+    }
 
     try {
       const {
@@ -1039,41 +1184,26 @@ router.post(
         observaciones, impuestos_retencion
       } = req.body;
 
+      // 🆕 Validación estricta de tipo_compra (antes caía silenciosamente)
       const tipoCompra = tipo_compra || 'inventario';
-      const retencionValorNum = toNumber(retencion_valor);
-
-      // Validación de detalles
-      if (tipoCompra === 'inventario') {
-        for (const detalle of detalles) {
-          if (!ObjectId.isValid(detalle?.productoId)) {
-            const err = new Error(`ID de producto inválido: ${detalle?.productoId}`);
-            err.status = 400;
-            err.codigo = 'PRODUCTO_ID_INVALIDO';
-            throw err;
-          }
-          const msg = validarDetalle(detalle);
-          if (msg) {
-            const err = new Error(msg);
-            err.status = 400;
-            err.codigo = 'DETALLE_INVALIDO';
-            throw err;
-          }
-        }
+      if (!TIPOS_COMPRA_VALIDOS.includes(tipoCompra)) {
+        return res.status(400).json({
+          error: `Tipo de compra inválido: "${tipoCompra}". Válidos: ${TIPOS_COMPRA_VALIDOS.join(', ')}`,
+          codigo: 'TIPO_COMPRA_INVALIDO'
+        });
       }
 
-      // Verificaciones previas
-      const [proveedorExiste, productos] = await Promise.all([
-        req.db.collection(CONFIG.colProveedores).findOne(
-          { _id: new ObjectId(proveedorId) }, { projection: { _id: 1 } }
-        ),
-        tipoCompra === 'inventario'
-          ? req.db.collection(CONFIG.colProductos)
-              .find({ _id: { $in: detalles.map(d => new ObjectId(d.productoId)) } })
-              .project({ _id: 1 })
-              .toArray()
-          : Promise.resolve([])
-      ]);
+      const retencionValorNum = toNumber(retencion_valor);
 
+      // ---- Validaciones previas ----
+      if (tipoCompra === 'inventario') {
+        await validarDetallesInventario(req.db, detalles);
+      }
+
+      const proveedorExiste = await req.db.collection(CONFIG.colProveedores).findOne(
+        { _id: new ObjectId(proveedorId) },
+        { projection: { _id: 1 } }
+      );
       if (!proveedorExiste) {
         return res.status(400).json({
           error: 'El proveedor no existe',
@@ -1082,23 +1212,11 @@ router.post(
         });
       }
 
-      if (tipoCompra === 'inventario') {
-        const encontrados = new Set(productos.map(p => String(p._id)));
-        for (const detalle of detalles) {
-          if (!encontrados.has(String(detalle.productoId))) {
-            const err = new Error(`Producto ${detalle.productoId} no encontrado`);
-            err.status = 400;
-            err.codigo = 'PRODUCTO_NO_EXISTE';
-            throw err;
-          }
-        }
-      }
-
-      // Reservar contador de compra FUERA de la transacción
+      // ---- Reservar contador FUERA de la transacción ----
       const contadorValor = await reservarContadorCompra(req.db);
       const codigo = `COM-${String(contadorValor).padStart(6, '0')}`;
 
-      // Persistir dentro de transacción
+      // ---- Persistir compra dentro de transacción ----
       const resultado = await conTransaccion(req.db, async (session) => {
         const compra = {
           proveedorId: new ObjectId(proveedorId),
@@ -1131,16 +1249,15 @@ router.post(
       let compraCreada = await traerCompraPopulada(req.db, resultado.compraId);
 
       // ============================================================
-      // 🆕 AUTO-CREACIÓN DE RETENCIÓN
+      // 🔴 AUTO-CREACIÓN DE RETENCIÓN (con rollback si falla vinculación)
       // ============================================================
       let retencionCreada = null;
-      let errorRetencion = null;
+      let advertencia = null;
       let advertenciasRetencion = [];
 
       if (retencionValorNum > 0) {
         try {
-          const config = await req.db.collection(CONFIG.colConfig)
-            .findOne({ _id: 'empresa' });
+          const config = await req.db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
 
           retencionCreada = await crearRetencionDesdeCompra(req.db, {
             compra: compraCreada,
@@ -1158,37 +1275,63 @@ router.post(
             claveAccesoCompra: compraCreada.clave_acceso || ''
           });
 
-          // Vincular la compra con la retención
-          await req.db.collection(CONFIG.colCompras).updateOne(
-            { _id: resultado.compraId },
-            {
-              $set: {
-                retencion_id: retencionCreada._id,
-                retencion_numero: retencionCreada.numero_factura,
-                retencion_clave_acceso: retencionCreada.clave_acceso,
-                retencion_estado_sri: retencionCreada.estado_sri,
-                retencion_pendiente_emision: false,
-                updatedAt: new Date()
-              }
-            }
+          // ---- Vincular (con retry + rollback si falla) ----
+          const vinculo = await vincularRetencionACompra(
+            req.db,
+            resultado.compraId,
+            retencionCreada
           );
 
-          compraCreada.retencion_id = retencionCreada._id;
-          compraCreada.retencion_numero = retencionCreada.numero_factura;
-          compraCreada.retencion_clave_acceso = retencionCreada.clave_acceso;
-          compraCreada.retencion_estado_sri = retencionCreada.estado_sri;
-          compraCreada.retencion_pendiente_emision = false;
+          if (vinculo.ok) {
+            // Éxito completo
+            compraCreada.retencion_id = retencionCreada._id;
+            compraCreada.retencion_numero = retencionCreada.numero_factura;
+            compraCreada.retencion_clave_acceso = retencionCreada.clave_acceso;
+            compraCreada.retencion_estado_sri = retencionCreada.estado_sri;
+            compraCreada.retencion_pendiente_emision = false;
 
-          if (Array.isArray(retencionCreada.advertencias)) {
-            advertenciasRetencion = retencionCreada.advertencias;
+            if (Array.isArray(retencionCreada.advertencias)) {
+              advertenciasRetencion = retencionCreada.advertencias;
+            }
+          } else {
+            // 🔴 Rollback: no se pudo vincular → borrar la retención
+            log.error(
+              {
+                compraId: String(resultado.compraId),
+                retencionId: String(retencionCreada._id),
+                motivo: vinculo.motivo
+              },
+              'No se pudo vincular la retención a la compra tras reintentos. Ejecutando rollback.'
+            );
+
+            const rollbackOk = await rollbackRetencion(req.db, retencionCreada._id);
+            advertencia =
+              `La compra se guardó, pero NO se pudo vincular la retención ${retencionCreada.numero_factura} ` +
+              `(${vinculo.motivo}). ` +
+              (rollbackOk
+                ? 'La retención fue eliminada automáticamente. Reintenta la retención desde el panel.'
+                : 'ADVERTENCIA: la retención pudo haber quedado huérfana. Revisa en Ventas → Retenciones.');
+
+            // La compra queda con retencion_pendiente_emision = true para reintento manual.
+            retencionCreada = null;
           }
         } catch (e) {
-          errorRetencion = e.message;
+          advertencia =
+            `La compra se guardó, pero NO se pudo generar la retención automática: ${e.message}. ` +
+            `Puedes emitirla manualmente desde Ventas → Retenciones.`;
           log.warn(
             { err: e.message, compraId: String(resultado.compraId), codigo: e.codigo },
             'No se pudo auto-crear la retención; la compra queda con retencion_pendiente_emision=true'
           );
         }
+      }
+
+      // ---- Advertencia adicional si la retención quedó sin firma ----
+      if (retencionCreada && retencionCreada.estado_sri === 'PENDIENTE') {
+        const avisoFirma =
+          `Retención ${retencionCreada.numero_factura} creada sin firma electrónica. ` +
+          `Carga un certificado válido y fírmala desde Ventas → Retenciones.`;
+        advertencia = advertencia ? `${advertencia} ${avisoFirma}` : avisoFirma;
       }
 
       await auditarSeguro(req.db, req, {
@@ -1207,18 +1350,6 @@ router.post(
       if (req.io) req.io.emit('nueva-compra', compraCreada);
       if (retencionCreada && req.io) {
         req.io.emit('nueva-retencion', retencionCreada);
-      }
-
-      // Mensaje de advertencia al frontend
-      let advertencia = null;
-      if (errorRetencion) {
-        advertencia =
-          `La compra se guardó, pero NO se pudo generar la retención automática: ${errorRetencion}. ` +
-          `Puedes emitirla manualmente desde Ventas → Retenciones.`;
-      } else if (retencionCreada?.estado_sri === 'PENDIENTE') {
-        advertencia =
-          `Retención ${retencionCreada.numero_factura} creada sin firma electrónica. ` +
-          `Carga un certificado válido y fírmala desde Ventas → Retenciones.`;
       }
 
       return res.status(201).json({
@@ -1256,7 +1387,9 @@ router.put(
     if (validar(req, res)) return;
 
     const errorTotales = validarTotales(req.body);
-    if (errorTotales) return res.status(400).json({ error: errorTotales, codigo: 'TOTALES_INCONSISTENTES' });
+    if (errorTotales) {
+      return res.status(400).json({ error: errorTotales, codigo: 'TOTALES_INCONSISTENTES' });
+    }
 
     try {
       const _id = requireObjectId(req.params.id);
@@ -1275,39 +1408,19 @@ router.put(
         observaciones, impuestos_retencion
       } = req.body;
 
+      // 🆕 Validación estricta de tipo_compra
       const tipoCompra = tipo_compra || 'inventario';
+      if (!TIPOS_COMPRA_VALIDOS.includes(tipoCompra)) {
+        return res.status(400).json({
+          error: `Tipo de compra inválido: "${tipoCompra}". Válidos: ${TIPOS_COMPRA_VALIDOS.join(', ')}`,
+          codigo: 'TIPO_COMPRA_INVALIDO'
+        });
+      }
+
       const retencionValorNum = toNumber(retencion_valor);
 
-      // Validar detalles fuera de tx
       if (tipoCompra === 'inventario') {
-        for (const detalle of detalles) {
-          if (!ObjectId.isValid(detalle?.productoId)) {
-            const err = new Error(`ID de producto inválido: ${detalle?.productoId}`);
-            err.status = 400;
-            err.codigo = 'PRODUCTO_ID_INVALIDO';
-            throw err;
-          }
-          const msg = validarDetalle(detalle);
-          if (msg) {
-            const err = new Error(msg);
-            err.status = 400;
-            err.codigo = 'DETALLE_INVALIDO';
-            throw err;
-          }
-        }
-
-        const ids = detalles.map(d => new ObjectId(d.productoId));
-        const productos = await req.db.collection(CONFIG.colProductos)
-          .find({ _id: { $in: ids } }).project({ _id: 1 }).toArray();
-        const encontrados = new Set(productos.map(p => String(p._id)));
-        for (const detalle of detalles) {
-          if (!encontrados.has(String(detalle.productoId))) {
-            const err = new Error(`Producto ${detalle.productoId} no encontrado`);
-            err.status = 400;
-            err.codigo = 'PRODUCTO_NO_EXISTE';
-            throw err;
-          }
-        }
+        await validarDetallesInventario(req.db, detalles);
       }
 
       await conTransaccion(req.db, async (session) => {
@@ -1343,7 +1456,7 @@ router.put(
       let compraActualizada = await traerCompraPopulada(req.db, _id);
 
       // ============================================================
-      // 🆕 RE-SINCRONIZAR RETENCIÓN AL EDITAR
+      // RE-SINCRONIZAR RETENCIÓN AL EDITAR
       // ============================================================
       let retencionNueva = null;
       let errorRetencion = null;
@@ -1389,40 +1502,37 @@ router.put(
               claveAccesoCompra: compraActualizada.clave_acceso || ''
             });
 
-            await req.db.collection(CONFIG.colCompras).updateOne(
-              { _id },
-              {
-                $set: {
-                  retencion_id: retencionNueva._id,
-                  retencion_numero: retencionNueva.numero_factura,
-                  retencion_clave_acceso: retencionNueva.clave_acceso,
-                  retencion_estado_sri: retencionNueva.estado_sri,
-                  retencion_pendiente_emision: false,
-                  updatedAt: new Date()
-                }
+            // ---- Vincular (con retry + rollback) ----
+            const vinculo = await vincularRetencionACompra(req.db, _id, retencionNueva);
+
+            if (vinculo.ok) {
+              compraActualizada.retencion_id = retencionNueva._id;
+              compraActualizada.retencion_numero = retencionNueva.numero_factura;
+              compraActualizada.retencion_clave_acceso = retencionNueva.clave_acceso;
+              compraActualizada.retencion_estado_sri = retencionNueva.estado_sri;
+              compraActualizada.retencion_pendiente_emision = false;
+
+              if (Array.isArray(retencionNueva.advertencias)) {
+                advertenciasRetencion = retencionNueva.advertencias;
               }
-            );
 
-            compraActualizada.retencion_id = retencionNueva._id;
-            compraActualizada.retencion_numero = retencionNueva.numero_factura;
-            compraActualizada.retencion_clave_acceso = retencionNueva.clave_acceso;
-            compraActualizada.retencion_estado_sri = retencionNueva.estado_sri;
-            compraActualizada.retencion_pendiente_emision = false;
-
-                        if (Array.isArray(retencionNueva.advertencias)) {
-              advertenciasRetencion = retencionNueva.advertencias;
+              log.info(
+                {
+                  compraId: String(_id),
+                  retencionNueva: retencionNueva.numero_factura,
+                  totalRetenido: retencionNueva.total_retenido,
+                  estadoSri: retencionNueva.estado_sri
+                },
+                'Retención re-sincronizada tras editar compra'
+              );
+            } else {
+              // Rollback
+              await rollbackRetencion(req.db, retencionNueva._id);
+              errorRetencion =
+                `No se pudo vincular la retención regenerada (${vinculo.motivo}). ` +
+                `La retención fue eliminada. Reintenta desde Ventas → Retenciones.`;
+              retencionNueva = null;
             }
-
-            // 🆕 Log de diagnóstico útil para debugging
-            log.info(
-              {
-                compraId: String(_id),
-                retencionNueva: retencionNueva.numero_factura,
-                totalRetenido: retencionNueva.total_retenido,
-                estadoSri: retencionNueva.estado_sri
-              },
-              'Retención re-sincronizada tras editar compra'
-            );
           } else {
             // Ya no aplica retención → limpiar metadata
             await req.db.collection(CONFIG.colCompras).updateOne(
@@ -1582,219 +1692,224 @@ router.delete(
 // ============================================================
 // IMPORTAR TXT
 // ============================================================
-router.post('/importar-txt', requierePermiso('compras', 'crear'), async (req, res, next) => {
-  try {
-    const { lineas } = req.body || {};
-    if (!Array.isArray(lineas) || lineas.length === 0) {
-      return res.status(400).json({ error: 'No se enviaron líneas para importar', codigo: 'SIN_LINEAS' });
-    }
-    if (lineas.length > IMPORT_MAX_LINEAS) {
-      return res.status(413).json({
-        error: `Máximo ${IMPORT_MAX_LINEAS} líneas por importación`,
-        codigo: 'DEMASIADAS_LINEAS'
-      });
-    }
+router.post(
+  '/importar-txt',
+  requierePermiso('compras', 'crear'),
+  importLimiter,   // 🆕 Rate limit dedicado
+  async (req, res, next) => {
+    try {
+      const { lineas } = req.body || {};
+      if (!Array.isArray(lineas) || lineas.length === 0) {
+        return res.status(400).json({ error: 'No se enviaron líneas para importar', codigo: 'SIN_LINEAS' });
+      }
+      if (lineas.length > IMPORT_MAX_LINEAS) {
+        return res.status(413).json({
+          error: `Máximo ${IMPORT_MAX_LINEAS} líneas por importación`,
+          codigo: 'DEMASIADAS_LINEAS'
+        });
+      }
 
-    const fechasValidas = lineas
-      .map(l => l?.fechaEmision)
-      .filter(Boolean);
-    const cerrados = await obtenerPeriodosCerradosEnFechas(req.db, fechasValidas);
-    if (cerrados.length > 0) {
-      return res.status(423).json({
-        error: `Hay líneas con fechas en períodos cerrados: ${cerrados.map(c => c.nombre).join(', ')}. Reabra el período o corrija las fechas.`,
-        codigo: 'PERIODO_CERRADO',
-        periodos: cerrados.map(c => c.nombre)
-      });
-    }
+      const fechasValidas = lineas
+        .map(l => l?.fechaEmision)
+        .filter(Boolean);
+      const cerrados = await obtenerPeriodosCerradosEnFechas(req.db, fechasValidas);
+      if (cerrados.length > 0) {
+        return res.status(423).json({
+          error: `Hay líneas con fechas en períodos cerrados: ${cerrados.map(c => c.nombre).join(', ')}. Reabra el período o corrija las fechas.`,
+          codigo: 'PERIODO_CERRADO',
+          periodos: cerrados.map(c => c.nombre)
+        });
+      }
 
-    const resultados = [];
-    const errores = [];
-    let importados = 0;
-    let proveedoresCreados = 0;
-    let retencionesCreadas = 0;
+      const resultados = [];
+      const errores = [];
+      let importados = 0;
+      let proveedoresCreados = 0;
+      const retencionesCreadas = 0;
 
-    for (let offset = 0; offset < lineas.length; offset += IMPORT_BATCH_SIZE) {
-      const lote = lineas.slice(offset, offset + IMPORT_BATCH_SIZE);
+      for (let offset = 0; offset < lineas.length; offset += IMPORT_BATCH_SIZE) {
+        const lote = lineas.slice(offset, offset + IMPORT_BATCH_SIZE);
 
-      try {
-        const contadoresLote = await reservarContadoresCompraLote(req.db, lote.length);
+        try {
+          const contadoresLote = await reservarContadoresCompraLote(req.db, lote.length);
 
-        const resumenLote = await conTransaccion(req.db, async (session) => {
-          const productosCache = new Map();
-          const proveedoresCache = new Map();
-          const out = [];
-          let provCreados = 0;
-          let importadosLote = 0;
-          const erroresLote = [];
+          const resumenLote = await conTransaccion(req.db, async (session) => {
+            const productosCache = new Map();
+            const proveedoresCache = new Map();
+            const out = [];
+            let provCreados = 0;
+            let importadosLote = 0;
+            const erroresLote = [];
 
-          const buscarProducto = async (codigoProducto) => {
-            if (!codigoProducto) return null;
-            const key = String(codigoProducto).toLowerCase();
-            if (productosCache.has(key)) return productosCache.get(key);
+            const buscarProducto = async (codigoProducto) => {
+              if (!codigoProducto) return null;
+              const key = String(codigoProducto).toLowerCase();
+              if (productosCache.has(key)) return productosCache.get(key);
 
-            const prod = await req.db.collection(CONFIG.colProductos).findOne(
-              { $or: [{ codigo: codigoProducto }, { codigo_barras: codigoProducto }] },
-              { collation: { locale: 'es', strength: 2 }, session }
-            );
-            productosCache.set(key, prod);
-            return prod;
-          };
+              const prod = await req.db.collection(CONFIG.colProductos).findOne(
+                { $or: [{ codigo: codigoProducto }, { codigo_barras: codigoProducto }] },
+                { collation: { locale: 'es', strength: 2 }, session }
+              );
+              productosCache.set(key, prod);
+              return prod;
+            };
 
-          const buscarOCrearProveedor = async (ruc, razonSocial) => {
-            const key = String(ruc).trim();
-            if (proveedoresCache.has(key)) return proveedoresCache.get(key);
+            const buscarOCrearProveedor = async (ruc, razonSocial) => {
+              const key = String(ruc).trim();
+              if (proveedoresCache.has(key)) return proveedoresCache.get(key);
 
-            let prov = await req.db.collection(CONFIG.colProveedores).findOne({ ruc: key }, { session });
-            if (!prov) {
-              const nuevoProv = {
-                nombre: (razonSocial || `Proveedor ${ruc}`).trim(),
-                ruc: key, telefono: '', email: '', direccion: '',
-                createdAt: new Date()
-              };
-              const resultProv = await req.db.collection(CONFIG.colProveedores).insertOne(nuevoProv, { session });
-              prov = { ...nuevoProv, _id: resultProv.insertedId };
-              provCreados++;
-            }
-            proveedoresCache.set(key, prov);
-            return prov;
-          };
-
-          for (let idx = 0; idx < lote.length; idx++) {
-            const linea = lote[idx];
-            const numLinea = offset + idx + 1;
-            try {
-              const {
-                ruc, razonSocial, fechaEmision, total, valorSinImpuestos,
-                iva, tipo_compra, codigoProducto
-              } = linea;
-
-              const totalNum = toNumber(total);
-              if (!ruc || totalNum === 0) {
-                erroresLote.push(`Línea ${numLinea}: sin RUC o total inválido`);
-                continue;
+              let prov = await req.db.collection(CONFIG.colProveedores).findOne({ ruc: key }, { session });
+              if (!prov) {
+                const nuevoProv = {
+                  nombre: (razonSocial || `Proveedor ${ruc}`).trim(),
+                  ruc: key, telefono: '', email: '', direccion: '',
+                  createdAt: new Date()
+                };
+                const resultProv = await req.db.collection(CONFIG.colProveedores).insertOne(nuevoProv, { session });
+                prov = { ...nuevoProv, _id: resultProv.insertedId };
+                provCreados++;
               }
+              proveedoresCache.set(key, prov);
+              return prov;
+            };
 
-              const fecha = fechaEmision ? new Date(fechaEmision) : null;
-              if (!fecha || Number.isNaN(fecha.getTime())) {
-                erroresLote.push(`Línea ${numLinea} (RUC ${ruc}): fecha inválida "${fechaEmision}"`);
-                continue;
-              }
+            for (let idx = 0; idx < lote.length; idx++) {
+              const linea = lote[idx];
+              const numLinea = offset + idx + 1;
+              try {
+                const {
+                  ruc, razonSocial, fechaEmision, total, valorSinImpuestos,
+                  iva, tipo_compra, codigoProducto
+                } = linea;
 
-              const tipoCompra = tipo_compra || 'inventario';
-
-              let producto = null;
-              if (tipoCompra === 'inventario') {
-                producto = await buscarProducto(codigoProducto);
-                if (!producto) {
-                  erroresLote.push(
-                    `Línea ${numLinea} (RUC ${ruc}): producto no encontrado` +
-                    (codigoProducto ? ` con código "${codigoProducto}"` : ' (sin código)')
-                  );
+                const totalNum = toNumber(total);
+                if (!ruc || totalNum === 0) {
+                  erroresLote.push(`Línea ${numLinea}: sin RUC o total inválido`);
                   continue;
                 }
+
+                const fecha = fechaEmision ? new Date(fechaEmision) : null;
+                if (!fecha || Number.isNaN(fecha.getTime())) {
+                  erroresLote.push(`Línea ${numLinea} (RUC ${ruc}): fecha inválida "${fechaEmision}"`);
+                  continue;
+                }
+
+                const tipoCompraLinea = tipo_compra || 'inventario';
+
+                let producto = null;
+                if (tipoCompraLinea === 'inventario') {
+                  producto = await buscarProducto(codigoProducto);
+                  if (!producto) {
+                    erroresLote.push(
+                      `Línea ${numLinea} (RUC ${ruc}): producto no encontrado` +
+                      (codigoProducto ? ` con código "${codigoProducto}"` : ' (sin código)')
+                    );
+                    continue;
+                  }
+                }
+
+                const proveedor = await buscarOCrearProveedor(ruc, razonSocial);
+
+                const contadorValor = contadoresLote[idx];
+                if (!Number.isFinite(contadorValor)) {
+                  erroresLote.push(`Línea ${numLinea}: no hay contador reservado para esta línea`);
+                  continue;
+                }
+                const codigo = `COM-${String(contadorValor).padStart(6, '0')}`;
+
+                const ivaNum = toNumber(iva);
+
+                const compraData = {
+                  proveedorId: proveedor._id,
+                  numero_factura: codigo,
+                  fecha_emision: fecha,
+                  detalles: producto
+                    ? [{
+                        productoId: producto._id,
+                        cantidad: 1,
+                        costo_unitario: totalNum,
+                        aplica_iva: ivaNum > 0
+                      }]
+                    : [],
+                  subtotal: toNumber(valorSinImpuestos),
+                  iva: ivaNum,
+                  total: totalNum,
+                  tipo_compra: tipoCompraLinea,
+                  estado_pago: 'pendiente',
+                  monto_pagado: 0,
+                  forma_pago: '',
+                  fecha_pago: null,
+                  retencion_valor: 0,
+                  retencion_porcentaje: 0,
+                  retencion_pendiente_emision: false,
+                  observaciones: `Importado desde TXT. Emisor: ${razonSocial || ''}`,
+                  createdAt: new Date(),
+                  updatedAt: new Date()
+                };
+
+                const compraResult = await req.db.collection(CONFIG.colCompras)
+                  .insertOne(compraData, { session });
+                const compraId = compraResult.insertedId;
+
+                if (tipoCompraLinea === 'inventario' && producto) {
+                  const productoActualizado = await actualizarStockAtomico(
+                    req.db, producto._id, 1, +1, session, { precio_compra: totalNum }
+                  );
+
+                  await req.db.collection(CONFIG.colKardex).insertOne({
+                    productoId: producto._id,
+                    fecha: compraData.fecha_emision,
+                    tipo_movimiento: 'compra',
+                    cantidad: 1,
+                    costo_unitario: totalNum,
+                    saldo: productoActualizado.stock,
+                    referencia_id: compraId,
+                    referencia_tipo: 'compra',
+                    createdAt: new Date()
+                  }, { session });
+                }
+
+                out.push({ compraId, numero: compraData.numero_factura, ruc });
+                importadosLote++;
+              } catch (lineaError) {
+                erroresLote.push(`Línea ${numLinea}: ${lineaError.message}`);
               }
-
-              const proveedor = await buscarOCrearProveedor(ruc, razonSocial);
-
-              const contadorValor = contadoresLote[idx];
-              if (!Number.isFinite(contadorValor)) {
-                erroresLote.push(`Línea ${numLinea}: no hay contador reservado para esta línea`);
-                continue;
-              }
-              const codigo = `COM-${String(contadorValor).padStart(6, '0')}`;
-
-              const ivaNum = toNumber(iva);
-
-              const compraData = {
-                proveedorId: proveedor._id,
-                numero_factura: codigo,
-                fecha_emision: fecha,
-                detalles: producto
-                  ? [{
-                      productoId: producto._id,
-                      cantidad: 1,
-                      costo_unitario: totalNum,
-                      aplica_iva: ivaNum > 0
-                    }]
-                  : [],
-                subtotal: toNumber(valorSinImpuestos),
-                iva: ivaNum,
-                total: totalNum,
-                tipo_compra: tipoCompra,
-                estado_pago: 'pendiente',
-                monto_pagado: 0,
-                forma_pago: '',
-                fecha_pago: null,
-                retencion_valor: 0,
-                retencion_porcentaje: 0,
-                retencion_pendiente_emision: false,
-                observaciones: `Importado desde TXT. Emisor: ${razonSocial || ''}`,
-                createdAt: new Date(),
-                updatedAt: new Date()
-              };
-
-              const compraResult = await req.db.collection(CONFIG.colCompras)
-                .insertOne(compraData, { session });
-              const compraId = compraResult.insertedId;
-
-              if (tipoCompra === 'inventario' && producto) {
-                const productoActualizado = await actualizarStockAtomico(
-                  req.db, producto._id, 1, +1, session, { precio_compra: totalNum }
-                );
-
-                await req.db.collection(CONFIG.colKardex).insertOne({
-                  productoId: producto._id,
-                  fecha: compraData.fecha_emision,
-                  tipo_movimiento: 'compra',
-                  cantidad: 1,
-                  costo_unitario: totalNum,
-                  saldo: productoActualizado.stock,
-                  referencia_id: compraId,
-                  referencia_tipo: 'compra',
-                  createdAt: new Date()
-                }, { session });
-              }
-
-              out.push({ compraId, numero: compraData.numero_factura, ruc });
-              importadosLote++;
-            } catch (lineaError) {
-              erroresLote.push(`Línea ${numLinea}: ${lineaError.message}`);
             }
-          }
 
-          return { out, importadosLote, provCreados, erroresLote };
-        });
+            return { out, importadosLote, provCreados, erroresLote };
+          });
 
-        resultados.push(...(resumenLote.out || []));
-        errores.push(...(resumenLote.erroresLote || []));
-        importados += resumenLote.importadosLote || 0;
-        proveedoresCreados += resumenLote.provCreados || 0;
-      } catch (batchError) {
-        const numeroBatch = Math.floor(offset / IMPORT_BATCH_SIZE) + 1;
-        errores.push(`Batch ${numeroBatch}: ${batchError.message}`);
+          resultados.push(...(resumenLote.out || []));
+          errores.push(...(resumenLote.erroresLote || []));
+          importados += resumenLote.importadosLote || 0;
+          proveedoresCreados += resumenLote.provCreados || 0;
+        } catch (batchError) {
+          const numeroBatch = Math.floor(offset / IMPORT_BATCH_SIZE) + 1;
+          errores.push(`Batch ${numeroBatch}: ${batchError.message}`);
+        }
       }
+
+      await auditarSeguro(req.db, req, {
+        accion: 'importar',
+        coleccion: CONFIG.colCompras,
+        documentoNumero: `${importados} facturas`,
+        datosNuevos: { importados, errores: errores.length, proveedoresCreados, retencionesCreadas },
+        detalle: `Importación TXT: ${importados} facturas, ${errores.length} errores, ${proveedoresCreados} proveedores creados`
+      });
+
+      return res.json({
+        success: true,
+        importados,
+        errores,
+        resultados,
+        proveedoresCreados,
+        retencionesCreadas
+      });
+    } catch (err) {
+      return next(err);
     }
-
-    await auditarSeguro(req.db, req, {
-      accion: 'importar',
-      coleccion: CONFIG.colCompras,
-      documentoNumero: `${importados} facturas`,
-      datosNuevos: { importados, errores: errores.length, proveedoresCreados, retencionesCreadas },
-      detalle: `Importación TXT: ${importados} facturas, ${errores.length} errores, ${proveedoresCreados} proveedores creados`
-    });
-
-    return res.json({
-      success: true,
-      importados,
-      errores,
-      resultados,
-      proveedoresCreados,
-      retencionesCreadas
-    });
-  } catch (err) {
-    return next(err);
   }
-});
+);
 
 // ============================================================
 // EXPORTS
@@ -1806,6 +1921,7 @@ module.exports._CONFIG = CONFIG;
 module.exports._validarTotales = validarTotales;
 module.exports._validarFechaNoFutura = validarFechaNoFutura;
 module.exports._validarDetalle = validarDetalle;
+module.exports._validarDetallesInventario = validarDetallesInventario;
 module.exports._toNumber = toNumber;
 module.exports._round2 = round2;
 module.exports._requireObjectId = requireObjectId;
@@ -1814,3 +1930,6 @@ module.exports._reservarContadoresCompraLote = reservarContadoresCompraLote;
 module.exports._crearRetencionDesdeCompra = crearRetencionDesdeCompra;
 module.exports._normalizarImpuestosRetencion = normalizarImpuestosRetencion;
 module.exports._cargarCertificadoSeguro = cargarCertificadoSeguro;
+// 🆕 Nuevos helpers exportados para tests
+module.exports._vincularRetencionACompra = vincularRetencionACompra;
+module.exports._rollbackRetencion = rollbackRetencion;

@@ -4,61 +4,62 @@
 // ------------------------------------------------------------
 // Orden de arranque:
 //   1. Forzar IPv4 (DNS) — antes que cualquier require con red.
-//   2. Validar env → si falla, exit(1).
+//   2. Validar env → si falla, exit(1) con mensaje accionable.
 //   3. Setup de Express (helmet, cors, body, rate limit).
 //   4. Conexión a Mongo.
 //   5. Listen en `PORT`.
-//   6. Post-arranque en background: asegurar índices, scheduler.
-//   7. Rutas protegidas (ya con `req.db` disponible).
+//   6. Post-arranque en background: índices + scheduler.
+//   7. Rutas (ya con `req.db` disponible).
 //
 // Shutdown (SIGTERM/SIGINT):
-//   1. Cerrar aceptación de nuevas conexiones HTTP.
+//   1. Cerrar scheduler.
 //   2. Cerrar sockets WebSocket.
-//   3. Cerrar scheduler.
+//   3. Cerrar HTTP server.
 //   4. Cerrar Mongo.
-//   5. Si tarda >10 s, forzar exit(1).
+//   5. log.flush() (para no perder logs en Render).
+//   6. Si tarda >10 s, forzar exit(1).
 //
 // Health checks:
-//   GET  /                 → liveness simple (JSON)
-//   HEAD /                 → 200 (para monitores tipo Render)
-//   GET  /api/health       → liveness (siempre 200)
-//   GET  /healthz          → alias liveness
+//   GET  /                    → liveness simple (JSON)
+//   HEAD /                    → 200 (monitores tipo Render)
+//   GET  /api/health          → liveness (siempre 200)
+//   GET  /healthz             → alias liveness
 //   GET  /api/health/detailed → readiness (503 si Mongo no responde)
-//   GET  /readyz           → alias readiness
+//   GET  /readyz              → alias readiness
 //
 // ============================================================
-// 🔧 FIXES APLICADOS
+// 🔧 FIXES APLICADOS EN ESTA VERSIÓN
 // ------------------------------------------------------------
-//   [IPv6] Render no tiene salida IPv6. Forzamos `ipv4first`
-//          ANTES de cualquier require con red.
+//   [uncaughtException] Ya NO llama a `shutdown()` (puede colgarse).
+//                       En su lugar: log.fatal → log.flush → exit(1).
+//                       Render reinicia el container automáticamente.
 //
-//   [Shutdown timer] El setTimeout de "shutdown excedió 10s"
-//          ahora vive dentro de `shutdown()` y se limpia.
+//   [log.flush]        Se llama en shutdown() y en uncaughtException
+//                      para no perder los últimos logs en Render.
 //
-//   [Bootstrap] El arranque se ejecuta solo si `require.main === module`.
+//   [cron]             `/api/cron` montado ANTES del authMiddleware.
 //
-//   [Handshake leak] `intentosHandshake` se purga cada minuto.
+//   [warnings]         Detección de configs inconsistentes al arrancar:
+//                        · COOKIE_CROSS_SITE vs CORS_ORIGINS
+//                        · BACKUP_SCHEDULER_IN_WEB en prod
+//                        · MONGO_POOL_MAX bajo con muchas conexiones
 //
-//   [Monitores] HEAD / devuelve 200.
+//   [métricas]         Tiempo total desde require hasta listen.
+//                      Tiempo de conexión Mongo.
 //
-//   [Warnings] Simplificada la condición redundante.
+//   [validarEnv]       Mensajes accionables (qué hacer, no solo qué falta).
+//
+//   [shutdown]         `io.close()` con fallback timeout (Socket.IO no
+//                      siempre llama el callback en v4.8).
 //
 // ============================================================
 // 🆕 REFACTOR 2025-XX (UNIFICACIÓN DE RETENCIONES)
 // ------------------------------------------------------------
-//   Las retenciones emitidas a proveedores ahora viven en
-//   `ventas_v2` con `tipo_documento='retencion'` y se gestionan
-//   vía `/api/ventas?tipo_documento=retencion`.
+//   Las retenciones emitidas a proveedores viven en `ventas_v2` con
+//   `tipo_documento='retencion'` y se gestionan vía
+//   `/api/ventas?tipo_documento=retencion`.
 //
-//   Se eliminó el router legacy `/api/retenciones` porque:
-//     - Escribía en una colección distinta (`retenciones`).
-//     - NO generaba clave de acceso, XML ni firma electrónica.
-//     - Duplicaba lógica con `routes/ventas.js`.
-//
-//   Rutas afectadas:
-//     ❌ DELETE /api/retenciones
-//     ✅ GET    /api/ventas?tipo_documento=retencion
-//     ✅ POST   /api/compras (auto-emite la retención)
+//   `/api/retenciones` responde 410 Gone con instrucciones.
 // ============================================================
 'use strict';
 
@@ -67,6 +68,7 @@
 // ------------------------------------------------------------
 const dns = require('node:dns');
 const net = require('node:net');
+const os = require('node:os');
 
 try {
   if (typeof dns.setDefaultResultOrder === 'function') {
@@ -81,6 +83,9 @@ try {
 } catch { /* Node <18.13 */ }
 
 require('dotenv').config();
+
+// Marca de tiempo del arranque (para métricas).
+const _T0_ARRANQUE = Date.now();
 
 const express = require('express');
 const cors = require('cors');
@@ -116,32 +121,139 @@ const PLACEHOLDERS = [
 ];
 
 /**
- * Valida las env vars críticas. NUNCA mata el proceso — devuelve la lista
- * de errores para que el bootstrap decida.
- * @returns {{ ok: boolean, errores: string[] }}
+ * Valida las env vars críticas. NUNCA mata el proceso — devuelve la
+ * lista de errores con mensajes accionables para que el bootstrap
+ * decida.
+ *
+ * @returns {{ ok: boolean, errores: string[], sugerencias: string[] }}
  */
 function validarEnv() {
   const errores = [];
+  const sugerencias = [];
 
-  if (!MONGODB_URI) errores.push('MONGODB_URI no está definida');
+  // ---- Mongo ----
+  if (!MONGODB_URI) {
+    errores.push('MONGODB_URI no está definida');
+    sugerencias.push(
+      'Configura MONGODB_URI en Render → Environment. ' +
+      'Ejemplo: mongodb+srv://user:pass@cluster.mongodb.net'
+    );
+  }
 
+  // ---- JWT + CERT ----
   for (const key of ['JWT_SECRET', 'CERT_ENCRYPTION_KEY']) {
     const val = process.env[key] || '';
     if (!val) {
       errores.push(`${key} no está definido`);
+      sugerencias.push(
+        `Genera uno con: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+      );
       continue;
     }
     if (PLACEHOLDERS.some(p => val.toLowerCase().includes(p))) {
       errores.push(`${key} todavía tiene un valor de ejemplo`);
+      sugerencias.push(
+        `Reemplaza ${key} por un valor aleatorio de 32+ caracteres. ` +
+        `Si lo cambias en prod, las sesiones/certificados existentes se invalidan.`
+      );
     }
   }
 
+  // ---- JWT longitud mínima ----
   const jwtSecret = process.env.JWT_SECRET || '';
   if (jwtSecret && jwtSecret.length < 32) {
     errores.push('JWT_SECRET debe tener al menos 32 caracteres');
+    sugerencias.push(
+      `Tu JWT_SECRET tiene ${jwtSecret.length} chars. Genera uno nuevo: ` +
+      `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+    );
   }
 
-  return { ok: errores.length === 0, errores };
+  return { ok: errores.length === 0, errores, sugerencias };
+}
+
+/**
+ * Emite warnings de config potencialmente problemática en producción.
+ * NO bloquea el arranque. Se llama después de `listen()`.
+ */
+function verificarConfigAvanzada() {
+  const warnings = [];
+
+  // ---- CORS vs COOKIE_CROSS_SITE ----
+  const corsRaw = (process.env.CORS_ORIGINS || '').trim();
+  const crossSite = String(process.env.COOKIE_CROSS_SITE || '').toLowerCase() === 'true';
+  const hasCors = corsRaw.length > 0;
+
+  if (IS_PROD) {
+    if (!hasCors) {
+      warnings.push(
+        '⚠️  CORS_ORIGINS no está definido en producción. ' +
+        'CORS se cerrará por completo — el frontend no podrá llamar a la API. ' +
+        'Define CORS_ORIGINS=https://tu-frontend.com'
+      );
+    }
+
+    if (hasCors && !crossSite) {
+      // Si el frontend está en otro dominio, las cookies NO viajan.
+      const originsList = corsRaw.split(',').map(s => s.trim()).filter(Boolean);
+      const mismoHostname = originsList.every(o => {
+        try {
+          const u = new URL(o);
+          return u.hostname === 'localhost';
+        } catch { return false; }
+      });
+      if (!mismoHostname) {
+        warnings.push(
+          '⚠️  CORS_ORIGINS apunta a otro dominio pero COOKIE_CROSS_SITE no es "true". ' +
+          'Las cookies de sesión NO viajarán entre dominios. ' +
+          'Si el frontend está en Vercel/Netlify y el backend en Render, ' +
+          'define COOKIE_CROSS_SITE=true (requiere HTTPS).'
+        );
+      }
+    }
+
+    if (crossSite && !hasCors) {
+      warnings.push(
+        '⚠️  COOKIE_CROSS_SITE=true pero CORS_ORIGINS está vacío. ' +
+        'Esto causará problemas. Define CORS_ORIGINS explícitamente.'
+      );
+    }
+  }
+
+  // ---- Scheduler in-process en prod ----
+  const schedRaw = process.env.BACKUP_SCHEDULER_IN_WEB;
+  const schedInWeb = schedRaw !== undefined && schedRaw !== ''
+    ? String(schedRaw).toLowerCase() === 'true'
+    : false;
+  if (IS_PROD && schedInWeb) {
+    warnings.push(
+      '⚠️  BACKUP_SCHEDULER_IN_WEB=true en producción. ' +
+      'Si el dyno se duerme (Render free/starter), el cron NO correrá. ' +
+      'Recomendado: BACKUP_SCHEDULER_IN_WEB=false + Render Cron Job o cron-job.org.'
+    );
+  }
+
+  // ---- Mongo pool bajo ----
+  const poolMax = Number(process.env.MONGO_POOL_MAX) || 20;
+  if (IS_PROD && poolMax < 10) {
+    warnings.push(
+      `⚠️  MONGO_POOL_MAX=${poolMax} es muy bajo para producción. ` +
+      'Considera 20-30 si atiendes varios usuarios concurrentes.'
+    );
+  }
+
+  // ---- TRUST_PROXY en prod ----
+  const trustProxy = process.env.TRUST_PROXY_HOPS;
+  if (IS_PROD && (trustProxy === undefined || trustProxy === '0')) {
+    warnings.push(
+      '⚠️  TRUST_PROXY_HOPS no está definido. Detrás de un proxy (Render, Nginx) ' +
+      'debe ser 1 para que `req.ip` y `req.protocol` sean correctos.'
+    );
+  }
+
+  for (const w of warnings) {
+    log.warn(w);
+  }
 }
 
 // ============================================================
@@ -171,7 +283,9 @@ function parseOrigins(raw) {
 }
 
 const corsOriginsList = parseOrigins(process.env.CORS_ORIGINS);
-const corsOrigins = corsOriginsList !== null ? corsOriginsList : (IS_PROD ? false : true);
+const corsOrigins = corsOriginsList !== null
+  ? corsOriginsList
+  : (IS_PROD ? false : true);
 
 const socketOriginsList = parseOrigins(process.env.SOCKET_CORS_ORIGINS);
 const socketCorsOrigins = socketOriginsList !== null ? socketOriginsList : corsOrigins;
@@ -236,11 +350,16 @@ let db = null;
 let mongoClient = null;
 let schedulerActivo = false;
 let mongoConectado = false;
+let mongoConnectMs = null;
 
 async function inicializarMongo() {
+  const t0 = Date.now();
+  const poolMax = Number(process.env.MONGO_POOL_MAX) || 20;
+  const poolMin = Number(process.env.MONGO_POOL_MIN) || 2;
+
   mongoClient = new MongoClient(MONGODB_URI, {
-    maxPoolSize: Number(process.env.MONGO_POOL_MAX) || 5,
-    minPoolSize: Number(process.env.MONGO_POOL_MIN) || 0,
+    maxPoolSize: poolMax,
+    minPoolSize: poolMin,
     maxIdleTimeMS: Number(process.env.MONGO_MAX_IDLE_MS) || 30_000,
     serverSelectionTimeoutMS: Number(process.env.MONGO_SELECTION_TIMEOUT_MS) || 8_000,
     socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45_000,
@@ -250,7 +369,12 @@ async function inicializarMongo() {
   await mongoClient.connect();
   db = DB_NAME ? mongoClient.db(DB_NAME) : mongoClient.db();
   mongoConectado = true;
-  log.info({ db: db.databaseName }, '✅ Conectado a MongoDB');
+  mongoConnectMs = Date.now() - t0;
+
+  log.info(
+    { db: db.databaseName, ms: mongoConnectMs, poolMax, poolMin },
+    '✅ Conectado a MongoDB'
+  );
 }
 
 /**
@@ -260,11 +384,20 @@ async function trabajoPostArranque() {
   // 1. Índices.
   try {
     const r = await asegurarIndices(db);
-    if (r.salteado) log.info({ version: r.version }, '⏭️  Índices sin cambios');
-    else log.info(
-      { total: r.total, creados: r.creados, fallidos: r.fallidos?.length || 0 },
-      '✅ Índices verificados'
-    );
+    if (r.salteado) {
+      log.info({ version: r.version }, '⏭️  Índices sin cambios');
+    } else {
+      log.info(
+        {
+          total: r.total,
+          creados: r.creados,
+          existentes: r.existentes,
+          fallidos: r.fallidos?.length || 0,
+          ms: r.tiempoMs
+        },
+        '✅ Índices verificados'
+      );
+    }
   } catch (e) {
     log.warn({ err: e.message }, '⚠️  Error creando índices (el server sigue activo)');
   }
@@ -273,7 +406,7 @@ async function trabajoPostArranque() {
   try {
     await iniciarScheduler(db);
     schedulerActivo = true;
-    log.info('⏰ Scheduler de backups iniciado');
+    log.info('⏰ Scheduler de backups inicializado');
   } catch (e) {
     log.error({ err: e.message }, 'Error iniciando scheduler de backups');
   }
@@ -464,8 +597,11 @@ app.get('/api/health/detailed', async (req, res) => {
     uptimeSec: Math.round(process.uptime()),
     version: VERSION,
     env: process.env.NODE_ENV || 'development',
+    node: process.version,
+    hostname: os.hostname(),
     db: 'unknown',
     dbLatencyMs: null,
+    dbConnectMs: mongoConnectMs,
     scheduler: schedulerActivo,
     socketConnections: io.engine?.clientsCount ?? null
   };
@@ -497,7 +633,15 @@ app.get('/readyz', async (req, res) => {
     res.status(503).json({ status: 'not-ready', error: e.message });
   }
 });
+
+// ============================================================
+// RUTAS CRON (público, autenticado con CRON_TOKEN)
+// ------------------------------------------------------------
+// ⚠️  DEBE ir ANTES del authMiddleware. Si se monta después,
+//     cron-job.org recibirá 401 y los backups nunca correrán.
+// ============================================================
 app.use('/api/cron', require('./routes/cron'));
+
 // ============================================================
 // RUTAS PROTEGIDAS (requieren auth + CSRF)
 // ============================================================
@@ -518,8 +662,7 @@ app.use('/api/pagos', require('./routes/pagos'));
 //    gestionan vía `/api/ventas?tipo_documento=retencion`.
 //    Se auto-emiten desde `POST /api/compras`.
 //
-//    Si algún cliente legacy hace llamadas a `/api/retenciones`,
-//    responde un 410 Gone con instrucciones de migración.
+//    Respuesta 410 Gone para clientes legacy.
 app.use('/api/retenciones', (req, res) => {
   res.status(410).json({
     error:
@@ -592,45 +735,57 @@ let serverInstancia = null;
 let cerrando = false;
 
 async function bootstrap() {
+  // ---- 1. Validar env ----
   const check = validarEnv();
   if (!check.ok) {
     for (const e of check.errores) log.error(`❌ FATAL: ${e}`);
+    for (const s of check.sugerencias) log.error(`   💡 ${s}`);
     process.exit(1);
   }
 
+  // ---- 2. Conectar a Mongo ----
   try {
     await inicializarMongo();
   } catch (err) {
     log.error({ err: err.message }, '❌ No se pudo conectar a MongoDB');
+    log.error('   💡 Verifica MONGODB_URI y la allowlist de IPs en Atlas.');
     process.exit(1);
   }
 
+  // ---- 3. Listen ----
   serverInstancia = server.listen(PORT, () => {
-    log.info({
-      port: PORT,
-      env: process.env.NODE_ENV || 'development',
-      version: VERSION,
-      cors: corsOrigins === true ? 'todos (dev)' : corsOrigins,
-      db: db.databaseName,
-      trustProxy: TRUST_PROXY
-    }, '🚀 Servidor backend listo');
+    const tTotal = Date.now() - _T0_ARRANQUE;
 
+    log.info(
+      {
+        port: PORT,
+        env: process.env.NODE_ENV || 'development',
+        version: VERSION,
+        node: process.version,
+        hostname: os.hostname(),
+        cors: corsOrigins === true ? 'todos (dev)' : corsOrigins,
+        db: db.databaseName,
+        trustProxy: TRUST_PROXY,
+        connectMs: mongoConnectMs,
+        bootstrapMs: tTotal
+      },
+      `🚀 Servidor listo en :${PORT} (${tTotal} ms)`
+    );
+
+    // ---- 4. Post-arranque (no bloquea el listen) ----
     trabajoPostArranque().catch(err => {
       log.error({ err: err.message }, 'Error en trabajo post-arranque');
     });
 
+    // ---- 5. Warnings de config avanzada ----
+    verificarConfigAvanzada();
+
+    // ---- 6. Recordatorios si faltan configs opcionales ----
     if (!process.env.SMTP_FROM) {
       log.warn('⚠️  SMTP_FROM no definido. Se usará SMTP_USER como remitente.');
     }
-    if (!process.env.CORS_ORIGINS && IS_PROD) {
-      log.warn('⚠️  CORS_ORIGINS no definido en producción — CORS cerrado por defecto.');
-    }
-    if (IS_PROD && process.env.COOKIE_CROSS_SITE !== 'true') {
-      log.warn(
-        '⚠️  COOKIE_CROSS_SITE no está en "true". Si el frontend y el backend ' +
-        'están en dominios distintos, las cookies NO viajarán y la sesión se ' +
-        'caerá cada 15 min.'
-      );
+    if (!process.env.CRON_TOKEN) {
+      log.warn('⚠️  CRON_TOKEN no definido. El endpoint /api/cron/* responderá 503.');
     }
   });
 
@@ -658,23 +813,52 @@ function conTimeout(promesa, ms, mensaje) {
   });
 }
 
+/**
+ * Cierra el servidor de forma limpia.
+ *
+ * Se llama en:
+ *   - SIGTERM / SIGINT (Render envía SIGTERM antes de matar)
+ *   - unhandledRejection cuando se supera la racha
+ *
+ * NO se llama en uncaughtException (el estado del proceso es
+ * impredecible, mejor dejar que Node muera y Render reinicie).
+ */
 async function shutdown(signal) {
-  if (cerrando) return;
+  if (cerrando) {
+    log.warn({ signal }, 'Shutdown ya en curso, ignorando señal duplicada');
+    return;
+  }
   cerrando = true;
 
   log.info({ signal }, `Señal ${signal} recibida. Cerrando servidor...`);
 
   const timeoutDuro = setTimeout(() => {
     log.error('⚠️  Shutdown excedió 10 s, forzando salida');
-    process.exit(1);
+    // Flush best-effort y salir
+    Promise.resolve()
+      .then(() => typeof log.flush === 'function' ? log.flush() : undefined)
+      .catch(() => {})
+      .finally(() => process.exit(1));
   }, 10_000);
   if (timeoutDuro.unref) timeoutDuro.unref();
 
+  // ---- 1. Detener scheduler ----
   try { detenerScheduler(); } catch { /* noop */ }
 
+  // ---- 2. Cerrar Socket.IO ----
+  // En Socket.IO v4, `io.close()` no siempre llama el callback.
+  // Usamos un wrapper que resuelve cuando se cierra o tras 3s.
   try {
     await conTimeout(
-      new Promise(resolve => io.close(resolve)),
+      new Promise(resolve => {
+        try {
+          io.close(() => resolve());
+        } catch {
+          resolve();
+        }
+        // Fallback: si a los 2s no llamó el callback, resolver igual.
+        setTimeout(resolve, 2000).unref?.();
+      }),
       3000,
       'io.close timeout'
     );
@@ -682,6 +866,7 @@ async function shutdown(signal) {
     log.warn({ err: e.message }, 'No se pudo cerrar Socket.IO limpiamente');
   }
 
+  // ---- 3. Cerrar HTTP server ----
   try {
     if (serverInstancia) {
       await conTimeout(
@@ -694,6 +879,7 @@ async function shutdown(signal) {
     log.warn({ err: e.message }, 'No se pudo cerrar el servidor HTTP limpiamente');
   }
 
+  // ---- 4. Cerrar Mongo ----
   try {
     if (mongoClient) {
       await conTimeout(mongoClient.close(), 3000, 'mongo.close timeout');
@@ -702,6 +888,13 @@ async function shutdown(signal) {
   } catch (e) {
     log.warn({ err: e.message }, 'Error cerrando Mongo');
   }
+
+  // ---- 5. Flush del logger (crítico en Render) ----
+  try {
+    if (typeof log.flush === 'function') {
+      await log.flush();
+    }
+  } catch { /* noop */ }
 
   clearTimeout(timeoutDuro);
   log.info('✅ Servidor cerrado limpiamente');
@@ -712,6 +905,7 @@ async function shutdown(signal) {
 // ARRANQUE + HANDLERS DE PROCESO
 // ============================================================
 if (require.main === module) {
+  // ---- Rechazos no capturados: racha con ventana ----
   const RACHA_MAX = 20;
   const RACHA_VENTANA_MS = 60_000;
   let rachaRechazos = [];
@@ -735,14 +929,38 @@ if (require.main === module) {
     }
   });
 
+  // ---- Excepciones no capturadas: log + exit(1) controlado ----
+  //
+  // ⚠️  NO llamamos a `shutdown()` aquí:
+  //     - El estado del proceso es impredecible.
+  //     - `shutdown()` intenta cerrar sockets/Mongo que pueden estar
+  //       en estado inválido y colgarse.
+  //     - Render reinicia el container automáticamente si el proceso
+  //       sale con código != 0.
+  //
+  // Aseguramos que `log.flush()` se llame antes de morir para no
+  // perder los últimos logs.
   process.on('uncaughtException', (err) => {
-    log.error({ err: err.stack || err.message }, '❌ uncaughtException');
-    shutdown('uncaughtException');
+    log.fatal(
+      {
+        err: err?.stack || err?.message || String(err),
+        nombre: err?.name,
+        codigo: err?.code
+      },
+      '❌ uncaughtException — proceso irrecuperable'
+    );
+
+    Promise.resolve()
+      .then(() => typeof log.flush === 'function' ? log.flush() : undefined)
+      .catch(() => { /* noop */ })
+      .finally(() => process.exit(1));
   });
 
+  // ---- Señales de cierre ----
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
+  // ---- Arranque ----
   bootstrap().catch(err => {
     log.error({ err: err.message }, '❌ Error en bootstrap');
     process.exit(1);
@@ -758,3 +976,4 @@ module.exports._server = server;
 module.exports.bootstrap = bootstrap;
 module.exports.shutdown = shutdown;
 module.exports.validarEnv = validarEnv;
+module.exports.verificarConfigAvanzada = verificarConfigAvanzada;

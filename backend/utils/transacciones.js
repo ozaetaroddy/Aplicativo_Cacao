@@ -7,12 +7,12 @@
 // transacción (con `session = null`).
 //
 // API pública:
-//   conTransaccion(db, cb)         → degrada a no-tx si no hay soporte
-//   soportaTransacciones(db)       → boolean (con cache + TTL)
+//   conTransaccion(db, cb, opts?)   → degrada a no-tx si no hay soporte
+//   soportaTransacciones(db)        → boolean (con cache + TTL)
 //
 // Extensiones:
-//   runInTransaction(db, cb)       → FALLA si no hay soporte (estricto)
-//   invalidarCacheSoporte(db)      → fuerza re-chequeo
+//   runInTransaction(db, cb, opts?) → FALLA si no hay soporte (estricto)
+//   invalidarCacheSoporte(db)       → fuerza re-chequeo
 //   getMetricas() / resetearMetricas()
 //
 // Uso típico:
@@ -22,21 +22,29 @@
 //     return id;
 //   });
 //
-// Configuración por env:
-//   TRANSACTION_TIMEOUT_MS=60000          → timeout total (default 60 s)
-//   TRANSACTION_MAX_COMMIT_MS=10000       → timeout de commit (default 10 s)
-//   TRANSACTION_CACHE_TTL_MS=300000       → TTL del cache de soporte (5 min)
-//   TRANSACTION_LOG_STANDALONE_FALLBACK=true
-//                                          → loggear cada fallback a standalone
-//
+// ============================================================
 // ⚠️  ADVERTENCIA SOBRE REINTENTOS
-//   `session.withTransaction()` reintenta AUTOMÁTICAMENTE en errores
-//   `TransientTransactionError` (típicamente conflictos de write).
-//   Si tu callback NO es idempotente (por ejemplo, llama a un
-//   servicio externo como el SRI o envía un email), el reintento
-//   DUPLICA el efecto. Para esos casos:
-//     1. Saca la llamada externa FUERA del callback.
-//     2. O usa `runInTransaction(db, cb, { retryTransient: false })`.
+// ------------------------------------------------------------
+// `session.withTransaction()` (modo DEFAULT) reintenta AUTOMÁTICAMENTE
+// en errores `TransientTransactionError` y `UnknownTransactionCommitResult`.
+// Esto significa que tu callback PUEDE EJECUTARSE MÁS DE UNA VEZ.
+//
+// Si tu callback NO es idempotente (llama a un servicio externo como
+// el SRI, envía un email, escribe a un archivo, etc.), el reintento
+// DUPLICA el efecto.
+//
+// Para esos casos:
+//
+//   1. RECOMENDADO: saca la llamada externa FUERA del callback.
+//        const resultadoDb = await conTransaccion(db, async (s) => { ... });
+//        await enviarEmail(resultadoDb);  // ← fuera
+//
+//   2. ALTERNATIVA: usa `retryTransient: false`. Esto ejecuta la
+//      transacción con `startTransaction()` manual SIN reintentos.
+//      Si el driver lanza `TransientTransactionError`, se propaga
+//      tal cual y el caller decide.
+//        await conTransaccion(db, cb, { retryTransient: false });
+//
 // ============================================================
 'use strict';
 
@@ -69,15 +77,34 @@ const CONFIG = Object.freeze({
   cacheTtlMs: envNum('TRANSACTION_CACHE_TTL_MS', 5 * 60 * 1000),
 
   /** Loggear cada vez que se degrada a standalone. */
-  logStandaloneFallback: envBool('TRANSACTION_LOG_STANDALONE_FALLBACK', true)
+  logStandaloneFallback: envBool('TRANSACTION_LOG_STANDALONE_FALLBACK', true),
+
+  /**
+   * Read concern por defecto en modo manual (`retryTransient: false`).
+   * `snapshot` da el aislamiento más fuerte; `local` es más rápido.
+   */
+  readConcernManual: process.env.TRANSACTION_READ_CONCERN || 'snapshot',
+
+  /**
+   * Write concern por defecto en modo manual.
+   * `majority` es lo correcto para consistencia entre réplicas.
+   */
+  writeConcernManual: process.env.TRANSACTION_WRITE_CONCERN || 'majority'
 });
 
 // ============================================================
 // CÓDIGOS Y MENSAJES DE "NO SOPORTE"
 // ------------------------------------------------------------
-// Mensajes que el driver de MongoDB lanza cuando el servidor
-// es standalone y no puede manejar transacciones.
+// MongoDB lanza distintos errores cuando el servidor no puede
+// manejar transacciones. Cubrimos tanto el código numérico como
+// el mensaje (algunos drivers solo exponen uno u otro).
 // ============================================================
+const NO_SOPORTE_CODES = Object.freeze(new Set([
+  20,     // IllegalOperation
+  251,    // NoSuchTransaction
+  40415   // Transaction numbers are only allowed on a replica set member or mongos
+]));
+
 const NO_SOPORTE_REGEX = Object.freeze([
   /transaction numbers/i,
   /transactions are not supported/i,
@@ -94,21 +121,54 @@ const NO_SOPORTE_REGEX = Object.freeze([
  */
 function esErrorSinSoporte(err) {
   if (!err) return false;
+
+  // Chequeo por código numérico (más confiable).
+  if (typeof err.code === 'number' && NO_SOPORTE_CODES.has(err.code)) {
+    return true;
+  }
+
+  // Fallback: chequeo por mensaje (drivers antiguos).
   const msg = String(err.message || '');
   return NO_SOPORTE_REGEX.some(rx => rx.test(msg));
 }
 
 /**
- * ¿El error es transitorio? El driver reintenta automáticamente
- * cuando `err.hasErrorLabel('TransientTransactionError')`.
+ * ¿El error es transitorio?
+ *
+ * Cubre DOS labels:
+ *   - `TransientTransactionError`: conflicto de write, el driver
+ *     reintenta toda la transacción.
+ *   - `UnknownTransactionCommitResult`: el commit quedó en estado
+ *     desconocido, el driver reintenta SOLO el commit.
+ *
  * @param {Error} err
  */
 function esErrorTransitorio(err) {
-  return Boolean(
-    err &&
-    typeof err.hasErrorLabel === 'function' &&
-    err.hasErrorLabel('TransientTransactionError')
-  );
+  if (!err || typeof err.hasErrorLabel !== 'function') return false;
+  try {
+    return (
+      err.hasErrorLabel('TransientTransactionError') ||
+      err.hasErrorLabel('UnknownTransactionCommitResult')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clasifica un error transitorio en un string estable para logs/métricas.
+ * @param {Error} err
+ * @returns {'transient' | 'commit_unknown' | null}
+ */
+function clasificarTransitorio(err) {
+  if (!err || typeof err.hasErrorLabel !== 'function') return null;
+  try {
+    if (err.hasErrorLabel('TransientTransactionError')) return 'transient';
+    if (err.hasErrorLabel('UnknownTransactionCommitResult')) return 'commit_unknown';
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================
@@ -120,11 +180,20 @@ const METRICAS = {
   transaccionesFallidas: 0,
   fallbackStandalone: 0,
   chequeosSoporte: 0,
-  sinSoporteDetectado: 0
+  sinSoporteDetectado: 0,
+  // ---- Nuevas ----
+  transaccionesManuales: 0,
+  duracionTotalMs: 0,
+  abortadasManuales: 0
 };
 
 function getMetricas() {
-  return { ...METRICAS };
+  const m = { ...METRICAS };
+  // Añadimos un promedio calculado (no almacenado) para comodidad.
+  m.duracionPromedioMs = METRICAS.transaccionesOk > 0
+    ? Math.round(METRICAS.duracionTotalMs / METRICAS.transaccionesOk)
+    : 0;
+  return m;
 }
 
 function resetearMetricas() {
@@ -160,7 +229,7 @@ function guardarCache(db, soporta) {
 /**
  * Invalida el cache de una db. Útil tras cambios de topología
  * (upgrade a replica set, failover, etc.).
- * @param {object} [db]  Si se omite, no hace nada (WeakMap no es iterable).
+ * @param {object} [db]
  */
 function invalidarCacheSoporte(db) {
   if (db) cacheSoporte.delete(db);
@@ -202,20 +271,100 @@ async function soportaTransacciones(db) {
 }
 
 // ============================================================
+// MODO AUTO-RETRY (default): session.withTransaction()
+// ============================================================
+/**
+ * Ejecuta el callback con `session.withTransaction()`, que
+ * reintenta AUTOMÁTICAMENTE en errores transitorios.
+ *
+ * ⚠️  El callback PUEDE ejecutarse más de una vez. Ver header.
+ *
+ * @private
+ * @template T
+ * @param {object} session
+ * @param {(session: object) => Promise<T>} callback
+ * @returns {Promise<T>}
+ */
+async function _ejecutarConWithTransaction(session, callback) {
+  let resultado;
+
+  await session.withTransaction(
+    async () => {
+      resultado = await callback(session);
+      // `return true` indica al driver que el callback terminó OK
+      // y puede commitear. Retornar falsy provoca un retry.
+      return true;
+    },
+    { maxCommitTimeMS: CONFIG.maxCommitMs }
+  );
+
+  return resultado;
+}
+
+// ============================================================
+// MODO MANUAL (retryTransient: false): startTransaction + commit
+// ============================================================
+/**
+ * Ejecuta el callback con `startTransaction()` + `commitTransaction()`
+ * manual. NO reintenta automáticamente.
+ *
+ * Si el driver lanza `TransientTransactionError` o
+ * `UnknownTransactionCommitResult`, se propaga tal cual al caller.
+ *
+ * ⚠️  El callback se ejecuta EXACTAMENTE UNA VEZ.
+ *
+ * @private
+ * @template T
+ * @param {object} session
+ * @param {(session: object) => Promise<T>} callback
+ * @returns {Promise<T>}
+ */
+async function _ejecutarConTxManual(session, callback) {
+  METRICAS.transaccionesManuales++;
+
+  session.startTransaction({
+    readConcern: { level: CONFIG.readConcernManual },
+    writeConcern: { w: CONFIG.writeConcernManual },
+    maxCommitTimeMS: CONFIG.maxCommitMs
+  });
+
+  try {
+    const resultado = await callback(session);
+    await session.commitTransaction();
+    return resultado;
+  } catch (err) {
+    try {
+      await session.abortTransaction();
+      METRICAS.abortadasManuales++;
+    } catch (abortErr) {
+      // Si el abort falla, es probable que la transacción ya se haya
+      // cerrado (timeout, error de red). Lo dejamos como warning.
+      log.warn(
+        { err: abortErr.message, errorOriginal: err.message },
+        'Fallo abortando transacción manual'
+      );
+    }
+    throw err;
+  }
+}
+
+// ============================================================
 // EJECUCIÓN EN TRANSACCIÓN
 // ============================================================
 /**
  * Ejecuta `callback` en una transacción si `db` lo soporta.
  * Si NO lo soporta, ejecuta sin transacción con `session = null`.
  *
- * El callback **NO se ejecuta dos veces** aunque la transacción falle
- * por falta de soporte (el chequeo es proactivo, no reactivo).
- *
  * @template T
  * @param {object} db
  * @param {(session: object|null) => Promise<T>} callback
  * @param {object} [opts]
- * @param {boolean} [opts.retryTransient=true]  Permitir retry auto del driver.
+ * @param {boolean} [opts.retryTransient=true]
+ *   - `true` (default): usa `withTransaction()` con auto-retry del driver.
+ *     El callback puede ejecutarse MÚLTIPLES veces.
+ *   - `false`: usa `startTransaction()` + `commitTransaction()` manual.
+ *     El callback se ejecuta EXACTAMENTE UNA VEZ. Los errores transitorios
+ *     se propagan tal cual.
  * @returns {Promise<T>}
  */
 async function conTransaccion(db, callback, opts = {}) {
@@ -226,13 +375,14 @@ async function conTransaccion(db, callback, opts = {}) {
     });
   }
 
+  const { retryTransient = true } = opts;
+
   METRICAS.conTransaccion++;
+
   // ---- Sin cliente Mongo → ejecutar directo ----
   if (!db || !db.client) {
     return await callback(null);
   }
-
-  
 
   // ---- ¿Soporta? ----
   const soporta = await soportaTransacciones(db);
@@ -253,28 +403,19 @@ async function conTransaccion(db, callback, opts = {}) {
   const startedAt = Date.now();
 
   try {
-    let resultado;
-    const withTxOpts = {
-      maxCommitTimeMS: CONFIG.maxCommitMs
-    };
+    const resultado = retryTransient
+      ? await _ejecutarConWithTransaction(session, callback)
+      : await _ejecutarConTxManual(session, callback);
 
-    // `readConcern`/`writeConcern` por defecto están OK para el 99%
-    // de los casos. Si necesitas snapshot isolation estricta, se
-    // puede activar aquí.
-
-    await session.withTransaction(
-      async () => {
-        resultado = await callback(session);
-        return true; // Necesario para que `withTransaction` no reintente por commit.
-      },
-      withTxOpts
-    );
-
+    const duracionMs = Date.now() - startedAt;
     METRICAS.transaccionesOk++;
-    log.debug(
-      { duracionMs: Date.now() - startedAt },
+    METRICAS.duracionTotalMs += duracionMs;
+
+    log.info(
+      { duracionMs, modo: retryTransient ? 'auto-retry' : 'manual' },
       'Transacción completada'
     );
+
     return resultado;
   } catch (err) {
     // ---- ¿Falló por no soporte? (defensa en profundidad) ----
@@ -299,13 +440,16 @@ async function conTransaccion(db, callback, opts = {}) {
     METRICAS.transaccionesFallidas++;
 
     // Clasificar para logs.
-    const transitorio = esErrorTransitorio(err);
+    const clasif = clasificarTransitorio(err);
+    const duracionMs = Date.now() - startedAt;
+
     log.error(
       {
         err: err.message,
         codigo: err.code,
-        transitorio,
-        duracionMs: Date.now() - startedAt
+        transitorio: clasif,
+        modo: retryTransient ? 'auto-retry' : 'manual',
+        duracionMs
       },
       'Transacción falló'
     );
@@ -324,8 +468,7 @@ async function conTransaccion(db, callback, opts = {}) {
  * @template T
  * @param {object} db
  * @param {(session: object) => Promise<T>} callback
- * @param {object} [opts]
- * @param {boolean} [opts.retryTransient=true]
+ * @param {object} [opts]  Mismas opciones que `conTransaccion`.
  * @returns {Promise<T>}
  */
 async function runInTransaction(db, callback, opts = {}) {
@@ -364,8 +507,12 @@ module.exports = {
 // ---- Solo para tests ----
 module.exports._esErrorSinSoporte = esErrorSinSoporte;
 module.exports._esErrorTransitorio = esErrorTransitorio;
+module.exports._clasificarTransitorio = clasificarTransitorio;
 module.exports._leerCache = leerCache;
 module.exports._guardarCache = guardarCache;
 module.exports._cacheSoporte = cacheSoporte;
 module.exports._METRICAS = METRICAS;
 module.exports._NO_SOPORTE_REGEX = NO_SOPORTE_REGEX;
+module.exports._NO_SOPORTE_CODES = NO_SOPORTE_CODES;
+module.exports._ejecutarConWithTransaction = _ejecutarConWithTransaction;
+module.exports._ejecutarConTxManual = _ejecutarConTxManual;

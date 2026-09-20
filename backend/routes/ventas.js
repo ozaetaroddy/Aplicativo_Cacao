@@ -20,16 +20,32 @@
 //   PUT    /:id                         → actualizar (no si fue enviado)
 //   DELETE /:id                         → eliminar (revierte stock)
 //
-// Convenciones:
-//   - Todas las rutas requieren permisos (`ventas:*`).
-//   - Escrituras pasan por `verificarPeriodoAbierto()`.
-//   - Movimientos de stock se hacen DENTRO de transacción con
-//     guard atómico (`stock: { $gte: cantidad }`).
-//   - Una venta ya enviada al SRI (intentos_envio_sri > 0) NO se
-//     puede editar/eliminar: se requiere nota de crédito.
-//   - Errores delegados al `errorHandler` central.
+// ============================================================
+// 🔴 FIX CRÍTICO #1 (orden de checks de retención)
+// ------------------------------------------------------------
+// ANTES: `validarVenta` (middleware) exige `detalles.isArray({ min: 1 })`.
+//        Un cliente que llame con `tipo_documento=retencion` recibía
+//        400 de validación, NO el 410 esperado con instrucciones.
 //
-// 🔧 FIXES Y MEJORAS 2025-XX:
+// AHORA: middleware `bloquearRetencionManual` que se ejecuta ANTES de
+//        `validarVenta` y responde 410 Gone si el tipo es retención.
+//
+// ============================================================
+// 🔴 FIX CRÍTICO #2 (race condition en Notas de Crédito)
+// ------------------------------------------------------------
+// ANTES: dos NCs concurrentes podían pasar el check `saldoAcreditable`
+//        simultáneamente y crear NCs que EXCEDÍAN el total de la
+//        factura original.
+//
+// AHORA: guard ATÓMICO con `findOneAndUpdate` + `$expr` sobre un
+//        nuevo campo `total_nc_acreditado` en la factura original.
+//        Solo una request gana la carrera. La otra recibe 409.
+//
+//        El campo `total_nc_acreditado` se inicializa con `$ifNull`
+//        para compatibilidad con facturas previas.
+//
+// ============================================================
+// 🔧 FIXES Y MEJORAS 2025-XX (preservados)
 //   1. Notas de crédito requieren factura original referenciada.
 //   2. Retenciones requieren documento sustento.
 //   3. Al crear NC se valida: factura AUTORIZADA y saldo disponible.
@@ -37,20 +53,14 @@
 //   5. `numero_factura_modificada` en formato SRI.
 //   6. `asegurarClaveYXml` usa guard atómico.
 //   7. DELETE de factura bloqueado si tiene NCs asociadas.
-//   8. 🔴 FIX CRÍTICO: `TIPOS_SIN_MOVIMIENTO_STOCK.has()` fallaba
-//      porque el export original es un ARRAY, no un Set. Ahora se
-//      importa `SETS.TIPOS_SIN_MOVIMIENTO_STOCK` (Set real, O(1)).
-//   9. 🆕 RETENCIONES: `validarYNormalizarImpuestosRetencion()`
-//      valida contra el catálogo SRI (`data/catalogosSRI.js`),
-//      auto-calcula `valorRetenido = base × %`, corrige
-//      discrepancias y devuelve advertencias al cliente.
-//  10. 🆕 Se persiste `total_retenido` en el documento de retención.
-//  11. 🔴 FIX CRÍTICO (POST /): la reserva del contador se hacía
-//      DENTRO de `conTransaccion`. Si el driver reintentaba por
-//      `TransientTransactionError`, el `$inc` se ejecutaba 2+ veces
-//      → secuenciales duplicados y claves desalineadas con el
-//      `numero_factura`. Ahora se reserva FUERA, igual que en
-//      `routes/compras.js`.
+//   8. `TIPOS_SIN_MOVIMIENTO_STOCK.has()` falla si el export es Array.
+//      Ahora se importa `SETS.TIPOS_SIN_MOVIMIENTO_STOCK` (Set real).
+//   9. RETENCIONES: `validarYNormalizarImpuestosRetencion()` valida
+//      contra catálogo SRI, auto-calcula `valorRetenido = base × %`.
+//  10. Se persiste `total_retenido` en el documento.
+//  11. Reserva del contador se hace FUERA de `conTransaccion` para
+//      evitar secuenciales duplicados por reintentos del driver.
+//
 // ============================================================
 'use strict';
 
@@ -58,6 +68,7 @@ const express = require('express');
 const router = express.Router();
 const { ObjectId } = require('mongodb');
 const { body } = require('express-validator');
+
 const { logAudit } = require('../utils/audit');
 const { requierePermiso } = require('../utils/permisos');
 const {
@@ -89,7 +100,6 @@ const {
   PREFIJOS_CONTADOR,
   TIPOS_DOCUMENTO_VALIDOS
 } = require('../utils/tiposDocumento');
-// 🆕 Catálogo SRI para retenciones
 const { buscarRetencion } = require('../data/catalogosSRI');
 const log = require('../utils/logger');
 
@@ -106,7 +116,7 @@ function envNum(nombre, fallback) {
 const CONFIG = Object.freeze({
   colVentas: 'ventas_v2',
   colClientes: 'clientes',
-  colProveedores: 'proveedores',   // 🆕 para retenciones emitidas a proveedores
+  colProveedores: 'proveedores',
   colProductos: 'productos',
   colKardex: 'kardex',
   colPagos: 'pagos',
@@ -118,7 +128,6 @@ const CONFIG = Object.freeze({
   maxSinPaginar: envNum('VENTAS_MAX_SIN_PAGINAR', 5000),
 
   migrarMaxDocs: envNum('VENTAS_MIGRAR_MAX_DOCS', 5000),
-
   migrarRequiereConfirmacion:
     String(process.env.VENTAS_MIGRAR_CONFIRM ?? 'false').toLowerCase() === 'true',
 
@@ -134,11 +143,9 @@ const CONFIG = Object.freeze({
   })
 });
 
-// Mapa: impuesto declarado → código SRI ('1' RENTA | '2' IVA)
-const CODIGO_IMPUESTO_RETENCION = Object.freeze({
-  RENTA: '1',
-  IVA: '2'
-});
+const CODIGO_IMPUESTO_RETENCION = Object.freeze({ RENTA: '1', IVA: '2' });
+
+const TIPOS_SIN_MOVIMIENTO_STOCK_SET = SETS.TIPOS_SIN_MOVIMIENTO_STOCK;
 
 // ============================================================
 // HELPERS GENERALES
@@ -159,10 +166,21 @@ function round2(n) {
   return Math.round((v + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Parsea un entero positivo ESTRICTO.
+ *
+ * 🔧 FIX: antes aceptaba `'1e5'` → `100000` (notación científica).
+ *    Ahora exige regex `^\d+$` para evitar secuenciales inválidos.
+ */
 function parseEnteroSeguro(v, fallback = 1) {
   if (v === null || v === undefined || v === '') return fallback;
-  const n = Number(v);
-  return Number.isInteger(n) && n > 0 ? n : fallback;
+  if (typeof v === 'number') {
+    return Number.isInteger(v) && v > 0 ? v : fallback;
+  }
+  const s = String(v).trim();
+  if (!/^\d+$/.test(s)) return fallback;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function headersNoStore(res) {
@@ -197,22 +215,11 @@ function extraerValor(result) {
 // ============================================================
 // HELPERS DE NEGOCIO
 // ============================================================
-const TIPOS_SIN_MOVIMIENTO_STOCK_SET = SETS.TIPOS_SIN_MOVIMIENTO_STOCK;
-
-/**
- * ¿El tipo de documento afecta stock (kardex)?
- * 🔧 FIX: usa el Set canónico (O(1)), no el Array.
- */
 function afectaStock(tipoDoc) {
   if (!tipoDoc || typeof tipoDoc !== 'string') return false;
   return !TIPOS_SIN_MOVIMIENTO_STOCK_SET.has(tipoDoc);
 }
 
-/**
- * Signo del movimiento de stock para un tipo dado.
- *   - Nota de crédito → +1 (devuelve stock)
- *   - Resto → -1 (consume)
- */
 function signoStock(tipoDoc) {
   return tipoDoc === 'nota_credito' ? +1 : -1;
 }
@@ -242,9 +249,6 @@ function formatearSecuencial(n) {
   return String(parseEnteroSeguro(n, 1)).padStart(9, '0');
 }
 
-/**
- * Formatea el número de comprobante al formato SRI: EEE-PPP-SSSSSSSSS.
- */
 function formatearNumeroSRI(comprobante) {
   if (!comprobante) return '';
   const est = String(comprobante.establecimiento || '001').padStart(3, '0').slice(-3);
@@ -300,19 +304,23 @@ async function firmarXMLConCertificado(db, xmlSinFirma) {
  *     veces → secuenciales duplicados. Reservar SIEMPRE antes de
  *     abrir la transacción.
  *
- * @param {Db} db
- * @param {string} tipoDoc
- * @param {ClientSession|null} [session]  Solo por compat con llamadas
- *   externas; el flujo normal debe pasarlo como `null`/omitido.
+ * 🔧 FIX: si alguien pasa `session` por error, emitimos warning en
+ *    lugar de fallar silenciosamente.
  */
 async function reservarContador(db, tipoDoc, session = null) {
-  const opts = { upsert: true, returnDocument: 'after' };
-  if (session) opts.session = session;
+  if (session) {
+    log.warn(
+      { tipoDoc },
+      '⚠️  reservarContador() recibió una session. Esto puede causar ' +
+      'secuenciales duplicados si el driver reintenta la transacción. ' +
+      'La session será ignorada.'
+    );
+  }
 
   const r = await db.collection(CONFIG.colContadores).findOneAndUpdate(
     { _id: tipoDoc },
     { $inc: { valor: 1 } },
-    opts
+    { upsert: true, returnDocument: 'after' }
   );
 
   const valor = extraerValor(r);
@@ -430,8 +438,46 @@ function validarDetalleCantidadPrecio(detalle) {
   }
 }
 
+/**
+ * Valida los detalles de una venta (excepto NC/guía).
+ * @param {object} db
+ * @param {string} tipoDoc
+ * @param {Array} detalles
+ * @throws {Error} tipado (status 400)
+ */
+async function validarDetallesVenta(db, tipoDoc, detalles) {
+  if (tipoDoc === 'nota_credito' || tipoDoc === 'guia_remision') return;
+
+  for (const detalle of detalles) {
+    if (!ObjectId.isValid(detalle.productoId)) {
+      const err = new Error(`ID de producto inválido: ${detalle.productoId}`);
+      err.status = 400;
+      err.codigo = 'PRODUCTO_ID_INVALIDO';
+      throw err;
+    }
+    validarDetalleCantidadPrecio(detalle);
+  }
+
+  const productoIds = detalles.map(d => new ObjectId(d.productoId));
+  const productos = await db.collection(CONFIG.colProductos)
+    .find({ _id: { $in: productoIds } })
+    .project({ _id: 1 })
+    .toArray();
+  const encontrados = new Set(productos.map(p => String(p._id)));
+  for (const detalle of detalles) {
+    if (!encontrados.has(String(detalle.productoId))) {
+      const err = new Error(`Producto ${detalle.productoId} no existe`);
+      err.status = 400;
+      err.codigo = 'PRODUCTO_NO_EXISTE';
+      throw err;
+    }
+  }
+}
+
 function normalizarFechasRetencion(body) {
   if (!body || body.tipo_documento !== 'retencion') return { ok: true };
+  // 🔧 FIX: evitar normalizar dos veces (POST llama esto, luego PUT lo vuelve a llamar)
+  if (body.__fechasNormalizadas) return { ok: true };
 
   if (body.comprobante_fecha_emision) {
     try {
@@ -454,6 +500,7 @@ function normalizarFechasRetencion(body) {
     }
   }
 
+  body.__fechasNormalizadas = true;
   return { ok: true };
 }
 
@@ -481,6 +528,9 @@ async function verificarNumeroUnico(db, { tipoDoc, numeroFactura, rucEmisor, exc
   return { ok: true };
 }
 
+// ============================================================
+// HELPERS DE NC (resolver factura original + guard atómico)
+// ============================================================
 async function resolverFacturaOriginalNC(db, {
   facturaOriginalId,
   comprobanteClaveAcceso,
@@ -563,17 +613,74 @@ async function calcularSaldoAcreditable(db, facturaId) {
   return round2(toNumber(r?.total));
 }
 
+/**
+ * 🔴 GUARD ATÓMICO para evitar race condition en NCs.
+ *
+ * Intenta incrementar `total_nc_acreditado` de la factura original
+ * SOLO si el nuevo total cabe dentro del monto de la factura.
+ *
+ * @param {Db} db
+ * @param {ObjectId} facturaId
+ * @param {number} montoNC
+ * @returns {Promise<{ ok: true, facturaActualizada: object } | { ok: false }>}
+ */
+async function intentarReservarSaldoNC(db, facturaId, montoNC) {
+  const monto = round2(montoNC);
+  if (!Number.isFinite(monto) || monto <= 0) {
+    return { ok: false, motivo: 'MONTO_INVALIDO' };
+  }
+
+  const result = await db.collection(CONFIG.colVentas).findOneAndUpdate(
+    {
+      _id: facturaId,
+      tipo_documento: 'factura',
+      $expr: {
+        $lte: [
+          {
+            $add: [
+              { $ifNull: ['$total_nc_acreditado', 0] },
+              monto
+            ]
+          },
+          '$total'
+        ]
+      }
+    },
+    {
+      $inc: { total_nc_acreditado: monto }
+    },
+    { returnDocument: 'after' }
+  );
+
+  const doc = result && result.value !== undefined ? result.value : result;
+  if (doc && doc._id) {
+    return { ok: true, facturaActualizada: doc };
+  }
+  return { ok: false, motivo: 'EXCEDE_SALDO' };
+}
+
+/**
+ * Rollback del guard atómico si la NC falla tras reservar el saldo.
+ * @param {Db} db
+ * @param {ObjectId} facturaId
+ * @param {number} montoNC
+ */
+async function revertirReservaSaldoNC(db, facturaId, montoNC) {
+  try {
+    await db.collection(CONFIG.colVentas).updateOne(
+      { _id: facturaId },
+      { $inc: { total_nc_acreditado: -round2(montoNC) } }
+    );
+  } catch (e) {
+    log.error(
+      { err: e.message, facturaId: String(facturaId), montoNC },
+      'Rollback de reserva de saldo NC falló — puede quedar inconsistencia'
+    );
+  }
+}
+
 // ============================================================
-// 🆕 VALIDACIÓN Y NORMALIZACIÓN DE IMPUESTOS DE RETENCIÓN
-// ------------------------------------------------------------
-// - Valida estructura de cada impuesto.
-// - Busca el `codigoRetencion` en el catálogo SRI (con el
-//   discriminador `impuesto` para evitar ambigüedades del tipo
-//   '725' que existe tanto en RENTA como en IVA).
-// - Auto-calcula `valorRetenido = base × %`.
-// - Corrige discrepancias (por ej. si el usuario envía un %
-//   distinto al del catálogo, gana el del catálogo).
-// - Devuelve advertencias legibles + total retenido.
+// HELPERS DE RETENCIÓN
 // ============================================================
 function validarYNormalizarImpuestosRetencion(body) {
   const arr = body?.impuestos_retencion;
@@ -726,6 +833,24 @@ const validarVenta = [
 ];
 
 // ============================================================
+// 🔴 MIDDLEWARE: bloquear retención manual ANTES de validarVenta
+// ============================================================
+function bloquearRetencionManual(req, res, next) {
+  if (req.body?.tipo_documento === 'retencion') {
+    return res.status(410).json({
+      error:
+        'Las retenciones ahora se emiten automáticamente al crear una compra. ' +
+        'Registra la compra correspondiente y la retención se generará sola, ' +
+        'con clave de acceso SRI, XML y firma electrónica.',
+      codigo: 'RETENCION_MANUAL_DEPRECADA',
+      redirigir_a: '/compras/nuevo',
+      doc: 'POST /api/compras (con campo retencion_valor > 0)'
+    });
+  }
+  next();
+}
+
+// ============================================================
 // PIPELINE DE LISTADO
 // ============================================================
 function buildPipelineListado(match) {
@@ -742,9 +867,6 @@ function buildPipelineListado(match) {
       }
     },
     { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
-    // 🆕 Lookup proveedores: las retenciones emitidas a un proveedor
-    //    tienen `proveedorId` pero NO `clienteId`. Sin este lookup,
-    //    la lista mostraba "N/A" como contraparte.
     {
       $lookup: {
         from: CONFIG.colProveedores,
@@ -755,7 +877,7 @@ function buildPipelineListado(match) {
       }
     },
     { $unwind: { path: '$proveedor', preserveNullAndEmptyArrays: true } }
-  ]
+  ];
 }
 
 // ============================================================
@@ -1356,7 +1478,7 @@ router.get('/:id', requierePermiso('ventas', 'ver'), async (req, res, next) => {
   try {
     const _id = requireObjectId(req.params.id);
 
-        const [venta] = await req.db.collection(CONFIG.colVentas).aggregate([
+    const [venta] = await req.db.collection(CONFIG.colVentas).aggregate([
       { $match: { _id } },
       { $project: { ...CONFIG.proyeccionLista } },
       {
@@ -1368,7 +1490,6 @@ router.get('/:id', requierePermiso('ventas', 'ver'), async (req, res, next) => {
         }
       },
       { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
-      // 🆕 lookup proveedor para retenciones auto-emitidas
       {
         $lookup: {
           from: CONFIG.colProveedores,
@@ -1584,6 +1705,7 @@ router.post(
   '/',
   requierePermiso('ventas', 'crear'),
   verificarPeriodoAbierto(),
+  bloquearRetencionManual,      // 🔴 NUEVO: antes de validarVenta
   validarVenta,
   async (req, res, next) => {
     if (validar(req, res)) return;
@@ -1622,34 +1744,9 @@ router.post(
         factura_original_id
       } = req.body;
 
-            const tipoDoc = tipo_documento || 'factura';
+      const tipoDoc = tipo_documento || 'factura';
 
-      // ============================================================
-      // 🆕 REFACTOR 2025-XX: la creación MANUAL de retenciones está
-      //    DEPRECADA. Las retenciones se emiten AUTOMÁTICAMENTE
-      //    desde `POST /api/compras`.
-      //
-      //    Motivo:
-      //      1. Garantiza que toda retención tenga `compra_origen_id`
-      //         (trazabilidad fiscal).
-      //      2. Evita duplicados: el usuario no puede crear dos
-      //         retenciones para la misma compra.
-      //      3. Simplifica el flujo: siempre se retiene "al comprar".
-      //
-      //    Devolvemos 410 Gone con instrucciones de qué hacer.
-      // ============================================================
-      if (tipoDoc === 'retencion') {
-        return res.status(410).json({
-          error:
-            'Las retenciones ahora se emiten automáticamente al crear una compra. ' +
-            'Registra la compra correspondiente y la retención se generará sola, ' +
-            'con clave de acceso SRI, XML y firma electrónica.',
-          codigo: 'RETENCION_MANUAL_DEPRECADA',
-          redirigir_a: '/compras/nuevo',
-          doc: 'POST /api/compras (con campo retencion_valor > 0)'
-        });
-      }
-
+      // ---- Validaciones tempranas ----
       if (!SETS.TIPOS_DOCUMENTO_VALIDOS.has(tipoDoc)) {
         return res.status(400).json({
           error: `Tipo de documento "${tipoDoc}" no es válido`,
@@ -1660,7 +1757,7 @@ router.post(
 
       const config = await req.db.collection(CONFIG.colConfig).findOne({ _id: 'empresa' });
 
-      // ===== NOTA DE CRÉDITO: resolver factura original + validar =====
+      // ===== NOTA DE CRÉDITO: resolver factura original =====
       let facturaOriginal = null;
       let motivoNC = '';
 
@@ -1683,6 +1780,7 @@ router.post(
         facturaOriginal = resuelto.factura;
         motivoNC = resuelto.motivo;
 
+        // Pre-check informativo (para mensaje útil al usuario)
         const totalNCsPrevio = await calcularSaldoAcreditable(req.db, facturaOriginal._id);
         const saldoAcreditable = round2(toNumber(facturaOriginal.total) - totalNCsPrevio);
         const totalNuevaNC = round2(toNumber(total));
@@ -1722,32 +1820,8 @@ router.post(
         retencionInfo = valRet;
       }
 
-      if (tipoDoc !== 'nota_credito' && tipoDoc !== 'guia_remision') {
-        for (const detalle of detalles) {
-          if (!ObjectId.isValid(detalle.productoId)) {
-            return res.status(400).json({
-              error: `ID de producto inválido: ${detalle.productoId}`,
-              codigo: 'PRODUCTO_ID_INVALIDO'
-            });
-          }
-          validarDetalleCantidadPrecio(detalle);
-        }
-
-        const productoIds = detalles.map(d => new ObjectId(d.productoId));
-        const productos = await req.db.collection(CONFIG.colProductos)
-          .find({ _id: { $in: productoIds } })
-          .project({ _id: 1 })
-          .toArray();
-        const encontrados = new Set(productos.map(p => String(p._id)));
-        for (const detalle of detalles) {
-          if (!encontrados.has(String(detalle.productoId))) {
-            return res.status(400).json({
-              error: `Producto ${detalle.productoId} no existe`,
-              codigo: 'PRODUCTO_NO_EXISTE'
-            });
-          }
-        }
-      }
+      // ---- Validar detalles (excepto NC/guía) ----
+      await validarDetallesVenta(req.db, tipoDoc, detalles);
 
       // Solo verificar unicidad de número si NO es NC
       if (tipoDoc !== 'nota_credito') {
@@ -1786,197 +1860,213 @@ router.post(
         ? new ObjectId(clienteId)
         : null;
 
-      // 🔧 FIX CRÍTICO: reservar el contador FUERA de la transacción.
-      //
-      //    ANTES: `reservarContador` se llamaba DENTRO del callback de
-      //    `conTransaccion`. Un `findOneAndUpdate` con `$inc` es atómico
-      //    a nivel de documento y NO requiere transacción. Pero al
-      //    envolverlo en `session.withTransaction`, si el driver
-      //    reintentaba el callback por `TransientTransactionError`
-      //    (conflicto de escritura sobre el propio documento `contadores`
-      //    cuando hay concurrencia), el `$inc` se ejecutaba 2+ veces →
-      //    secuenciales duplicados y `clave_acceso` desalineada con
-      //    `numero_factura`.
-      //
-      //    AHORA: se reserva antes de abrir la transacción. Si la
-      //    transacción falla después, el número queda "quemado" — es
-      //    aceptable y muchísimo mejor que duplicar. Mismo criterio ya
-      //    aplicado en `routes/compras.js`.
+      // 🔴 FIX CRÍTICO: reservar el contador FUERA de la transacción.
       const contadorValor = await reservarContador(req.db, tipoDoc);
       const codigo = `${prefijo}-${String(contadorValor).padStart(6, '0')}`;
 
-      const resultado = await conTransaccion(req.db, async (session) => {
-        let claveAcceso = null;
-        let partesClave = null;
-        let serieFormateada = null;
-        let numeroSecuencial = null;
+      // 🔴 FIX CRÍTICO #2: guard atómico para NC (evita race condition).
+      let reservaSaldoNC = null;
+      if (tipoDoc === 'nota_credito') {
+        reservaSaldoNC = await intentarReservarSaldoNC(
+          req.db,
+          facturaOriginal._id,
+          round2(toNumber(total))
+        );
 
-        if (generaClave) {
-          const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
-          const est = establecimiento || config.establecimiento || '001';
-          const pe = punto_emision || config.punto_emision || '001';
-          serieFormateada = formatearSerie(est, pe);
-          numeroSecuencial = contadorValor;
-
-          try {
-            claveAcceso = generarClaveAcceso({
-              fechaEmision: new Date(fecha_emision),
-              tipoComprobante: codigoSRI,
-              ruc: config.ruc,
-              ambiente: config.ambiente || '1',
-              serie: serieFormateada,
-              secuencial: numeroSecuencial,
-              tipoEmision: config.tipo_emision || '1'
-            });
-            partesClave = descomponerClave(claveAcceso);
-          } catch (e) {
-            throw Object.assign(
-              new Error(`Error generando clave de acceso: ${e.message}`),
-              { status: 400, codigo: 'CLAVE_ERROR' }
-            );
-          }
+        if (!reservaSaldoNC.ok) {
+          return res.status(409).json({
+            error: 'Otra nota de crédito fue creada concurrentemente y agotó el saldo disponible. Refresca e intenta de nuevo.',
+            codigo: 'NC_EXCEDE_SALDO_RACE',
+            facturaOriginalId: facturaOriginal._id
+          });
         }
+      }
 
-        const exportacionCodigo = tipoDoc === 'exportacion' ? codigo : null;
+      let resultado;
+      try {
+        resultado = await conTransaccion(req.db, async (session) => {
+          let claveAcceso = null;
+          let partesClave = null;
+          let serieFormateada = null;
+          let numeroSecuencial = null;
 
-        let xmlGenerado = '';
-        let xmlFirmado = '';
-        let estadoSri = generaClave ? 'PENDIENTE' : 'NO_APLICA';
-        let fechaFirma = null;
+          if (generaClave) {
+            const codigoSRI = TIPO_COMPROBANTE_SRI[tipoDoc] || '01';
+            const est = establecimiento || config.establecimiento || '001';
+            const pe = punto_emision || config.punto_emision || '001';
+            serieFormateada = formatearSerie(est, pe);
+            numeroSecuencial = contadorValor;
 
-        const numeroFacturaFinal = tipoDoc === 'nota_credito'
-          ? codigo
-          : (numero_factura || codigo);
+            try {
+              claveAcceso = generarClaveAcceso({
+                fechaEmision: new Date(fecha_emision),
+                tipoComprobante: codigoSRI,
+                ruc: config.ruc,
+                ambiente: config.ambiente || '1',
+                serie: serieFormateada,
+                secuencial: numeroSecuencial,
+                tipoEmision: config.tipo_emision || '1'
+              });
+              partesClave = descomponerClave(claveAcceso);
+            } catch (e) {
+              throw Object.assign(
+                new Error(`Error generando clave de acceso: ${e.message}`),
+                { status: 400, codigo: 'CLAVE_ERROR' }
+              );
+            }
+          }
 
-        const numeroFacturaModificadaFinal = tipoDoc === 'nota_credito' && facturaOriginal
-          ? formatearNumeroSRI(facturaOriginal)
-          : (numero_factura_modificada || '');
+          const exportacionCodigo = tipoDoc === 'exportacion' ? codigo : null;
 
-        if (claveAcceso && config) {
-          const ventaParaXml = {
+          let xmlGenerado = '';
+          let xmlFirmado = '';
+          let estadoSri = generaClave ? 'PENDIENTE' : 'NO_APLICA';
+          let fechaFirma = null;
+
+          const numeroFacturaFinal = tipoDoc === 'nota_credito'
+            ? codigo
+            : (numero_factura || codigo);
+
+          const numeroFacturaModificadaFinal = tipoDoc === 'nota_credito' && facturaOriginal
+            ? formatearNumeroSRI(facturaOriginal)
+            : (numero_factura_modificada || '');
+
+          if (claveAcceso && config) {
+            const ventaParaXml = {
+              clienteId: clienteIdObj,
+              numero_factura: numeroFacturaFinal,
+              fecha_emision: new Date(fecha_emision),
+              tipo_documento: tipoDoc,
+              detalles, subtotal, iva, total,
+              clave_acceso: claveAcceso,
+              serie: serieFormateada,
+              secuencial_sri: formatearSecuencial(numeroSecuencial),
+              ruc_emisor: config.ruc,
+              razon_social_emisor: config.razon_social || '',
+              establecimiento: establecimiento || config.establecimiento || '001',
+              punto_emision: punto_emision || config.punto_emision || '001',
+              tipo_retencion, tipo_impuesto, impuestos_retencion: impuestosRetencionFinal,
+              numero_retencion, porcentaje_retencion,
+              comprobante_documento, comprobante_numero, comprobante_fecha_emision,
+              numero_factura_modificada: numeroFacturaModificadaFinal,
+              motivo: motivoNC || motivo || ''
+            };
+            try {
+              xmlGenerado = generarXMLComprobante(ventaParaXml, cliente, config);
+            } catch (e) {
+              throw Object.assign(
+                new Error(`Error generando XML: ${e.message}`),
+                { status: 500, codigo: 'XML_ERROR' }
+              );
+            }
+          }
+
+          if (xmlGenerado && pems) {
+            try {
+              xmlFirmado = firmarXML(xmlGenerado, pems.privateKeyPem, pems.certificatePem);
+              estadoSri = 'FIRMADO';
+              fechaFirma = new Date();
+            } catch (e) {
+              log.warn({ err: e.message, tipoDoc }, 'Error firmando en POST /ventas');
+            }
+          }
+
+          const ahora = new Date();
+          const venta = {
             clienteId: clienteIdObj,
             numero_factura: numeroFacturaFinal,
             fecha_emision: new Date(fecha_emision),
             tipo_documento: tipoDoc,
             detalles, subtotal, iva, total,
-            clave_acceso: claveAcceso,
-            serie: serieFormateada,
+            clave_acceso: claveAcceso || '',
+            numero_autorizacion: '',
+            estado_sri: estadoSri,
+            ambiente_sri: config?.ambiente || '1',
+            serie: serieFormateada || '',
             secuencial_sri: formatearSecuencial(numeroSecuencial),
-            ruc_emisor: config.ruc,
-            razon_social_emisor: config.razon_social || '',
-            establecimiento: establecimiento || config.establecimiento || '001',
-            punto_emision: punto_emision || config.punto_emision || '001',
-            tipo_retencion, tipo_impuesto, impuestos_retencion: impuestosRetencionFinal,
-            numero_retencion, porcentaje_retencion,
-            comprobante_documento, comprobante_numero, comprobante_fecha_emision,
+            ruc_emisor: config?.ruc || '',
+            razon_social_emisor: config?.razon_social || '',
+
+            // Nota de Crédito
+            factura_original_id: facturaOriginal?._id || null,
             numero_factura_modificada: numeroFacturaModificadaFinal,
-            motivo: motivoNC || motivo || ''
+            motivo: motivoNC || motivo || '',
+
+            // Retención (normalizada + total)
+            numero_retencion: numero_retencion || '',
+            porcentaje_retencion: porcentaje_retencion || 0,
+            tipo_retencion: tipo_retencion || '',
+            tipo_impuesto: tipo_impuesto || '1',
+            impuestos_retencion: Array.isArray(impuestosRetencionFinal) ? impuestosRetencionFinal : undefined,
+            total_retenido: retencionInfo?.totalRetenido || 0,
+
+            numero_guia: numero_guia || '',
+            transportista: transportista || '',
+            placa: placa || '',
+            numero_exportacion: numero_exportacion || exportacionCodigo || '',
+            pais_destino: pais_destino || '',
+            establecimiento: establecimiento || config?.establecimiento || '',
+            nombre_comercial: nombre_comercial || config?.nombre_comercial || '',
+            punto_emision: punto_emision || config?.punto_emision || '',
+            transportista_identificacion: transportista_identificacion || '',
+            transportista_tipo: transportista_tipo || '',
+            transportista_razon_social: transportista_razon_social || '',
+            transportista_correo: transportista_correo || '',
+            direccion_partida: direccion_partida || '',
+            inicio_transporte: inicio_transporte || '',
+            fin_transporte: fin_transporte || '',
+            placa_transporte: placa_transporte || '',
+            destinatario_identificacion: destinatario_identificacion || '',
+            destinatario_tipo: destinatario_tipo || '',
+            destinatario_razon_social: destinatario_razon_social || '',
+            destinatario_direccion: destinatario_direccion || '',
+            ruta: ruta || '',
+            documento_aduana: documento_aduana || '',
+            comprobante_tipo_emision: comprobante_tipo_emision || '',
+            comprobante_documento: comprobante_documento || '',
+            comprobante_clave_acceso: comprobante_clave_acceso || '',
+            comprobante_numero_autorizacion: comprobante_numero_autorizacion || '',
+            comprobante_numero: comprobante_numero || '',
+            comprobante_fecha_emision: comprobante_fecha_emision || '',
+            forma_pago: forma_pago || '',
+            estado_pago: estado_pago || 'pendiente',
+            monto_pagado: 0,
+            fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
+            observaciones: observaciones || '',
+            xml_generado: xmlGenerado,
+            xml_firmado: xmlFirmado,
+            fecha_firma: fechaFirma,
+            intentos_envio_sri: 0,
+            createdAt: ahora,
+            updatedAt: ahora
           };
-          try {
-            xmlGenerado = generarXMLComprobante(ventaParaXml, cliente, config);
-          } catch (e) {
-            throw Object.assign(
-              new Error(`Error generando XML: ${e.message}`),
-              { status: 500, codigo: 'XML_ERROR' }
-            );
-          }
-        }
 
-        if (xmlGenerado && pems) {
-          try {
-            xmlFirmado = firmarXML(xmlGenerado, pems.privateKeyPem, pems.certificatePem);
-            estadoSri = 'FIRMADO';
-            fechaFirma = new Date();
-          } catch (e) {
-            log.warn({ err: e.message, tipoDoc }, 'Error firmando en POST /ventas');
-          }
-        }
+          const ventaResult = await req.db.collection(CONFIG.colVentas)
+            .insertOne(venta, { session });
+          const ventaId = ventaResult.insertedId;
 
-        const ahora = new Date();
-        const venta = {
-          clienteId: clienteIdObj,
-          numero_factura: numeroFacturaFinal,
-          fecha_emision: new Date(fecha_emision),
-          tipo_documento: tipoDoc,
-          detalles, subtotal, iva, total,
-          clave_acceso: claveAcceso || '',
-          numero_autorizacion: '',
-          estado_sri: estadoSri,
-          ambiente_sri: config?.ambiente || '1',
-          serie: serieFormateada || '',
-          secuencial_sri: formatearSecuencial(numeroSecuencial),
-          ruc_emisor: config?.ruc || '',
-          razon_social_emisor: config?.razon_social || '',
+          await moverStockVenta({
+            db: req.db,
+            ventaId,
+            detalles,
+            tipoDoc,
+            fechaEmision: fecha_emision,
+            session
+          });
 
-          // Nota de Crédito
-          factura_original_id: facturaOriginal?._id || null,
-          numero_factura_modificada: numeroFacturaModificadaFinal,
-          motivo: motivoNC || motivo || '',
-
-          // 🆕 Retención (normalizada + total)
-          numero_retencion: numero_retencion || '',
-          porcentaje_retencion: porcentaje_retencion || 0,
-          tipo_retencion: tipo_retencion || '',
-          tipo_impuesto: tipo_impuesto || '1',
-          impuestos_retencion: Array.isArray(impuestosRetencionFinal) ? impuestosRetencionFinal : undefined,
-          total_retenido: retencionInfo?.totalRetenido || 0,
-
-          numero_guia: numero_guia || '',
-          transportista: transportista || '',
-          placa: placa || '',
-          numero_exportacion: numero_exportacion || exportacionCodigo || '',
-          pais_destino: pais_destino || '',
-          establecimiento: establecimiento || config?.establecimiento || '',
-          nombre_comercial: nombre_comercial || config?.nombre_comercial || '',
-          punto_emision: punto_emision || config?.punto_emision || '',
-          transportista_identificacion: transportista_identificacion || '',
-          transportista_tipo: transportista_tipo || '',
-          transportista_razon_social: transportista_razon_social || '',
-          transportista_correo: transportista_correo || '',
-          direccion_partida: direccion_partida || '',
-          inicio_transporte: inicio_transporte || '',
-          fin_transporte: fin_transporte || '',
-          placa_transporte: placa_transporte || '',
-          destinatario_identificacion: destinatario_identificacion || '',
-          destinatario_tipo: destinatario_tipo || '',
-          destinatario_razon_social: destinatario_razon_social || '',
-          destinatario_direccion: destinatario_direccion || '',
-          ruta: ruta || '',
-          documento_aduana: documento_aduana || '',
-          comprobante_tipo_emision: comprobante_tipo_emision || '',
-          comprobante_documento: comprobante_documento || '',
-          comprobante_clave_acceso: comprobante_clave_acceso || '',
-          comprobante_numero_autorizacion: comprobante_numero_autorizacion || '',
-          comprobante_numero: comprobante_numero || '',
-          comprobante_fecha_emision: comprobante_fecha_emision || '',
-          forma_pago: forma_pago || '',
-          estado_pago: estado_pago || 'pendiente',
-          monto_pagado: 0,
-          fecha_pago: fecha_pago ? new Date(fecha_pago) : null,
-          observaciones: observaciones || '',
-          xml_generado: xmlGenerado,
-          xml_firmado: xmlFirmado,
-          fecha_firma: fechaFirma,
-          intentos_envio_sri: 0,
-          createdAt: ahora,
-          updatedAt: ahora
-        };
-
-        const ventaResult = await req.db.collection(CONFIG.colVentas)
-          .insertOne(venta, { session });
-        const ventaId = ventaResult.insertedId;
-
-        await moverStockVenta({
-          db: req.db,
-          ventaId,
-          detalles,
-          tipoDoc,
-          fechaEmision: fecha_emision,
-          session
+          return { ventaResult, claveAcceso, partesClave };
         });
-
-        return { ventaResult, claveAcceso, partesClave };
-      });
+      } catch (txError) {
+        // 🔴 Rollback del guard atómico si la transacción falló.
+        if (reservaSaldoNC?.ok && facturaOriginal) {
+          await revertirReservaSaldoNC(
+            req.db,
+            facturaOriginal._id,
+            round2(toNumber(total))
+          );
+        }
+        throw txError;
+      }
 
       const [ventaCreada] = await req.db.collection(CONFIG.colVentas).aggregate([
         { $match: { _id: resultado.ventaResult.insertedId } },
@@ -2021,7 +2111,6 @@ router.post(
         ...ventaCreada,
         clave_acceso_partes: resultado.partesClave,
         _advertencia: advertencia,
-        // 🆕 Advertencias de retención (si las hay)
         _advertencias_retencion: retencionInfo?.advertencias?.length
           ? retencionInfo.advertencias
           : undefined,
@@ -2041,6 +2130,7 @@ router.put(
   '/:id',
   requierePermiso('ventas', 'editar'),
   verificarPeriodoAbierto(),
+  bloquearRetencionManual,
   validarVenta,
   async (req, res, next) => {
     if (validar(req, res)) return;
@@ -2069,7 +2159,7 @@ router.put(
           codigo: 'YA_AUTORIZADO'
         });
       }
-            if ((ventaActual.intentos_envio_sri || 0) > 0) {
+      if ((ventaActual.intentos_envio_sri || 0) > 0) {
         return res.status(409).json({
           error: 'No se puede editar: el documento ya fue enviado al SRI. Genere una nota de crédito o anúlelo con el SRI.',
           codigo: 'YA_ENVIADO_SRI',
@@ -2077,10 +2167,7 @@ router.put(
         });
       }
 
-      // ============================================================
-      // 🆕 REFACTOR 2025-XX: las retenciones emitidas NO se editan
-      //    directamente. Se regeneran al editar la compra origen.
-      // ============================================================
+      // Las retenciones emitidas NO se editan directamente.
       if (ventaActual.tipo_documento === 'retencion') {
         return res.status(409).json({
           error:
@@ -2162,7 +2249,6 @@ router.put(
         }
       }
 
-      // 🆕 RETENCIÓN: normalizar
       let impuestosRetencionFinal = impuestos_retencion;
       let retencionInfo = null;
 
@@ -2261,12 +2347,10 @@ router.put(
         detalles, subtotal, iva, total,
         clave_acceso: nuevaClave,
 
-        // NC
         factura_original_id: facturaOriginal?._id || null,
         numero_factura_modificada: numeroFacturaModificadaFinal,
         motivo: motivoNC || motivo || '',
 
-        // 🆕 Retención normalizada
         numero_retencion: numero_retencion || '',
         porcentaje_retencion: porcentaje_retencion || 0,
         tipo_retencion: tipo_retencion || ventaActual.tipo_retencion || '',
@@ -2374,7 +2458,6 @@ router.put(
       headersNoStore(res);
       return res.json({
         ...ventaActualizada,
-        // 🆕 Advertencias de retención
         _advertencias_retencion: retencionInfo?.advertencias?.length
           ? retencionInfo.advertencias
           : undefined,
@@ -2417,7 +2500,7 @@ router.delete(
           estado_sri: venta.estado_sri
         });
       }
-            if ((venta.intentos_envio_sri || 0) > 0) {
+      if ((venta.intentos_envio_sri || 0) > 0) {
         return res.status(409).json({
           error: 'No se puede eliminar: el documento ya fue enviado al SRI. Genere una nota de crédito.',
           codigo: 'YA_ENVIADO_SRI',
@@ -2425,10 +2508,6 @@ router.delete(
         });
       }
 
-      // ============================================================
-      // 🆕 REFACTOR 2025-XX: las retenciones se eliminan en cascada
-      //    al eliminar la compra origen. No se borran directo desde acá.
-      // ============================================================
       if (venta.tipo_documento === 'retencion') {
         return res.status(409).json({
           error:
@@ -2514,7 +2593,6 @@ router.delete(
 // ============================================================
 async function asegurarClaveYXml(db, venta, opts = {}) {
   const { persistir = true } = opts;
-
   const tipoDoc = venta.tipo_documento || 'factura';
 
   if (!SETS.DOCS_CON_CLAVE.has(tipoDoc)) {
@@ -2681,6 +2759,7 @@ module.exports._CONFIG = CONFIG;
 module.exports._validarTotales = validarTotales;
 module.exports._validarFechaNoFutura = validarFechaNoFutura;
 module.exports._validarDetalleCantidadPrecio = validarDetalleCantidadPrecio;
+module.exports._validarDetallesVenta = validarDetallesVenta;
 module.exports._normalizarFechasRetencion = normalizarFechasRetencion;
 module.exports._verificarNumeroUnico = verificarNumeroUnico;
 module.exports._resolverSerieEmision = resolverSerieEmision;
@@ -2700,3 +2779,8 @@ module.exports._resolverFacturaOriginalNC = resolverFacturaOriginalNC;
 module.exports._calcularSaldoAcreditable = calcularSaldoAcreditable;
 module.exports._validarYNormalizarImpuestosRetencion = validarYNormalizarImpuestosRetencion;
 module.exports._CODIGO_IMPUESTO_RETENCION = CODIGO_IMPUESTO_RETENCION;
+// 🆕 Nuevos helpers exportados
+module.exports._intentarReservarSaldoNC = intentarReservarSaldoNC;
+module.exports._revertirReservaSaldoNC = revertirReservaSaldoNC;
+module.exports._bloquearRetencionManual = bloquearRetencionManual;
+module.exports._parseEnteroSeguro = parseEnteroSeguro;

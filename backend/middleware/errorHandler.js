@@ -11,21 +11,40 @@
 // - Log estructurado con severidad por status (>=500 error, >=400 warn).
 // - Marca `Cache-Control: no-store` en TODAS las respuestas de error.
 //
-// 🔧 FIX 2025-XX:
-//   1. Los traductores que producen mensajes SEGUROS (Mongo red,
-//      timeout, axios, circuit breaker, rate limit) ahora marcan
-//      explícitamente `ctx.mensajeSeguro = true`. La decisión de
-//      saneo en prod ya no depende de una whitelist de strings
-//      frágil: si un traductor dice "este mensaje es seguro", se
-//      respeta; si no, se aplica el saneo genérico. Esto evita
-//      que un mensaje bueno (producido por un traductor nuevo) se
-//      borre por no estar en la whitelist.
-//   2. `Retry-After` ahora se emite también en respuestas 4xx
-//      (concretamente 429 Rate Limit), no solo en 5xx. La
-//      semántica HTTP lo permite y los clientes lo aprovechan.
+// 🔧 FIXES HISTÓRICOS (preservados)
+//   1. Los traductores que producen mensajes SEGUROS marcan
+//      `ctx.mensajeSeguro = true`. La decisión de saneo en prod
+//      no depende de una whitelist frágil de strings.
+//   2. `Retry-After` se emite en 5xx Y en 429 (Rate Limit).
 //   3. Se limpian `ctx.detalles` en producción si el mensaje fue
-//      saneado — antes se filtraban `detalles` que podían contener
-//      información interna (por ejemplo `errInfo` de Mongo).
+//      saneado.
+//
+// 🆕 REFACTOR 2025-XX
+// ------------------------------------------------------------
+//   [Metadata de traductores] Cada traductor ahora declara su
+//     `categoria` y su flag `esSeguro` como PROPIEDADES de la
+//     función, no como estado en `ctx`. Esto hace que:
+//       a) El handler pueda decidir el saneo ANTES de ejecutar
+//          cualquier traductor (basándose en la metadata).
+//       b) `registrarTraductor` pueda aceptar metadata al vuelo.
+//       c) Sea más fácil auditar qué traductores producen
+//          mensajes "seguros" con un vistazo al código.
+//
+//     La retro-compatibilidad está garantizada: si un traductor
+//     setea `ctx.mensajeSeguro = true` dinámicamente, el handler
+//     lo respeta igual (fallback).
+//
+//   [Categorías] El log estructurado ahora incluye `categoria`
+//     ('mongo' | 'auth' | 'validacion' | 'externo' | 'rate-limit'
+//     | 'interno'). Facilita el filtrado y las alertas.
+//
+//   [Métricas] `stats()` expone contadores por categoría, código
+//     y rango de status. Útil para /health/detailed y para
+//     detectar patrones (ej: muchos `RATE_LIMIT` = ataque).
+//
+//   [Traductores defensivos] Si un traductor lanza, se loggea
+//     con más contexto (nombre del traductor + categoria) y se
+//     continúa con el resto.
 // ============================================================
 'use strict';
 
@@ -100,15 +119,76 @@ function primerCampoDuplicado(errBase) {
 }
 
 // ------------------------------------------------------------
+// METRICAS (para /health y diagnóstico)
+// ------------------------------------------------------------
+const _stats = {
+  total: 0,
+  porCategoria: Object.create(null), // 'mongo' → 12
+  porCodigo: Object.create(null),    // 'VALIDACION' → 5
+  porStatus: {
+    '4xx': 0,
+    '5xx': 0
+  },
+  traductoresFallidos: 0,
+  sanitizadosEnProd: 0,
+  retryAfterEmitidos: 0
+};
+
+function _bumpPorCategoria(cat) {
+  if (!cat) return;
+  _stats.porCategoria[cat] = (_stats.porCategoria[cat] || 0) + 1;
+}
+
+function _bumpPorCodigo(codigo) {
+  if (!codigo) return;
+  _stats.porCodigo[codigo] = (_stats.porCodigo[codigo] || 0) + 1;
+}
+
+function _bumpPorStatus(status) {
+  if (status >= 500) _stats.porStatus['5xx']++;
+  else if (status >= 400) _stats.porStatus['4xx']++;
+}
+
+/**
+ * Snapshot de estadísticas para /health o /metrics.
+ * @returns {object}
+ */
+function stats() {
+  return {
+    total: _stats.total,
+    porCategoria: { ..._stats.porCategoria },
+    porCodigo: { ..._stats.porCodigo },
+    porStatus: { ..._stats.porStatus },
+    traductoresFallidos: _stats.traductoresFallidos,
+    sanitizadosEnProd: _stats.sanitizadosEnProd,
+    retryAfterEmitidos: _stats.retryAfterEmitidos
+  };
+}
+
+/** Reset de métricas (solo tests). */
+function _resetStats() {
+  _stats.total = 0;
+  _stats.porCategoria = Object.create(null);
+  _stats.porCodigo = Object.create(null);
+  _stats.porStatus = { '4xx': 0, '5xx': 0 };
+  _stats.traductoresFallidos = 0;
+  _stats.sanitizadosEnProd = 0;
+  _stats.retryAfterEmitidos = 0;
+}
+
+// ------------------------------------------------------------
 // Traductores
 // ------------------------------------------------------------
 // Cada traductor muta `ctx` si reconoce el error. Los traductores
-// que producen mensajes SEGUROS deben marcar `ctx.mensajeSeguro = true`
-// para saltarse el saneo automático en producción.
+// que producen mensajes SEGUROS deben tener `.esSeguro = true`
+// (metadata de la función). El handler lo aplica ANTES de llamarlos.
+//
+// Si un traductor setea `ctx.mensajeSeguro = true` dinámicamente,
+// también se respeta (fallback retro-compatible).
 // ------------------------------------------------------------
 const traductores = [
   // --- Mongo: duplicados y validación de esquema ---
-  function mongoDuplicados(ctx) {
+  (function mongoDuplicados(ctx) {
     const err = ctx.err;
     if (!MONGO_DUPLICATE_NAMES.has(err.name)) return;
 
@@ -133,37 +213,37 @@ const traductores = [
       if (!IS_PROD && errBase.errInfo) ctx.detalles = { errInfo: errBase.errInfo };
       return;
     }
-  },
+  }),
 
   // --- Mongo: red ---
-  function mongoRed(ctx) {
+  (function mongoRed(ctx) {
     if (!MONGO_NETWORK_ERRORS.has(ctx.err.name)) return;
     ctx.status = 503;
     ctx.codigo = 'DB_NO_DISPONIBLE';
     ctx.mensaje = 'Base de datos no disponible. Reintente en unos segundos.';
     ctx.mensajeSeguro = true;
-  },
+  }),
 
   // --- Mongo: timeout ---
-  function mongoTimeout(ctx) {
+  (function mongoTimeout(ctx) {
     if (!MONGO_TIMEOUT_ERRORS.has(ctx.err.name)) return;
     ctx.status = 504;
     ctx.codigo = 'DB_TIMEOUT';
     ctx.mensaje = 'La base de datos tardó demasiado en responder.';
     ctx.mensajeSeguro = true;
-  },
+  }),
 
   // --- BSON inválido ---
-  function bsonInvalido(ctx) {
+  (function bsonInvalido(ctx) {
     if (!BSON_INVALID_NAMES.has(ctx.err.name)) return;
     ctx.status = 400;
     ctx.codigo = 'BSON_INVALIDO';
     ctx.mensaje = 'Datos con formato inválido';
     ctx.mensajeSeguro = true;
-  },
+  }),
 
   // --- JWT ---
-  function jwt(ctx) {
+  (function jwt(ctx) {
     if (ctx.err.name === 'JsonWebTokenError') {
       ctx.status = 401; ctx.codigo = 'TOKEN_INVALIDO';
       ctx.mensaje = 'Token inválido'; ctx.mensajeSeguro = true;
@@ -174,10 +254,10 @@ const traductores = [
       ctx.status = 401; ctx.codigo = 'TOKEN_NO_VALIDO_AUN';
       ctx.mensaje = 'Token aún no válido'; ctx.mensajeSeguro = true;
     }
-  },
+  }),
 
   // --- express-validator ---
-  function expressValidator(ctx) {
+  (function expressValidator(ctx) {
     const err = ctx.err;
     if (!Array.isArray(err.errors) || err.errors.length === 0) return;
     const primero = err.errors[0];
@@ -192,10 +272,10 @@ const traductores = [
       ...(e.location ? { ubicacion: e.location } : {})
     }));
     ctx.mensajeSeguro = true;
-  },
+  }),
 
   // --- Axios ---
-  function axios(ctx) {
+  (function axios(ctx) {
     const err = ctx.err;
     if (!err.isAxiosError) return;
     ctx.status = 502;
@@ -212,10 +292,10 @@ const traductores = [
     if (!IS_PROD && err.config) {
       ctx.detalles = { url: err.config.url, method: err.config.method };
     }
-  },
+  }),
 
   // --- Circuit breaker ---
-  function circuitBreaker(ctx) {
+  (function circuitBreaker(ctx) {
     if (ctx.err.codigo !== 'CIRCUIT_OPEN' && ctx.err.code !== 'CIRCUIT_OPEN') return;
     ctx.status = 503;
     ctx.codigo = 'CIRCUIT_OPEN';
@@ -224,10 +304,10 @@ const traductores = [
     const retryAfter = Number(ctx.err.retryAfter) || 60;
     ctx.detalles = { ...(ctx.detalles || {}), retryAfter };
     ctx.retryAfter = retryAfter;
-  },
+  }),
 
   // --- Rate limiting (express-rate-limit) ---
-  function rateLimit(ctx) {
+  (function rateLimit(ctx) {
     if (ctx.err.status !== 429 && ctx.codigo !== 'RATE_LIMIT') return;
     ctx.status = 429;
     ctx.codigo = ctx.codigo || 'RATE_LIMIT';
@@ -235,8 +315,36 @@ const traductores = [
     // `retryAfter` puede venir en segundos (express-rate-limit) o ms.
     const ra = Number(ctx.err.retryAfter);
     if (Number.isFinite(ra) && ra > 0) ctx.retryAfter = ra;
-  }
+  })
 ];
+
+// ------------------------------------------------------------
+// METADATA DECLARATIVA DE TRADUCTORES
+// ------------------------------------------------------------
+// La asignamos aquí para mantener el código de cada traductor
+// "puro" (sin contaminar el cuerpo). En un futuro se podría
+// pasar como opciones a `registrarTraductor`.
+// ------------------------------------------------------------
+const _traductoresMeta = Object.freeze({
+  mongoDuplicados: { categoria: 'mongo', esSeguro: true },
+  mongoRed:        { categoria: 'mongo', esSeguro: true },
+  mongoTimeout:    { categoria: 'mongo', esSeguro: true },
+  bsonInvalido:    { categoria: 'mongo', esSeguro: true },
+  jwt:             { categoria: 'auth',  esSeguro: true },
+  expressValidator:{ categoria: 'validacion', esSeguro: true },
+  axios:           { categoria: 'externo', esSeguro: true },
+  circuitBreaker:  { categoria: 'externo', esSeguro: true },
+  rateLimit:       { categoria: 'rate-limit', esSeguro: true }
+});
+
+// Aplicamos la metadata a cada traductor como propiedades de la función.
+for (const t of traductores) {
+  const meta = _traductoresMeta[t.name];
+  if (meta) {
+    t.esSeguro = meta.esSeguro;
+    t.categoria = meta.categoria;
+  }
+}
 
 // ------------------------------------------------------------
 // Middleware
@@ -254,17 +362,34 @@ function errorHandler(err, req, res, next) {
     detalles: err.detalles || null,
     retryAfter: null,
     /** Marca explícita: "este mensaje es seguro, no lo sanées". */
-    mensajeSeguro: false
+    mensajeSeguro: false,
+    /** Categoría del error (se rellena con la metadata del traductor). */
+    categoria: null
   };
 
   // --- 2. Aplicar traductores ---
+  //    Antes de cada traductor, aplicamos su metadata (esSeguro/categoria).
+  //    Así el traductor no necesita setearla manualmente y el handler
+  //    conoce la categoría incluso si el traductor no reacciona.
   for (const traductor of traductores) {
     try {
+      // Aplicar metadata declarativa primero.
+      if (traductor.esSeguro === true) ctx.mensajeSeguro = true;
+      if (traductor.categoria && !ctx.categoria) ctx.categoria = traductor.categoria;
+
       traductor(ctx);
     } catch (e) {
       // Un traductor buggy no debe romper el handler.
+      _stats.traductoresFallidos++;
       if (!IS_PROD) {
-        log.warn({ err: e && e.message, traductor: traductor.name }, 'Traductor de error falló');
+        log.warn(
+          {
+            err: e && e.message,
+            traductor: traductor.name,
+            categoria: traductor.categoria
+          },
+          'Traductor de error falló'
+        );
       }
     }
   }
@@ -281,6 +406,7 @@ function errorHandler(err, req, res, next) {
     const errSeguro = esMensajeSeguro(err);
     if (!ctxSeguro && !errSeguro) {
       ctx.mensaje = mensajeGenericoPara(ctx.status);
+      _stats.sanitizadosEnProd++;
       // Si saneamos el mensaje, los `detalles` también pueden filtrar
       // información interna (errInfo de Mongo, stack parcial, etc.).
       // Los descartamos salvo que el error se haya marcado como público.
@@ -295,13 +421,21 @@ function errorHandler(err, req, res, next) {
   // Retry-After aplica a 5xx Y 429 (rate limit).
   if (ctx.retryAfter && (ctx.status >= 500 || ctx.status === 429)) {
     res.set('Retry-After', String(ctx.retryAfter));
+    _stats.retryAfterEmitidos++;
   }
 
-  // --- 5. Log estructurado ---
+  // --- 5. Métricas ---
+  _stats.total++;
+  _bumpPorStatus(ctx.status);
+  _bumpPorCodigo(ctx.codigo);
+  _bumpPorCategoria(ctx.categoria);
+
+  // --- 6. Log estructurado ---
   const logCtx = {
     reqId: req.reqId,
     status: ctx.status,
     codigo: ctx.codigo,
+    categoria: ctx.categoria || undefined,
     mensaje: ctx.mensaje,
     metodo: req.method,
     ruta: req.originalUrl || req.url,
@@ -309,7 +443,8 @@ function errorHandler(err, req, res, next) {
     ip: req.ip,
     nombreError: err.name,
     mensajeOriginal: err.message,
-    ...(err.code ? { codigoOriginal: err.code } : {})
+    ...(err.code ? { codigoOriginal: err.code } : {}),
+    ...(ctx.retryAfter ? { retryAfter: ctx.retryAfter } : {})
   };
 
   if (ctx.status >= 500) {
@@ -318,7 +453,7 @@ function errorHandler(err, req, res, next) {
     log.warn(logCtx, '⚠️  Error cliente');
   }
 
-  // --- 6. Respuesta ---
+  // --- 7. Respuesta ---
   const respuesta = { error: ctx.mensaje, codigo: ctx.codigo };
   if (ctx.detalles) respuesta.detalles = ctx.detalles;
   if (req.reqId) respuesta.reqId = req.reqId;
@@ -378,10 +513,25 @@ module.exports = errorHandler;
 module.exports.IS_PROD = IS_PROD;
 module.exports.IS_TEST = IS_TEST;
 module.exports.traductores = traductores;
+module.exports.stats = stats;
 
-// ---- API extensible para registrar traductores custom ----
-module.exports.registrarTraductor = (fn, { prepend = false } = {}) => {
+/**
+ * API extensible para registrar traductores custom.
+ *
+ * @param {Function} fn
+ * @param {object} [opts]
+ * @param {boolean} [opts.prepend=false]
+ * @param {boolean} [opts.esSeguro]     Metadata: mensaje seguro (no sanear).
+ * @param {string}  [opts.categoria]    Metadata: 'mongo' | 'auth' | ...
+ * @returns {Function}
+ */
+module.exports.registrarTraductor = (fn, opts = {}) => {
   if (typeof fn !== 'function') throw new TypeError('registrarTraductor espera una función');
+  const { prepend = false, esSeguro, categoria } = opts;
+
+  if (esSeguro === true) fn.esSeguro = true;
+  if (typeof categoria === 'string' && categoria) fn.categoria = categoria;
+
   if (prepend) traductores.unshift(fn);
   else traductores.push(fn);
   return fn;
@@ -391,3 +541,6 @@ module.exports.registrarTraductor = (fn, { prepend = false } = {}) => {
 module.exports._normalizarStatus = normalizarStatus;
 module.exports._esMensajeSeguro = esMensajeSeguro;
 module.exports._MENSAJES_SEGUROS_5XX = MENSAJES_SEGUROS_5XX;
+module.exports._stats = _stats;
+module.exports._resetStats = _resetStats;
+module.exports._traductoresMeta = _traductoresMeta;

@@ -16,6 +16,43 @@
 //   await asegurarIndices(db);                          // al arrancar
 //   await crearIndices(db, { dryRun: true });           // solo reportar
 //   await crearIndices(db, { only: ['ventas_v2'] });    // una colección
+//
+// ============================================================
+// 🆕 SCHEMA v11
+// ------------------------------------------------------------
+// Cambios desde v10:
+//
+//   [ventas_v2]
+//     + `total_nc_acreditado` (sparse, para facturas con NCs)
+//       → usado por el guard atómico de notas de crédito.
+//     + `factura_original_id` (sparse)
+//       → para encontrar NCs de una factura en un índice.
+//     + `compra_origen_id` (sparse)
+//       → para retenciones auto-emitidas desde compras.
+//     + `tipo_documento + estado_sri + fecha_emision` (compuesto)
+//       → para listar NCs / retenciones en pendientes del SRI.
+//
+//   [backups]
+//     + `gridfs_id` (sparse)
+//       → para encontrar backups grandes en GridFS.
+//     + `storage` (sparse)
+//       → para filtrar inline vs gridfs.
+//     + `tipo + storage + fecha` (compuesto)
+//       → para la rotación por tipo y storage.
+//
+//   [auditoria]
+//     + `origen + fecha`
+//       → para diferenciar acciones de `cli:`/`web:`/`sistema:`.
+//
+//   [backups_fs.files]
+//     + `metadata.tipo + uploadDate`
+//       → para limpiar backups temporales (download-now).
+//       ⚠️  GridFS usa `metadata.uploadDate` no `fecha`.
+//
+//   [migración]
+//     + `migrarTotalNcAcreditado`
+//       → inicializa `total_nc_acreditado` en facturas existentes
+//         (idempotente, batched).
 // ============================================================
 'use strict';
 
@@ -38,7 +75,7 @@ const CONFIG = Object.freeze({
    * ⚠️  Incrementar requiere revisar los índices viejos que ya no
    *     existan en este archivo (Mongo no los borra automáticamente).
    */
-  schemaVersion: 10,
+  schemaVersion: 11,
 
   /** Nombre de la colección donde se persiste la versión aplicada. */
   coleccionMeta: 'meta',
@@ -57,21 +94,17 @@ const CONFIG = Object.freeze({
    */
   optsComunes: Object.freeze({
     background: true
-  })
+  }),
+
+  /** Tamaño de batch para migraciones. */
+  migracionBatchSize: 500
 });
 
 // Alias de compatibilidad — el archivo exporta `SCHEMA_VERSION`.
 const SCHEMA_VERSION = CONFIG.schemaVersion;
 
 // ============================================================
-// DEFINICIÓN DE ÍNDICES
-// ------------------------------------------------------------
-// Estructura de cada entrada:
-//   { coleccion, key, opts? }
-// - `key`: campos del índice
-// - `opts`: opciones de createIndex (unique, sparse, name, etc.)
-// - `migrar`: función opcional que corre ANTES de crear el índice.
-//             Útil para rellenar campos requeridos por índices únicos.
+// MIGRACIONES (previas a la creación de índices)
 // ============================================================
 
 /**
@@ -116,7 +149,7 @@ async function migrarProductosNorm(db) {
       }
     });
     migrados++;
-    if (ops.length >= 500) {
+    if (ops.length >= CONFIG.migracionBatchSize) {
       await col.bulkWrite(ops, { ordered: false });
       ops.length = 0;
     }
@@ -141,7 +174,7 @@ async function migrarCategoriasNorm(db) {
       }
     });
     migrados++;
-    if (ops.length >= 500) {
+    if (ops.length >= CONFIG.migracionBatchSize) {
       await col.bulkWrite(ops, { ordered: false });
       ops.length = 0;
     }
@@ -150,6 +183,96 @@ async function migrarCategoriasNorm(db) {
   return { migrados };
 }
 
+/**
+ * 🆕 Inicializa `total_nc_acreditado` en facturas existentes.
+ *
+ * Calcula, para cada factura sin el campo, la suma de sus NCs
+ * asociadas (estado_sri != RECHAZADA) y lo persiste.
+ *
+ * Idempotente: solo toca facturas que NO tienen el campo.
+ * Batched: escribe de a 500 updates por bulkWrite.
+ *
+ * ⚠️  Si tienes miles de facturas, esto puede tardar. Corre en
+ *     background durante el arranque (asegurarIndices no bloquea).
+ */
+async function migrarTotalNcAcreditado(db) {
+  const col = db.collection('ventas_v2');
+
+  const faltantes = await col.countDocuments({
+    tipo_documento: 'factura',
+    total_nc_acreditado: { $exists: false }
+  });
+
+  if (faltantes === 0) return { migrados: 0 };
+
+  log.info(
+    { facturasSinCampo: faltantes },
+    '📦 Migrando `total_nc_acreditado` en facturas existentes'
+  );
+
+  // Aggregate para calcular el total de NCs por factura en una sola pasada.
+  const agg = await col.aggregate([
+    { $match: { tipo_documento: 'factura', total_nc_acreditado: { $exists: false } } },
+    {
+      $lookup: {
+        from: 'ventas_v2',
+        let: { facturaId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$factura_original_id', '$$facturaId'] },
+              tipo_documento: 'nota_credito',
+              estado_sri: { $ne: 'RECHAZADA' }
+            }
+          },
+          { $group: { _id: null, total: { $sum: '$total' } } }
+        ],
+        as: 'ncs'
+      }
+    },
+    {
+      $project: {
+        total_nc_acreditado: {
+          $ifNull: [{ $arrayElemAt: ['$ncs.total', 0] }, 0]
+        }
+      }
+    }
+  ]).toArray();
+
+  if (agg.length === 0) return { migrados: 0 };
+
+  let migrados = 0;
+  const ops = [];
+  for (const doc of agg) {
+    ops.push({
+      updateOne: {
+        filter: { _id: doc._id },
+        update: { $set: { total_nc_acreditado: doc.total_nc_acreditado } }
+      }
+    });
+    migrados++;
+    if (ops.length >= CONFIG.migracionBatchSize) {
+      await col.bulkWrite(ops, { ordered: false });
+      ops.length = 0;
+    }
+  }
+  if (ops.length > 0) await col.bulkWrite(ops, { ordered: false });
+
+  log.info({ migrados }, '✅ Migración `total_nc_acreditado` completa');
+
+  return { migrados };
+}
+
+// ============================================================
+// DEFINICIÓN DE ÍNDICES
+// ------------------------------------------------------------
+// Estructura de cada entrada:
+//   { coleccion, key, opts? }
+// - `key`: campos del índice
+// - `opts`: opciones de createIndex (unique, sparse, name, etc.)
+// - `migrar`: función opcional que corre ANTES de crear el índice.
+//             Útil para rellenar campos requeridos por índices únicos.
+// ============================================================
 const INDICES = [
   // ============================================================
   // CLIENTES
@@ -201,14 +324,14 @@ const INDICES = [
   // PRODUCTOS (con migración previa de *Norm)
   // ============================================================
   {
-  coleccion: 'productos',
-  key: { codigo: 1 },
-  opts: {
-    unique: true,
-    name: 'productos_codigo_unique',
-    partialFilterExpression: { codigo: { $type: 'string', $gt: '' } }
-  }
-},
+    coleccion: 'productos',
+    key: { codigo: 1 },
+    opts: {
+      unique: true,
+      name: 'productos_codigo_unique',
+      partialFilterExpression: { codigo: { $type: 'string', $gt: '' } }
+    }
+  },
   {
     coleccion: 'productos',
     key: { codigoNorm: 1 },
@@ -318,6 +441,16 @@ const INDICES = [
     key: { coleccion: 1, accion: 1, fecha: -1 },
     opts: { name: 'auditoria_coleccion_accion' }
   },
+  // 🆕 Diferencia `cli:hostname` vs `web:userEmail` vs `sistema`.
+  {
+    coleccion: 'auditoria',
+    key: { origen: 1, fecha: -1 },
+    opts: {
+      name: 'auditoria_origen_fecha',
+      sparse: true,
+      partialFilterExpression: { origen: { $type: 'string', $gt: '' } }
+    }
+  },
 
   // ============================================================
   // VENTAS
@@ -364,7 +497,6 @@ const INDICES = [
   },
   {
     coleccion: 'ventas_v2',
-    // Unicidad lógica: tipo + número + RUC emisor.
     key: { tipo_documento: 1, numero_factura: 1, ruc_emisor: 1 },
     opts: {
       unique: true,
@@ -376,6 +508,46 @@ const INDICES = [
     coleccion: 'ventas_v2',
     key: { mensajes_error_sri: 1 },
     opts: { sparse: true, name: 'ventas_sri_errores' }
+  },
+
+  // 🆕 NOTAS DE CRÉDITO — vincular a factura original.
+  {
+    coleccion: 'ventas_v2',
+    key: { factura_original_id: 1 },
+    opts: {
+      name: 'ventas_nc_factura_original',
+      sparse: true,
+      partialFilterExpression: { factura_original_id: { $type: 'objectId' } }
+    }
+  },
+
+  // 🆕 Guard atómico del Paso 7: reservar saldo acreditable.
+  {
+    coleccion: 'ventas_v2',
+    key: { total_nc_acreditado: 1 },
+    opts: {
+      name: 'ventas_total_nc_acreditado',
+      sparse: true
+    },
+    migrar: migrarTotalNcAcreditado
+  },
+
+  // 🆕 RETENCIONES auto-emitidas (viven en ventas_v2).
+  {
+    coleccion: 'ventas_v2',
+    key: { compra_origen_id: 1 },
+    opts: {
+      name: 'ventas_retencion_compra_origen',
+      sparse: true,
+      partialFilterExpression: { compra_origen_id: { $type: 'objectId' } }
+    }
+  },
+
+  // 🆕 Listar pendientes del SRI por tipo (facturas, NCs, retenciones).
+  {
+    coleccion: 'ventas_v2',
+    key: { tipo_documento: 1, estado_sri: 1, fecha_emision: -1 },
+    opts: { name: 'ventas_tipo_estado_sri_fecha' }
   },
 
   // ============================================================
@@ -401,6 +573,16 @@ const INDICES = [
     key: { tipo_compra: 1, fecha_emision: -1 },
     opts: { name: 'compras_tipo_fecha' }
   },
+  // 🆕 Retención pendiente de emisión (reintento manual).
+  {
+    coleccion: 'compras_v2',
+    key: { retencion_pendiente_emision: 1, fecha_emision: -1 },
+    opts: {
+      name: 'compras_retencion_pendiente',
+      sparse: true,
+      partialFilterExpression: { retencion_pendiente_emision: true }
+    }
+  },
 
   // ============================================================
   // PERÍODOS / BACKUPS
@@ -420,10 +602,45 @@ const INDICES = [
     key: { tipo: 1, fecha: -1 },
     opts: { name: 'backups_tipo_fecha' }
   },
+  // 🆕 Localizar backups almacenados en GridFS (ver Paso 1-2).
+  {
+    coleccion: 'backups',
+    key: { gridfs_id: 1 },
+    opts: {
+      name: 'backups_gridfs_id',
+      sparse: true,
+      partialFilterExpression: { gridfs_id: { $type: 'objectId' } }
+    }
+  },
+  // 🆕 Filtrar por storage ('inline' | 'gridfs').
+  {
+    coleccion: 'backups',
+    key: { storage: 1, tipo: 1, fecha: -1 },
+    opts: {
+      name: 'backups_storage_tipo_fecha',
+      sparse: true,
+      partialFilterExpression: { storage: { $type: 'string', $gt: '' } }
+    }
+  },
   {
     coleccion: 'backup_lock',
     key: { expira: 1 },
     opts: { name: 'backup_lock_expira' }
+  },
+
+  // ============================================================
+  // GRIDFS — Limpieza de backups temporales (download-now)
+  // ============================================================
+  // ⚠️  GridFS usa `uploadDate` (no `fecha`) en `*.files`.
+  //     NO usamos TTL aquí para no borrar backups permanentes.
+  //     La limpieza la hace un script aparte o el propio scheduler.
+  {
+    coleccion: 'backups_fs.files',
+    key: { 'metadata.tipo': 1, uploadDate: -1 },
+    opts: {
+      name: 'backups_fs_files_tipo_uploadDate',
+      sparse: true
+    }
   },
 
   // ============================================================
@@ -446,7 +663,7 @@ const INDICES = [
   },
 
   // ============================================================
-  // RETENCIONES
+  // RETENCIONES (legacy — colección `retenciones` a deprecar)
   // ============================================================
   {
     coleccion: 'retenciones',
@@ -465,7 +682,6 @@ const INDICES = [
   },
   {
     coleccion: 'retenciones',
-    // Detección de duplicados lógicos.
     key: { compraId: 1, tipo_retencion: 1, impuesto_retencion: 1, anulado: 1 },
     opts: { name: 'retenciones_dedup' }
   },
@@ -544,6 +760,17 @@ const INDICES = [
     coleccion: 'cache_consultas',
     key: { expira: 1 },
     opts: { expireAfterSeconds: 0, name: 'cache_consultas_ttl' }
+  },
+
+  // ============================================================
+  // SRI JOBS (persistencia de envíos masivos — futuro)
+  // ============================================================
+  // ⚠️  La colección todavía no existe, pero dejamos el índice
+  //     definido para cuando migres `sri.js` a persistencia.
+  {
+    coleccion: 'sri_jobs',
+    key: { estado: 1, iniciado: -1 },
+    opts: { name: 'sri_jobs_estado_iniciado' }
   },
 
   // ============================================================
@@ -696,7 +923,6 @@ async function crearIndices(db, opts = {}) {
   let uniqOk = true;
   let uniqError = null;
 
-  // Solo verificamos si el índice crítico está presente.
   try {
     const ventasIdx = await db.collection('ventas_v2').indexes();
     uniqOk = ventasIdx.some(i => i.name === 'ventas_numero_ruc_unique');
@@ -883,3 +1109,4 @@ module.exports = {
 module.exports._CONFIG = CONFIG;
 module.exports._migrarProductosNorm = migrarProductosNorm;
 module.exports._migrarCategoriasNorm = migrarCategoriasNorm;
+module.exports._migrarTotalNcAcreditado = migrarTotalNcAcreditado;
