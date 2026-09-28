@@ -204,12 +204,19 @@ describe('escapeRegex', () => {
     assert.strictEqual(escapeRegex('abc123'), 'abc123');
   });
 
-  test('null/undefined → "null"/"undefined" (comportamiento previo)', () => {
-    assert.strictEqual(escapeRegex(null), 'null');
-    assert.strictEqual(escapeRegex(undefined), 'undefined');
-    assert.strictEqual(new RegExp(escapeRegex(null), 'i').test('null'), false);
-  assert.strictEqual(new RegExp(escapeRegex(null), 'i').test('cualquier cosa'), false);
-  });
+  test('null/undefined → patrón que nunca matchea', () => {
+  // Comportamiento actual: devolver `(?!)` (negative lookahead vacío)
+  // en lugar de la string literal 'null'/'undefined'. Esto obliga al
+  // caller a manejar el caso "sin filtro" explícitamente.
+  assert.strictEqual(escapeRegex(null), '(?!)');
+  assert.strictEqual(escapeRegex(undefined), '(?!)');
+
+  // Y ese patrón, compilado como RegExp, no matchea NADA.
+  const reNull = new RegExp(escapeRegex(null), 'i');
+  assert.strictEqual(reNull.test('null'), false);
+  assert.strictEqual(reNull.test('cualquier cosa'), false);
+  assert.strictEqual(reNull.test(''), false);
+});
 });
 
 describe('escapeRegexCached', () => {

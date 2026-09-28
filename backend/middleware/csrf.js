@@ -235,11 +235,8 @@ const _limpiezaRateLimit = setInterval(() => {
     if (entry.resetAt < ahora) _intentosBloqueados.delete(ip);
   }
 }, 60_000);
-if (_limpiezaRateLimit.unref) _limpuezaRateLimitUnref(_limpiezaRateLimit);
-
-// Helper para silenciar el linter sobre `_limpiezaRateLimit`
-function _limpuezaRateLimitUnref(t) {
-  if (t && typeof t.unref === 'function') t.unref();
+if (typeof _limpiezaRateLimit.unref === 'function') {
+  _limpiezaRateLimit.unref();
 }
 
 // Métricas expuestas para /health

@@ -263,10 +263,27 @@ const app = express();
 
 app.disable('x-powered-by');
 
-const TRUST_PROXY = process.env.TRUST_PROXY_HOPS !== undefined
-  ? Number(process.env.TRUST_PROXY_HOPS)
-  : (IS_PROD ? 1 : 0);
-app.set('trust proxy', Number.isFinite(TRUST_PROXY) ? TRUST_PROXY : 0);
+/**
+ * Parsea TRUST_PROXY_HOPS de forma tolerante:
+ *   - undefined/vacío → 1 en prod, 0 en dev.
+ *   - "true"/"false"  → boolean (Express lo acepta).
+ *   - número válido   → ese número.
+ *   - cualquier otra cosa → default por entorno.
+ */
+function parseTrustProxy(raw, isProd) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return isProd ? 1 : 0;
+  }
+  const s = String(raw).trim().toLowerCase();
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  const n = Number(s);
+  if (Number.isFinite(n) && n >= 0) return n;
+  return isProd ? 1 : 0;
+}
+
+const TRUST_PROXY = parseTrustProxy(process.env.TRUST_PROXY_HOPS, IS_PROD);
+app.set('trust proxy', TRUST_PROXY);
 app.set('query parser', 'simple');
 
 app.use(helmet({

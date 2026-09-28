@@ -49,8 +49,8 @@ async function recalcularColeccion({ db, coleccion, campoIdPago, tipoPago, dryRu
   const pagosPorDoc = new Map(pagosAgg.map(p => [String(p._id), Number(p.total) || 0]));
 
   // 2) Recorrer documentos y comparar.
-  const cursor = db.collection(coleccion).find(
-    { [campoIdPago === 'ventaId' ? '_id' : '_id']: { $exists: true } },
+    const cursor = db.collection(coleccion).find(
+    { _id: { $exists: true } },
     { projection: { _id: 1, numero_factura: 1, total: 1, estado_pago: 1, monto_pagado: 1 } }
   );
   if (limit) cursor.limit(limit);

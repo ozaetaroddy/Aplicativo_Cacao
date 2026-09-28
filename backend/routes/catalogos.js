@@ -199,15 +199,16 @@ router.get('/', (req, res) => {
       `Formato '${formato}' no soportado. Usa: ${[...CONFIG.formatosValidos].join(', ')}`);
   }
 
-  const payload = {};
-  for (const [k, v] of Object.entries(CATALOGOS_PUBLICOS)) {
-    payload[k] = filtrar(v, search);
-  }
-
-  // CSV no tiene sentido para "todos los catálogos" → avisamos.
+  // CSV/TSV no tienen sentido para "todos los catálogos". Chequeo ANTES
+  // de construir el payload (evita trabajo innecesario).
   if (formato !== 'json') {
     return errorCatalogo(res, 400, ERRORES.FORMATO_INVALIDO,
       `Formato '${formato}' no aplica a "todos los catálogos". Pide uno específico: /api/catalogos/<nombre>?formato=${formato}`);
+  }
+
+  const payload = {};
+  for (const [k, v] of Object.entries(CATALOGOS_PUBLICOS)) {
+    payload[k] = filtrar(v, search);
   }
 
   return enviarConCache(req, res, payload);

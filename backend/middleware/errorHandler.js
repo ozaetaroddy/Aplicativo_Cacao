@@ -367,17 +367,35 @@ function errorHandler(err, req, res, next) {
     categoria: null
   };
 
-  // --- 2. Aplicar traductores ---
-  //    Antes de cada traductor, aplicamos su metadata (esSeguro/categoria).
-  //    Así el traductor no necesita setearla manualmente y el handler
-  //    conoce la categoría incluso si el traductor no reacciona.
+    // --- 2. Aplicar traductores ---
+  //    La metadata (esSeguro/categoria) se aplica SOLO si el traductor
+  //    realmente reaccionó al error. Si se aplicara pre-emptivamente,
+  //    un error genérico heredaría `mensajeSeguro = true` del primer
+  //    traductor registrado (mongoDuplicados) y la sanitización de
+  //    5xx NUNCA correría → fuga de paths internos al cliente.
   for (const traductor of traductores) {
     try {
-      // Aplicar metadata declarativa primero.
-      if (traductor.esSeguro === true) ctx.mensajeSeguro = true;
-      if (traductor.categoria && !ctx.categoria) ctx.categoria = traductor.categoria;
+      // Snapshot mínimo para detectar si el traductor cambió algo.
+      const statusAntes = ctx.status;
+      const codigoAntes = ctx.codigo;
+      const mensajeAntes = ctx.mensaje;
+      const seguroAntes = ctx.mensajeSeguro;
 
       traductor(ctx);
+
+      // ¿El traductor reaccionó?
+      const reacciono =
+        ctx.status !== statusAntes ||
+        ctx.codigo !== codigoAntes ||
+        ctx.mensaje !== mensajeAntes ||
+        ctx.mensajeSeguro !== seguroAntes;
+
+      if (reacciono) {
+        // Los traductores que sí reaccionan marcan su salida como
+        // segura, y declaramos la categoría para métricas/logs.
+        if (traductor.esSeguro === true) ctx.mensajeSeguro = true;
+        if (traductor.categoria && !ctx.categoria) ctx.categoria = traductor.categoria;
+      }
     } catch (e) {
       // Un traductor buggy no debe romper el handler.
       _stats.traductoresFallidos++;

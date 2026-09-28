@@ -114,23 +114,25 @@ const SCHEMA_VERSION = CONFIG.schemaVersion;
  */
 async function migrarProductosNorm(db) {
   const col = db.collection('productos');
-  const faltantes = await col.countDocuments({
+
+  // ⚠️  $in: [null, ''] también matchea campos AUSENTES en MongoDB.
+  //     Cubre los 3 casos: no existe, es null, o es string vacío.
+  const filtroFaltantes = {
     $or: [
-      { nombreNorm: { $exists: false } },
-      { codigoNorm: { $exists: false } },
-      { codigoBarrasNorm: { $exists: false } }
+      { nombreNorm: { $in: [null, ''] } },
+      { codigoNorm: { $in: [null, ''] } },
+      { codigoBarrasNorm: { $in: [null, ''] } }
     ]
-  });
+  };
+
+  const faltantes = await col.countDocuments(filtroFaltantes);
 
   if (faltantes === 0) return { migrados: 0 };
 
-  const cursor = col.find({
-    $or: [
-      { nombreNorm: { $exists: false } },
-      { codigoNorm: { $exists: false } },
-      { codigoBarrasNorm: { $exists: false } }
-    ]
-  }, { projection: { nombre: 1, codigo: 1, codigo_barras: 1 } });
+  const cursor = col.find(
+    filtroFaltantes,
+    { projection: { nombre: 1, codigo: 1, codigo_barras: 1 } }
+  );
 
   let migrados = 0;
   const ops = [];

@@ -474,10 +474,16 @@ async function validarDetallesVenta(db, tipoDoc, detalles) {
   }
 }
 
+// WeakSet para trackear qué `req.body` ya fueron normalizados sin
+// contaminar el objeto con un campo `__fechasNormalizadas` visible
+// en logs de auditoría.
+const _fechasNormalizadas = new WeakSet();
+
 function normalizarFechasRetencion(body) {
   if (!body || body.tipo_documento !== 'retencion') return { ok: true };
-  // 🔧 FIX: evitar normalizar dos veces (POST llama esto, luego PUT lo vuelve a llamar)
-  if (body.__fechasNormalizadas) return { ok: true };
+
+  // Evitar normalizar dos veces (POST llama esto, luego PUT lo vuelve a llamar).
+  if (_fechasNormalizadas.has(body)) return { ok: true };
 
   if (body.comprobante_fecha_emision) {
     try {
@@ -500,7 +506,7 @@ function normalizarFechasRetencion(body) {
     }
   }
 
-  body.__fechasNormalizadas = true;
+  _fechasNormalizadas.add(body);
   return { ok: true };
 }
 

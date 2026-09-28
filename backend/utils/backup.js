@@ -923,6 +923,11 @@ async function renombrarColeccion(db, desde, hasta, { dropTarget = false } = {})
 
 // ============================================================
 // RESTAURAR BACKUP
+// ------------------------------------------------------------
+// ⚠️  `restaurarSwap` usa `db.renameCollection`, que NO funciona
+//     sobre colecciones shardeadas. Si en el futuro shardás
+//     `ventas_v2` (por volumen), usá modo 'merge' en su lugar:
+//       restaurarBackup(db, snapshot, null, { modo: 'merge' })
 // ============================================================
 async function restaurarBackup(db, snapshot, coleccionesARestaurar = null, opts = {}) {
   const { modo = 'reemplazar' } = opts;

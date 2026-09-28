@@ -326,7 +326,7 @@ async function enviarAlertaFallo(db, err, fallosConsecutivos) {
   }
 
   try {
-    const transporter = crearTransporter();
+    const transporter = await crearTransporter();  // ✅
     if (!transporter) {
       log.warn('SMTP no configurado, no se envía alerta de backup');
       return;
@@ -425,22 +425,6 @@ async function registrarExito(db, tamanoBuffer, extra = {}) {
   }
 }
 
-async function registrarOmision(db, motivo, tamanoBuffer) {
-  try {
-    await db.collection(CONFIG.colConfig).updateOne(
-      { _id: 'global' },
-      {
-        $set: {
-          ultima_ejecucion: new Date(),
-          ultimo_estado: motivo,
-          ultimo_tamano: tamanoBuffer,
-          fallos_consecutivos: 0
-        }
-      },
-      { upsert: true }
-    );
-  } catch { /* noop */ }
-}
 
 // ============================================================
 // ROTACIÓN (con cascada a GridFS)

@@ -717,8 +717,11 @@ router.get('/:id/download', requierePermiso('backups', 'ver'), async (req, res, 
       detalle: `Backup descargado (${backup.storage || 'inline'}): ${backup.nombre}`
     });
 
-    // Usar el helper de streaming que maneja ambos casos.
-    return streamearBackupAResponse(req.db, backup, res, { filename });
+        // Usar el helper de streaming que maneja ambos casos.
+    // ⚠️  DEBE ir con `await`: si no, los errores async del stream
+    //     escapan al try/catch y quedan como unhandledRejection.
+    await streamearBackupAResponse(req.db, backup, res, { filename });
+    return;
   } catch (err) {
     return next(err);
   }

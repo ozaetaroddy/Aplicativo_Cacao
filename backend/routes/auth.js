@@ -51,8 +51,10 @@ const {
 // ============================================================
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET && process.env.NODE_ENV !== 'test') {
-  console.error('❌ FATAL: JWT_SECRET no está definido en el entorno');
-  process.exit(1);
+  console.warn(
+    '⚠️  routes/auth: JWT_SECRET no definido. ' +
+    'Los endpoints de login/refresh fallarán con 500 hasta configurarlo.'
+  );
 }
 
 function envNum(nombre, fallback) {

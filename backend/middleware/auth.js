@@ -42,10 +42,16 @@ const CONFIG = Object.freeze({
   userCollection:       process.env.AUTH_USER_COLLECTION || 'usuarios'
 });
 
-// Fail-fast si falta el secreto JWT (excepto en tests, donde se permite inyectar).
-if (!CONFIG.jwtSecret) {
-  console.error('❌ FATAL: JWT_SECRET no está definido en el entorno');
-  if (process.env.NODE_ENV !== 'test') process.exit(1);
+// Aviso si falta el secreto JWT.
+// ⚠️  NO hacemos process.exit() acá: `server.js` valida el entorno en
+//     `bootstrap()` con mensajes accionables ANTES de este require.
+//     Si este módulo se usa fuera del server, la ausencia se maneja
+//     devolviendo AUTH_ERRORS.INTERNAL en cada request.
+if (!CONFIG.jwtSecret && process.env.NODE_ENV !== 'test') {
+  console.warn(
+    '⚠️  middleware/auth: JWT_SECRET no definido. ' +
+    'Las requests autenticadas fallarán con 500 hasta configurarlo.'
+  );
 }
 
 // ------------------------------------------------------------

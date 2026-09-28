@@ -79,11 +79,15 @@ const CONFIG = Object.freeze({
   /** Loggear cada vez que se degrada a standalone. */
   logStandaloneFallback: envBool('TRANSACTION_LOG_STANDALONE_FALLBACK', true),
 
-  /**
+    /**
    * Read concern por defecto en modo manual (`retryTransient: false`).
-   * `snapshot` da el aislamiento más fuerte; `local` es más rápido.
+   *
+   * ⚠️  'snapshot' NO está soportado en transacciones sobre mongos
+   *     (clusters shardeados). Usamos 'local' como default seguro;
+   *     si querés el aislamiento más fuerte y estás en replica set
+   *     sin sharding, define TRANSACTION_READ_CONCERN=snapshot.
    */
-  readConcernManual: process.env.TRANSACTION_READ_CONCERN || 'snapshot',
+  readConcernManual: process.env.TRANSACTION_READ_CONCERN || 'local',
 
   /**
    * Write concern por defecto en modo manual.
