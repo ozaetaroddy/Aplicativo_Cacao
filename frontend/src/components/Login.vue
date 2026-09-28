@@ -195,6 +195,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useToast } from 'vue-toastification'
+import { useAuth } from '../composables/useAuth'
 
 const router = useRouter()
 const route = useRoute()
@@ -234,13 +235,7 @@ const puedeEnviar = computed(() =>
 )
 
 // ===== HELPERS =====
-const escapeHtml = (s) =>
-  String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+
 
 /**
  * Bloquea/restaura el scroll del body mientras el login está en curso.
@@ -362,24 +357,23 @@ const login = async () => {
 
     
     // Persistencia (solo datos no sensibles)
-try {
-  // 🔑 CLAVE: usar el composable para que el ref reactivo
-  // (singleton compartido con la Navbar, Sidebar, etc.) se actualice.
-  // Si escribimos solo en localStorage, la Navbar nunca se entera.
-  const { useAuth } = await import('../composables/useAuth')
-  useAuth().setUser(data.user)
+    try {
+      // Usar el composable para que el ref reactivo (singleton
+      // compartido con Navbar, Sidebar, etc.) se actualice.
+      // Si escribimos solo en localStorage, la Navbar nunca se entera.
+      useAuth().setUser(data.user)
 
-  if (data.user.email) {
-    localStorage.setItem(EMAIL_STORAGE_KEY, data.user.email)
-  }
-} catch (e) {
-  console.warn('[login] No se pudo setear el usuario reactivo:', e)
-  // Fallback: por si el import dinámico falla por algún motivo
-  try {
-    localStorage.setItem('user', JSON.stringify(data.user))
-    localStorage.setItem('auth_hint', '1')
-  } catch { /* noop */ }
-}
+      if (data.user.email) {
+        localStorage.setItem(EMAIL_STORAGE_KEY, data.user.email)
+      }
+    } catch (e) {
+      console.warn('[login] No se pudo setear el usuario reactivo:', e)
+      // Fallback: por si el import dinámico falla por algún motivo
+      try {
+        localStorage.setItem('user', JSON.stringify(data.user))
+        localStorage.setItem('auth_hint', '1')
+      } catch { /* noop */ }
+    }
 
     // Limpiar cache de permisos
     try {

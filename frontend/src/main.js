@@ -244,7 +244,9 @@ window.addEventListener('beforeunload', () => {
 // ============================================================
 try {
   const themeStore = useThemeStore()
-  themeStore.aplicarTema()
+  // `init()` aplica el tema Y registra el cross-tab sync.
+  // Si usas `aplicarTema()` solo, las otras pestañas no se enteran.
+  themeStore.init()
 } catch (err) {
   console.error('[theme] No se pudo inicializar el tema:', err)
   // Fallback: respetar preferencia del sistema.

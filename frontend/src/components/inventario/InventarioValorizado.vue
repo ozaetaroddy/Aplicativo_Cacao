@@ -233,7 +233,7 @@ const claseMargen = (p) => {
 const formatMargen = (p) => {
   const costo = valorCompra(p)
   if (costo === 0) return '—'
-  const m = venta(p) - costo
+  const m = valorVenta(p) - costo
   const pct = roundTo2((m / costo) * 100)
   return `${pct}%`
 }
@@ -242,8 +242,6 @@ const formatCantidad = (n) => {
   const v = Number(n) || 0
   return Number.isInteger(v) ? v.toLocaleString('es-EC') : v.toFixed(2)
 }
-
-const valorVentaP = valorVenta
 
 // ===== CARGA =====
 const cargar = async () => {
