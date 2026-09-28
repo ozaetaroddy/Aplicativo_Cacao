@@ -43,11 +43,12 @@
       <OnboardingTour />
     </div>
 
-    <!-- ============================================================ -->
+        <!-- ============================================================ -->
     <!-- Overlays globales (siempre presentes) -->
     <!-- ============================================================ -->
     <LoaderOverlay />
     <PwaInstallPrompt />
+    <ConfirmDialogHost />
   </div>
 </template>
 
@@ -81,6 +82,8 @@ import NotificationStock from './components/NotificationStock.vue'
 import LoaderOverlay from './components/LoaderOverlay.vue'
 import PwaInstallPrompt from './components/PwaInstallPrompt.vue'
 import OnboardingTour from './components/OnboardingTour.vue'
+import ConfirmDialogHost from './components/shared/ConfirmDialogHost.vue'
+
 
 import { useInactivityTimeout } from './composables/useInactivityTimeout'
 import { usePermisos } from './composables/usePermisos'

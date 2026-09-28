@@ -377,9 +377,11 @@ import { onBeforeRouteLeave } from 'vue-router'
 import { useToast } from 'vue-toastification'
 import { api } from '../services/api'
 import { useAuth } from '../composables/useAuth'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 
 const toast = useToast()
 const { user, updateUser } = useAuth()
+const { pedirConfirmacion } = useConfirmDialog()
 
 // ===== STATE =====
 const cargando = ref(false)
@@ -745,9 +747,19 @@ const beforeUnloadHandler = (e) => {
   }
 }
 
-onBeforeRouteLeave(() => {
+onBeforeRouteLeave(async () => {
   if (!hayCambios.value || cargando.value) return true
-  return window.confirm('Tienes cambios sin guardar. ¿Salir de todos modos?')
+
+  const ok = await pedirConfirmacion({
+    titulo: 'Salir sin guardar',
+    mensaje: 'Tienes cambios sin guardar.',
+    detalle: 'Si sales ahora, perderás los cambios.',
+    textoConfirmar: 'Salir',
+    textoCancelar: 'Quedarme',
+    variante: 'warning',
+    icono: 'fas fa-exclamation-triangle'
+  })
+  return ok
 })
 
 // ===== LIFECYCLE =====

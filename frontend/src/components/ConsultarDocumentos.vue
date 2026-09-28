@@ -794,8 +794,9 @@
       </div>
     </Teleport>
 
-    <!-- ============ MODAL EMAIL ============ -->
+        <!-- ============ MODAL EMAIL ============ -->
     <EnviarEmailModal
+      ref="emailModalRef"
       :venta="documentoActual"
       :cliente="documentoActual?.cliente"
       :obtener-nombre-producto="obtenerNombreProducto"
@@ -836,6 +837,7 @@ const modalInstance = ref(null)
 const documentoActual = ref(null)
 const productosMap = ref({})
 const qrDataUrl = ref('')
+const emailModalRef = ref(null)
 
 const xmlDoc = ref('')
 const xmlViewerRef = ref(null)
@@ -1299,19 +1301,16 @@ const abrirModalEmail = (doc) => {
   documentoActual.value = doc
 
   const previewEl = document.getElementById('modalDocumento')
-  const emailEl = document.getElementById('modalEnviarEmail')
-  if (!emailEl) return
+  const previewAbierto = previewEl?.classList.contains('show')
 
-  let yaAbierto = false
+  // El email modal expone `abrir()` — lo llamamos cuando el preview
+  // ya se haya cerrado (si estaba abierto).
   const abrirEmail = () => {
-    if (yaAbierto) return
-    yaAbierto = true
-    abriendoEmail.value = false
     if (unmounted) return
-    Modal.getOrCreateInstance(emailEl).show()
+    abriendoEmail.value = false
+    emailModalRef.value?.abrir?.()
   }
 
-  const previewAbierto = previewEl?.classList.contains('show')
   if (!previewAbierto) {
     abrirEmail()
     return
@@ -1326,7 +1325,7 @@ const abrirModalEmail = (doc) => {
   modalInstance.value?.hide()
 
   setTimeout(() => {
-    if (!yaAbierto) {
+    if (abriendoEmail.value) {
       previewEl.removeEventListener('hidden.bs.modal', onHidden)
       abrirEmail()
     }

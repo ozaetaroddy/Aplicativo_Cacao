@@ -504,10 +504,12 @@ import { Modal } from 'bootstrap'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 import { formatCurrency } from '../../utils/formatters'
+import { useConfirmDialog } from '../../composables/useConfirmDialog'
 
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
+const { pedirConfirmacion } = useConfirmDialog()
 
 // ===== STATE =====
 const id = route.params.id || null
@@ -709,10 +711,19 @@ const onPrecioVentaInput = () => debounce('precio_venta', validarPrecioVenta, 30
 const onStockMinimoInput = () => debounce('stock_minimo', validarStockMinimo, 300)
 
 // ===== NAVEGACIÓN =====
-const volver = () => {
+const volver = async () => {
   if (cargando.value) return
   if (hayCambios.value) {
-    if (!window.confirm('Hay cambios sin guardar. ¿Salir de todas formas?')) return
+    const ok = await pedirConfirmacion({
+      titulo: 'Salir sin guardar',
+      mensaje: 'Tienes cambios sin guardar.',
+      detalle: 'Si sales ahora, perderás los cambios.',
+      textoConfirmar: 'Salir',
+      textoCancelar: 'Quedarme',
+      variante: 'warning',
+      icono: 'fas fa-exclamation-triangle'
+    })
+    if (!ok) return
   }
   router.push('/productos')
 }

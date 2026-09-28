@@ -266,10 +266,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../../services/api'
 import { useToast } from 'vue-toastification'
 import { validarIdentificacion, validarTelefono as validarTelefonoUtil } from '../../utils/validators'
+import { useConfirmDialog } from '../../composables/useConfirmDialog'
 
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
+
+const { pedirConfirmacion } = useConfirmDialog()
 
 // ===== STATE =====
 const id = route.params.id || null
@@ -428,10 +431,19 @@ const onEmailInput = () => {
 }
 
 // ===== NAVEGACIÓN =====
-const volver = () => {
+const volver = async () => {
   if (cargando.value) return
   if (hayCambios.value) {
-    if (!window.confirm('Hay cambios sin guardar. ¿Salir de todas formas?')) return
+    const ok = await pedirConfirmacion({
+      titulo: 'Salir sin guardar',
+      mensaje: 'Tienes cambios sin guardar.',
+      detalle: 'Si sales ahora, perderás los cambios.',
+      textoConfirmar: 'Salir',
+      textoCancelar: 'Quedarme',
+      variante: 'warning',
+      icono: 'fas fa-exclamation-triangle'
+    })
+    if (!ok) return
   }
   router.push('/clientes')
 }
