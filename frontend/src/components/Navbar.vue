@@ -27,6 +27,19 @@
           </div>
         </router-link>
 
+                <!-- EMPRESA ACTIVA -->
+        <button
+          v-if="empresaActivaNombre"
+          type="button"
+          class="empresa-pill"
+          @click.stop="irSelectorEmpresa"
+          :title="`Empresa activa: ${empresaActivaNombre} · Click para cambiar`"
+          aria-label="Cambiar empresa"
+        >
+          <i class="fas fa-building" aria-hidden="true"></i>
+          <span class="empresa-pill-name">{{ empresaActivaNombre }}</span>
+          <i class="fas fa-chevron-down empresa-pill-caret" aria-hidden="true"></i>
+        </button>
         <!-- MENÚ DESKTOP -->
         <ul class="nav-list" role="menubar">
           <!-- INICIO -->
@@ -498,6 +511,13 @@
                   <i class="fas fa-id-card" aria-hidden="true"></i>
                   <span>Mi perfil</span>
                 </button>
+                                <button type="button" class="user-action" @click="irGestionarEmpresas">
+                  <i class="fas fa-building" aria-hidden="true"></i>
+                  <span>Mis empresas</span>
+                  <span v-if="empresasStore.empresas.length > 0" class="badge-mini info">
+                    {{ empresasStore.empresas.length }}
+                  </span>
+                </button>
                 <button v-if="puedeVerUsuarios" type="button" class="user-action" @click="irConfigEmpresa">
                   <i class="fas fa-building" aria-hidden="true"></i>
                   <span>Configuración empresa</span>
@@ -761,6 +781,7 @@ import SearchBar from './SearchBar.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import { useAuth } from '../composables/useAuth'
 import { usePermisos } from '../composables/usePermisos'
+import { useEmpresasStore } from '../stores/empresasStore'
 import { api } from '../services/api'
 
 const router = useRouter()
@@ -768,6 +789,7 @@ const route = useRoute()
 
 const { user, logout } = useAuth()
 const { cargarPermisos, puede } = usePermisos()
+const empresasStore = useEmpresasStore()
 
 // ===== STATE =====
 const navbarAbierto = ref(false)
@@ -811,6 +833,14 @@ const puedeVerKardex = computed(() => puede('kardex', 'ver'))
 const puedeVerReportes = computed(() => puede('reportes', 'ver'))
 const puedeVerAuditoria = computed(() => puede('auditoria', 'ver'))
 const puedeVerUsuarios = computed(() => puede('usuarios', 'ver'))
+const empresaActivaNombre = computed(() => {
+  return empresasStore.empresaActivaNombre
+})
+
+const tieneMultiplesEmpresas = computed(() => {
+  return empresasStore.multiplesEmpresas
+})
+
 
 // ===== RUTA ACTIVA =====
 const rutaActiva = (prefijos) => {
@@ -1048,6 +1078,10 @@ const irConfigEmpresa = () => {
   cerrarTodo()
   router.push('/configuracion-empresa')
 }
+const irGestionarEmpresas = () => {
+  cerrarTodo()
+  router.push('/empresas')
+}
 const irCertificado = () => {
   cerrarTodo()
   router.push('/certificado-firma')
@@ -1067,6 +1101,10 @@ const reiniciarTour = () => {
   if (typeof window.__reiniciarTour__ === 'function') {
     window.__reiniciarTour__()
   }
+}
+const irSelectorEmpresa = () => {
+  cerrarTodo()
+  router.push('/seleccionar-empresa')
 }
 
 // ============================================================
@@ -2232,5 +2270,50 @@ onBeforeUnmount(() => {
   .mobile-drawer-leave-active {
     transition: none;
   }
+}
+/* ============================================================
+   PILL DE EMPRESA ACTIVA
+   ============================================================ */
+.empresa-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-right: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  max-width: 220px;
+  height: 38px;
+}
+.empresa-pill:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.empresa-pill > i:first-child {
+  color: #f59e0b;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.empresa-pill-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+.empresa-pill-caret {
+  font-size: 0.6rem;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+@media (max-width: 992px) {
+  .empresa-pill { display: none; }
 }
 </style>

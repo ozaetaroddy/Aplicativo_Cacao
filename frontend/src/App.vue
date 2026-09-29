@@ -89,6 +89,7 @@ import { useInactivityTimeout } from './composables/useInactivityTimeout'
 import { usePermisos } from './composables/usePermisos'
 import { useOnboarding } from './composables/useOnboarding'
 import { useAuth } from './composables/useAuth'
+import { useEmpresasStore } from './stores/empresasStore'
 
 // ============================================================
 // DEPENDENCIAS
@@ -114,6 +115,14 @@ const isLoginPage = computed(() => route.path === '/login')
 // ✅ DESPUÉS
 
 const { user, isAuthenticated } = useAuth()
+const empresasStore = useEmpresasStore()
+
+// Limpiar empresas cuando el usuario se desloguea
+watch(user, (nuevo, anterior) => {
+  if (anterior && !nuevo) {
+    empresasStore.limpiar()
+  }
+})
 
 const onboardingProgramado = ref(false)
 

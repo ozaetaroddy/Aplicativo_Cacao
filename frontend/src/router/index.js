@@ -20,6 +20,7 @@
 
 import { createRouter, createWebHistory } from 'vue-router'
 import { usePermisos } from '../composables/usePermisos'
+import { getEmpresaId } from '../services/empresaActiva'
 
 // ============================================================
 // LAZY LOADING DE COMPONENTES
@@ -29,6 +30,8 @@ import { usePermisos } from '../composables/usePermisos'
 const Login = () => import('../components/Login.vue')
 const Dashboard = () => import('../components/Dashboard.vue')
 const PerfilUsuario = () => import('../components/PerfilUsuario.vue')
+const SelectorEmpresa = () => import('../components/empresas/SelectorEmpresa.vue')
+const GestionarEmpresas = () => import('../components/empresas/GestionarEmpresas.vue')
 
 // Ventas y documentos
 const VentasList = () => import('../components/ventas/VentasList.vue')
@@ -129,11 +132,25 @@ const routes = [
     component: Dashboard,
     meta: { requiresAuth: true, title: 'Panel de Control' }
   },
-  {
+    {
     path: '/mi-perfil',
     name: 'PerfilUsuario',
     component: PerfilUsuario,
     meta: { requiresAuth: true, title: 'Mi Perfil' }
+  },
+
+  // ===== MULTI-EMPRESA =====
+  {
+    path: '/seleccionar-empresa',
+    name: 'SelectorEmpresa',
+    component: SelectorEmpresa,
+    meta: { requiresAuth: true, sinEmpresaActiva: true, title: 'Seleccionar Empresa' }
+  },
+  {
+    path: '/empresas',
+    name: 'GestionarEmpresas',
+    component: GestionarEmpresas,
+    meta: { requiresAuth: true, title: 'Mis Empresas' }
   },
 
   // ===== VENTAS =====
@@ -488,31 +505,33 @@ const router = createRouter({
 // GUARD GLOBAL — BEFORE EACH
 // ============================================================
 router.beforeEach(async (to) => {
-  // ---- 1. Título de la página ----
+  // ---- 1. Título ----
   const titulo = to.meta?.title
   document.title = titulo ? `${titulo} — Sistema Contable` : 'Sistema Contable'
 
-  // ---- 2. Detectar sesión probable ----
+  // ---- 2. Sesión ----
   const tieneHint = Boolean(storageGet('auth_hint'))
   const esPublica = to.meta?.public === true || to.path === '/login'
 
-  // ---- 3. Redirigir desde /login si ya hay sesión ----
+  // ---- 3. Redirect desde /login si ya hay sesión ----
   if (to.path === '/login' && tieneHint) {
+    // Si tiene sesión pero aún no eligió empresa → al selector
+    const empresaId = getEmpresaId()
     const queryRedirect = to.query?.redirect
-    const destino = esRedirectSeguro(queryRedirect) ? queryRedirect : '/'
+    const destino = esRedirectSeguro(queryRedirect)
+      ? queryRedirect
+      : (empresaId ? '/' : '/seleccionar-empresa')
     return destino
   }
 
-  // ---- 4. Bloquear rutas protegidas sin sesión ----
+  // ---- 4. Sin sesión: bloquear rutas privadas ----
   if (!esPublica && !tieneHint) {
-    return {
-      path: '/login',
-      query: { redirect: to.fullPath }
-    }
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  // ---- 5. Cargar permisos siempre que sea ruta protegida ----
+  // ---- 5. Rutas privadas: verificar permisos + empresa ----
   if (!esPublica) {
+    // 5a) Cargar permisos
     try {
       const { cargarPermisos, puede } = usePermisos()
       await cargarPermisos()
@@ -533,10 +552,21 @@ router.beforeEach(async (to) => {
       }
       storageRemove('auth_hint')
       storageRemove('user')
-      return {
-        path: '/login',
-        query: { redirect: to.fullPath }
-      }
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+
+    // 5b) Verificar empresa activa
+    const empresaId = getEmpresaId()
+    const esRutaSinEmpresa = to.meta?.sinEmpresaActiva === true
+
+    // Caso A: tiene empresa activa e intenta ir al selector → redirigir al dashboard
+    if (empresaId && esRutaSinEmpresa) {
+      return '/'
+    }
+
+    // Caso B: NO tiene empresa activa y va a una ruta que la requiere → al selector
+    if (!empresaId && !esRutaSinEmpresa) {
+      return '/seleccionar-empresa'
     }
   }
 

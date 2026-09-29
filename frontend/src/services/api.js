@@ -13,6 +13,7 @@
 
 
 import { useLoaderStore } from '../stores/loaderStore'
+import { getEmpresaId } from './empresaActiva'
 
 // ===== CONFIGURACIÓN =====
 const API_BASE_URL =
@@ -149,10 +150,14 @@ async function baseRequest(endpoint, options = {}, esReintento = false) {
     return inflightGets.get(dedupeKey)
   }
 
-  // ===== HEADERS =====
+    // ===== HEADERS =====
+  const empresaId = getEmpresaId()
   const headers = {
     Accept: 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
+    // Empresa activa (multi-tenant). El backend valida que el
+    // usuario autenticado tenga acceso a esta empresa.
+    ...(empresaId ? { 'X-Empresa-Id': empresaId } : {}),
     ...(fetchOptions.headers || {})
   }
 
@@ -355,10 +360,12 @@ export const api = {
    * @param {object} [options]
    * @returns {Promise<true>}
    */
-  async download(endpoint, filename, options = {}) {
+    async download(endpoint, filename, options = {}) {
+    const empresaId = getEmpresaId()
     const headers = {
       Accept: '*/*',
       'X-Requested-With': 'XMLHttpRequest',
+      ...(empresaId ? { 'X-Empresa-Id': empresaId } : {}),
       ...(options.headers || {})
     }
 

@@ -385,12 +385,31 @@ const login = async () => {
       toast.success(`Bienvenido ${data.user.nombre || data.user.email}`)
     }
 
-    // Redirect: query param → home
+        // Determinar destino:
+    //  - Si el backend devolvió `empresaActivaId` en el user → guardarlo
+    //  - Si no hay empresa activa → /seleccionar-empresa
+    //  - Si hay → redirect param o dashboard
+    const empresaActivaId =
+      data.user?.empresaActivaId ||
+      data.user?.empresa_activa_id ||
+      null
+
+    if (empresaActivaId) {
+      try {
+        const { setEmpresaId } = await import('../services/empresaActiva')
+        setEmpresaId(empresaActivaId)
+      } catch { /* noop */ }
+    }
+
     const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
       ? route.query.redirect
-      : '/'
+      : null
 
-    if (!unmounted) router.push(redirect)
+    const destino =
+      redirect ||
+      (empresaActivaId ? '/' : '/seleccionar-empresa')
+
+    if (!unmounted) router.push(destino)
   } catch (e) {
     if (unmounted) return
 
